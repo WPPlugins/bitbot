@@ -1,0 +1,321 @@
+/* BitBot Chat Widget Styles - by youami.ai */
+
+.bitbot-widget {
+    --bitbot-primary: #0073aa;
+    --bitbot-text: #333;
+    --bitbot-bg: #fff;
+    --bitbot-border: #e0e0e0;
+    --bitbot-user-bg: var(--bitbot-primary);
+    --bitbot-user-text: #fff;
+    --bitbot-bot-bg: #f5f5f5;
+    --bitbot-bot-text: #333;
+
+    position: fixed;
+    z-index: 999999;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.bitbot-widget * {
+    box-sizing: border-box;
+}
+
+/* Positioning */
+.bitbot-bottom-right {
+    bottom: 20px;
+    right: 20px;
+}
+
+.bitbot-bottom-left {
+    bottom: 20px;
+    left: 20px;
+}
+
+/* Toggle Button */
+.bitbot-toggle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--bitbot-primary);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.bitbot-toggle:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.bitbot-toggle svg {
+    width: 24px;
+    height: 24px;
+}
+
+/* Chat Window */
+.bitbot-chat {
+    position: absolute;
+    bottom: 70px;
+    width: 360px;
+    max-width: calc(100vw - 40px);
+    height: 500px;
+    max-height: calc(100vh - 100px);
+    background: var(--bitbot-bg);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.bitbot-bottom-right .bitbot-chat {
+    right: 0;
+}
+
+.bitbot-bottom-left .bitbot-chat {
+    left: 0;
+}
+
+/* Header */
+.bitbot-header {
+    background: var(--bitbot-primary);
+    color: #fff;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.bitbot-title {
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.bitbot-minimize {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    padding: 4px;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.bitbot-minimize:hover {
+    opacity: 1;
+}
+
+.bitbot-minimize svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Messages Container */
+.bitbot-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Message Bubbles */
+.bitbot-message {
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+}
+
+.bitbot-message.bitbot-user {
+    align-self: flex-end;
+}
+
+.bitbot-message.bitbot-bot {
+    align-self: flex-start;
+}
+
+.bitbot-message-content {
+    padding: 10px 14px;
+    border-radius: 16px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.bitbot-message-content ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.bitbot-message-content li {
+    margin: 4px 0;
+}
+
+.bitbot-message-content strong {
+    font-weight: 600;
+}
+
+.bitbot-bot .bitbot-message-content,
+.bitbot-bot .bitbot-citations {
+    background: var(--bitbot-bot-bg);
+}
+
+.bitbot-user .bitbot-message-content {
+    background: var(--bitbot-user-bg);
+    color: var(--bitbot-user-text);
+    border-bottom-right-radius: 4px;
+}
+
+.bitbot-bot .bitbot-message-content {
+    background: var(--bitbot-bot-bg);
+    color: var(--bitbot-bot-text);
+    border-bottom-left-radius: 4px;
+}
+
+/* Citations */
+.bitbot-citations {
+    margin-top: 8px;
+    padding: 8px 14px 10px;
+    border-radius: 0 0 16px 16px;
+    font-size: 12px;
+}
+
+.bitbot-citations-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #666;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.bitbot-citation-link {
+    display: block;
+    color: var(--bitbot-primary);
+    text-decoration: none;
+    padding: 4px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bitbot-citation-link:hover {
+    text-decoration: underline;
+}
+
+/* Typing Indicator */
+.bitbot-typing {
+    display: flex;
+    gap: 4px;
+    padding: 10px 14px;
+}
+
+.bitbot-typing span {
+    width: 8px;
+    height: 8px;
+    background: #999;
+    border-radius: 50%;
+    animation: bitbot-bounce 1.4s infinite ease-in-out;
+}
+
+.bitbot-typing span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.bitbot-typing span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bitbot-bounce {
+    0%, 80%, 100% {
+        transform: scale(0);
+    }
+    40% {
+        transform: scale(1);
+    }
+}
+
+/* Input Area */
+.bitbot-input-area {
+    display: flex;
+    padding: 12px;
+    border-top: 1px solid var(--bitbot-border);
+    gap: 8px;
+}
+
+.bitbot-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--bitbot-border);
+    border-radius: 20px;
+    outline: none;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.bitbot-input:focus {
+    border-color: var(--bitbot-primary);
+}
+
+.bitbot-send {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bitbot-primary);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.bitbot-send:hover {
+    background: color-mix(in srgb, var(--bitbot-primary) 85%, black);
+}
+
+.bitbot-send:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.bitbot-send svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Powered By */
+.bitbot-powered {
+    text-align: center;
+    padding: 8px;
+    font-size: 11px;
+    color: #999;
+    background: #fafafa;
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+    .bitbot-chat {
+        width: calc(100vw - 40px);
+        height: calc(100vh - 100px);
+        bottom: 70px;
+    }
+
+    .bitbot-bottom-right,
+    .bitbot-bottom-left {
+        right: 10px;
+        left: auto;
+    }
+
+    .bitbot-bottom-right .bitbot-chat,
+    .bitbot-bottom-left .bitbot-chat {
+        right: -10px;
+        left: auto;
+    }
+}

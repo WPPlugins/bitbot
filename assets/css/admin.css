@@ -1,0 +1,240 @@
+/* BitBot Admin Styles */
+
+.bitbot-dashboard {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-top: 20px;
+}
+
+@media (max-width: 1200px) {
+    .bitbot-dashboard {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .bitbot-dashboard {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .bitbot-dashboard {
+        grid-template-columns: 1fr;
+    }
+}
+
+.bitbot-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+}
+
+.bitbot-card h2 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+    font-size: 16px;
+}
+
+.bitbot-card p {
+    margin: 8px 0;
+    line-height: 1.5;
+}
+
+.bitbot-card p.error {
+    color: #dc3232;
+}
+
+.bitbot-card .button {
+    margin-top: auto;
+    align-self: flex-start;
+}
+
+/* Full width card for conversations */
+.bitbot-card.bitbot-card-full {
+    grid-column: 1 / -1;
+}
+
+/* Conversations table */
+.bitbot-conversations-table {
+    margin-top: 15px;
+}
+
+.bitbot-conversations-table th,
+.bitbot-conversations-table td {
+    padding: 10px 12px;
+    vertical-align: middle;
+}
+
+.bitbot-conversations-table code {
+    background: #f0f0f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* Sync button states */
+#bitbot-sync-btn.syncing {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+/* Content Generator */
+#bitbot-generate-form .form-table th {
+    width: 150px;
+}
+
+#generate-spinner {
+    float: none;
+    margin-left: 10px;
+}
+
+#generate-spinner.is-active {
+    visibility: visible;
+}
+
+/* Preview Modal */
+.bitbot-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bitbot-modal {
+    background: #fff;
+    border-radius: 4px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.bitbot-modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.bitbot-modal-header h3 {
+    margin: 0;
+}
+
+.bitbot-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+}
+
+.bitbot-modal-close:hover {
+    color: #000;
+}
+
+.bitbot-modal-content {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.bitbot-modal-footer {
+    padding: 15px 20px;
+    border-top: 1px solid #ddd;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Draft preview content */
+.bitbot-preview-content {
+    line-height: 1.6;
+}
+
+.bitbot-preview-content h1,
+.bitbot-preview-content h2,
+.bitbot-preview-content h3 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.bitbot-preview-content p {
+    margin-bottom: 1em;
+}
+
+/* SEO Preview */
+.bitbot-seo-preview {
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    margin-top: 20px;
+}
+
+.bitbot-seo-preview h4 {
+    margin-top: 0;
+    color: #666;
+}
+
+.bitbot-seo-title {
+    color: #1a0dab;
+    font-size: 18px;
+    margin-bottom: 5px;
+}
+
+.bitbot-seo-url {
+    color: #006621;
+    font-size: 14px;
+    margin-bottom: 5px;
+}
+
+.bitbot-seo-description {
+    color: #545454;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+/* Status badges */
+.bitbot-status {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.bitbot-status-draft {
+    background: #f0f0f1;
+    color: #50575e;
+}
+
+.bitbot-status-scheduled {
+    background: #fff8e5;
+    color: #996800;
+}
+
+.bitbot-status-published {
+    background: #edfaef;
+    color: #00a32a;
+}
+
+.bitbot-status-failed {
+    background: #fcf0f1;
+    color: #d63638;
+}
