@@ -1,11 +1,11 @@
 === BitBot ===
 Contributors: youamibot
 Donate link: https://youami.ai
-Tags: chatbot, ai, content, seo, assistant, multilingual
+Tags: chatbot, ai chatbot, content generator, ai content, multilingual, bot, live chat, ai assistant, seo content, blog generator
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -136,13 +136,26 @@ Yes, BitBot is compatible with any modern WordPress theme and page builder (Elem
 
 == Screenshots ==
 
-1. Chat widget on frontend - Visitors can ask questions about your site
-2. Admin dashboard - View sync status, usage stats, and subscription
-3. Content generator - Discover topics and generate SEO-optimized posts
-4. Settings page - Customize chatbot appearance and position
-5. Conversation history - Review all visitor chat interactions
+1. AI Chatbot in action - Visitors ask questions and get instant answers with citations
+2. Content gap analysis - Discover missing topics and generate SEO-optimized posts
+3. Generated blog post - AI writes complete articles ready for review
+4. Multilingual support - Chatbot responds in visitor's language (Spanish, Arabic, etc.)
+5. Admin dashboard - Monitor usage, sync status, and manage settings
+6. Content sync - Click "Sync Now" to index your pages and make them searchable by the chatbot
 
 == Changelog ==
+
+= 1.3.0 =
+* **URL-based content generation** - Generate blog posts from any web URL
+* Simplified source type dropdown - removed redundant options
+* Improved error handling with user-friendly messages
+* Bug fixes and performance improvements
+
+= 1.2.0 =
+* Page management - add, remove, toggle and resync individual pages
+* Conversation history viewer in admin dashboard
+* Reconnect functionality for API key refresh
+* Improved sync reliability
 
 = 1.1.0 =
 * **Multilingual support** - 100+ languages with automatic detection
@@ -161,6 +174,9 @@ Yes, BitBot is compatible with any modern WordPress theme and page builder (Elem
 
 == Upgrade Notice ==
 
+= 1.3.0 =
+Generate blog posts directly from any URL! Simply paste a link and BitBot extracts the content to create SEO-optimized posts.
+
 = 1.1.0 =
 Major update! BitBot now supports 100+ languages. Visitors can ask questions in their native language and get answers in the same language.
 
@@ -177,4 +193,4 @@ Data collected:
 * Visitor IP addresses for conversation tracking
 * Usage statistics (chat count, posts generated)
 
-This data is processed on youami.ai servers and may be transmitted to third-party AI services (Anthropic, OpenAI) for processing. Your content is never used to train AI models.
+This data is processed on youami.ai servers and may be transmitted to third-party AI services (Anthropic, OpenAI) for processing. Your content is never used to train AI models. We take your privacy seriously.

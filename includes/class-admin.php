@@ -37,6 +37,9 @@ class BitBot_Admin {
         // Register AJAX handlers
         add_action('wp_ajax_bitbot_sync', array($this, 'ajax_sync'));
         add_action('wp_ajax_bitbot_generate', array($this, 'ajax_generate'));
+        add_action('wp_ajax_bitbot_get_upload_url', array($this, 'ajax_get_upload_url'));
+        add_action('wp_ajax_bitbot_generate_from_storage', array($this, 'ajax_generate_from_storage'));
+        add_action('wp_ajax_bitbot_generate_from_doc_url', array($this, 'ajax_generate_from_doc_url'));
         add_action('wp_ajax_bitbot_discover_topics', array($this, 'ajax_discover_topics'));
         add_action('wp_ajax_bitbot_get_draft', array($this, 'ajax_get_draft'));
         add_action('wp_ajax_bitbot_publish_draft', array($this, 'ajax_publish_draft'));
@@ -498,8 +501,7 @@ class BitBot_Admin {
                             <td>
                                 <select id="source_type" name="source_type">
                                     <option value="prompt"><?php esc_html_e('Write from Prompt', 'bitbot'); ?></option>
-                                    <option value="url"><?php esc_html_e('Based on URL', 'bitbot'); ?></option>
-                                    <option value="upload"><?php esc_html_e('From Uploaded Document', 'bitbot'); ?></option>
+                                    <option value="upload"><?php esc_html_e('From Document (File or URL)', 'bitbot'); ?></option>
                                 </select>
                             </td>
                         </tr>
@@ -512,22 +514,27 @@ class BitBot_Admin {
                                 <p class="description"><?php esc_html_e('Describe what you want the post to be about.', 'bitbot'); ?></p>
                             </td>
                         </tr>
-                        <tr id="url-row" style="display:none;">
-                            <th scope="row">
-                                <label for="url_input"><?php esc_html_e('Reference URL', 'bitbot'); ?></label>
-                            </th>
-                            <td>
-                                <input type="url" id="url_input" name="url_input" class="regular-text">
-                                <p class="description"><?php esc_html_e('URL of content to use as reference (will be rewritten).', 'bitbot'); ?></p>
-                            </td>
-                        </tr>
                         <tr id="upload-row" style="display:none;">
                             <th scope="row">
-                                <label for="file_input"><?php esc_html_e('Upload Document', 'bitbot'); ?></label>
+                                <label><?php esc_html_e('Document Source', 'bitbot'); ?></label>
                             </th>
                             <td>
-                                <input type="file" id="file_input" name="file_input" accept=".txt,.md,.doc,.docx,.pdf">
-                                <p class="description"><?php esc_html_e('Upload a document to use as source content.', 'bitbot'); ?></p>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="margin-right: 15px;">
+                                        <input type="radio" name="upload_method" value="file" checked> <?php esc_html_e('Upload File', 'bitbot'); ?>
+                                    </label>
+                                    <label>
+                                        <input type="radio" name="upload_method" value="doc_url"> <?php esc_html_e('From URL', 'bitbot'); ?>
+                                    </label>
+                                </div>
+                                <div id="file-upload-section">
+                                    <input type="file" id="file_input" name="file_input" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp">
+                                    <p class="description"><?php esc_html_e('Upload a PDF or image file (PNG, JPG, GIF, WEBP). Max 10MB.', 'bitbot'); ?></p>
+                                </div>
+                                <div id="doc-url-section" style="display:none;">
+                                    <input type="url" id="doc_url_input" name="doc_url_input" class="regular-text" placeholder="https://example.com/article...">
+                                    <p class="description"><?php esc_html_e('Enter any URL (web page, PDF, etc.). Content is automatically extracted.', 'bitbot'); ?></p>
+                                </div>
                             </td>
                         </tr>
                         <tr>
@@ -745,7 +752,7 @@ class BitBot_Admin {
         }
 
         // Validate source_type against allowed values
-        $allowed_source_types = array( 'prompt', 'url', 'upload' );
+        $allowed_source_types = array( 'prompt', 'upload' );
         // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on next line
         $source_type = isset( $_POST['source_type'] ) ? sanitize_text_field( wp_unslash( $_POST['source_type'] ) ) : '';
         if ( ! in_array( $source_type, $allowed_source_types, true ) ) {
@@ -756,9 +763,6 @@ class BitBot_Admin {
         // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized in switch below
         $raw_source_value = isset( $_POST['source_value'] ) ? wp_unslash( $_POST['source_value'] ) : '';
         switch ( $source_type ) {
-            case 'url':
-                $source_value = esc_url_raw( $raw_source_value );
-                break;
             case 'upload':
                 $source_value = sanitize_file_name( $raw_source_value );
                 break;
@@ -771,6 +775,90 @@ class BitBot_Admin {
         $instructions = isset( $_POST['instructions'] ) ? sanitize_textarea_field( wp_unslash( $_POST['instructions'] ) ) : '';
 
         $result = $this->api_client->generate_post($source_type, $source_value, $instructions);
+
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    /**
+     * AJAX handler for getting presigned upload URL
+     */
+    public function ajax_get_upload_url() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on next line
+        $file_name = isset( $_POST['file_name'] ) ? sanitize_file_name( wp_unslash( $_POST['file_name'] ) ) : '';
+
+        if ( empty( $file_name ) ) {
+            wp_send_json_error(array('error' => 'File name is required'));
+        }
+
+        $result = $this->api_client->get_upload_url( $file_name );
+
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    /**
+     * AJAX handler for generating post from uploaded storage file
+     */
+    public function ajax_generate_from_storage() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on next line
+        $storage_path = isset( $_POST['storage_path'] ) ? sanitize_text_field( wp_unslash( $_POST['storage_path'] ) ) : '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on next line
+        $file_name = isset( $_POST['file_name'] ) ? sanitize_file_name( wp_unslash( $_POST['file_name'] ) ) : '';
+        $instructions = isset( $_POST['instructions'] ) ? sanitize_textarea_field( wp_unslash( $_POST['instructions'] ) ) : '';
+
+        if ( empty( $storage_path ) || empty( $file_name ) ) {
+            wp_send_json_error(array('error' => 'Storage path and file name are required'));
+        }
+
+        $result = $this->api_client->generate_post_from_storage( $storage_path, $file_name, $instructions );
+
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    /**
+     * AJAX handler for generating post from a document URL
+     */
+    public function ajax_generate_from_doc_url() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on next line
+        $doc_url = isset( $_POST['doc_url'] ) ? esc_url_raw( wp_unslash( $_POST['doc_url'] ) ) : '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on next line
+        $file_name = isset( $_POST['file_name'] ) ? sanitize_file_name( wp_unslash( $_POST['file_name'] ) ) : '';
+        $instructions = isset( $_POST['instructions'] ) ? sanitize_textarea_field( wp_unslash( $_POST['instructions'] ) ) : '';
+
+        if ( empty( $doc_url ) ) {
+            wp_send_json_error(array('error' => 'Document URL is required'));
+        }
+
+        $result = $this->api_client->generate_post_from_doc_url( $doc_url, $file_name, $instructions );
 
         if ($result['success']) {
             wp_send_json_success($result['data']);

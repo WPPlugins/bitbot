@@ -126,19 +126,23 @@
 
             if (sourceType === 'prompt') {
                 sourceValue = $('#prompt_input').val();
-            } else if (sourceType === 'url') {
-                sourceValue = $('#url_input').val();
             } else if (sourceType === 'upload') {
-                // Handle file upload
-                const file = $('#file_input')[0].files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        sourceValue = e.target.result.split(',')[1]; // Get base64 part
-                        submitGeneration(sourceType, sourceValue, $('#instructions').val());
-                    };
-                    reader.readAsDataURL(file);
-                    return;
+                const uploadMethod = $('input[name="upload_method"]:checked').val();
+
+                if (uploadMethod === 'file') {
+                    // Handle file upload via presigned URL
+                    const file = $('#file_input')[0].files[0];
+                    if (file) {
+                        handleFileUpload(file, $('#instructions').val(), $spinner, $submit);
+                        return;
+                    }
+                } else {
+                    // Handle document URL - generate directly from URL
+                    const docUrl = $('#doc_url_input').val();
+                    if (docUrl) {
+                        handleDocumentUrl(docUrl, $('#instructions').val(), $spinner, $submit);
+                        return;
+                    }
                 }
             }
 
@@ -147,40 +151,150 @@
                 return;
             }
 
-            submitGeneration(sourceType, sourceValue, $('#instructions').val());
+            submitGeneration(sourceType, sourceValue, $('#instructions').val(), $spinner, $submit);
+        });
 
-            function submitGeneration(type, value, instructions) {
-                $spinner.addClass('is-active');
-                $submit.prop('disabled', true);
+        /**
+         * Handle file upload via presigned URL (bypasses Vercel limit)
+         */
+        async function handleFileUpload(file, instructions, $spinner, $submit) {
+            // Validate file size (10MB limit)
+            const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+            if (file.size > maxSize) {
+                alert('File size exceeds 10MB limit. Please select a smaller file.');
+                return;
+            }
 
-                $.ajax({
+            $spinner.addClass('is-active');
+            $submit.prop('disabled', true);
+
+            try {
+                // Step 1: Get presigned upload URL
+                const urlResponse = await $.ajax({
                     url: config.ajaxUrl,
                     method: 'POST',
                     data: {
-                        action: 'bitbot_generate',
+                        action: 'bitbot_get_upload_url',
                         nonce: config.nonce,
-                        source_type: type,
-                        source_value: value,
-                        instructions: instructions
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            alert('Post generated successfully!');
-                            location.reload();
-                        } else {
-                            alert('Generation failed: ' + (response.data?.error || 'Unknown error'));
-                        }
-                    },
-                    error: function() {
-                        alert('Failed to connect to server');
-                    },
-                    complete: function() {
-                        $spinner.removeClass('is-active');
-                        $submit.prop('disabled', false);
+                        file_name: file.name
                     }
                 });
+
+                if (!urlResponse.success) {
+                    throw new Error(urlResponse.data?.error || 'Failed to get upload URL');
+                }
+
+                const { uploadUrl, storagePath } = urlResponse.data;
+
+                // Step 2: Upload file directly to Supabase Storage
+                const uploadResponse = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': file.type
+                    },
+                    body: file
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error('Failed to upload file to storage');
+                }
+
+                // Step 3: Generate post from uploaded file
+                const generateResponse = await $.ajax({
+                    url: config.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'bitbot_generate_from_storage',
+                        nonce: config.nonce,
+                        storage_path: storagePath,
+                        file_name: file.name,
+                        instructions: instructions
+                    }
+                });
+
+                if (generateResponse.success) {
+                    alert('Post generated successfully!');
+                    location.reload();
+                } else {
+                    throw new Error(generateResponse.data?.error || 'Generation failed');
+                }
+            } catch (error) {
+                alert('Generation failed: ' + error.message);
+            } finally {
+                $spinner.removeClass('is-active');
+                $submit.prop('disabled', false);
             }
-        });
+        }
+
+        /**
+         * Handle document URL - generate post directly from a public URL
+         */
+        async function handleDocumentUrl(docUrl, instructions, $spinner, $submit) {
+            $spinner.addClass('is-active');
+            $submit.prop('disabled', true);
+
+            try {
+                // Extract filename from URL for file type detection
+                const urlPath = new URL(docUrl).pathname;
+                const fileName = urlPath.split('/').pop() || 'document.pdf';
+
+                const response = await $.ajax({
+                    url: config.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'bitbot_generate_from_doc_url',
+                        nonce: config.nonce,
+                        doc_url: docUrl,
+                        file_name: fileName,
+                        instructions: instructions
+                    }
+                });
+
+                if (response.success) {
+                    alert('Post generated successfully!');
+                    location.reload();
+                } else {
+                    throw new Error(response.data?.error || 'Generation failed');
+                }
+            } catch (error) {
+                alert('Generation failed: ' + error.message);
+            } finally {
+                $spinner.removeClass('is-active');
+                $submit.prop('disabled', false);
+            }
+        }
+
+        function submitGeneration(type, value, instructions, $spinner, $submit) {
+            $spinner.addClass('is-active');
+            $submit.prop('disabled', true);
+
+            $.ajax({
+                url: config.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'bitbot_generate',
+                    nonce: config.nonce,
+                    source_type: type,
+                    source_value: value,
+                    instructions: instructions
+                },
+                success: function(response) {
+                    if (response.success) {
+                        alert('Post generated successfully!');
+                        location.reload();
+                    } else {
+                        alert('Generation failed: ' + (response.data?.error || 'Unknown error'));
+                    }
+                },
+                error: function() {
+                    alert('Failed to connect to server');
+                },
+                complete: function() {
+                    $spinner.removeClass('is-active');
+                    $submit.prop('disabled', false);
+                }
+            });
+        }
     }
 
     /**
@@ -190,14 +304,24 @@
         $('#source_type').on('change', function() {
             const type = $(this).val();
 
-            $('#prompt-row, #url-row, #upload-row').hide();
+            $('#prompt-row, #upload-row').hide();
 
             if (type === 'prompt') {
                 $('#prompt-row').show();
-            } else if (type === 'url') {
-                $('#url-row').show();
             } else if (type === 'upload') {
                 $('#upload-row').show();
+            }
+        });
+
+        // Toggle between file upload and document URL
+        $('input[name="upload_method"]').on('change', function() {
+            const method = $(this).val();
+            if (method === 'file') {
+                $('#file-upload-section').show();
+                $('#doc-url-section').hide();
+            } else {
+                $('#file-upload-section').hide();
+                $('#doc-url-section').show();
             }
         });
     }

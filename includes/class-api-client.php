@@ -365,6 +365,150 @@ class BitBot_API_Client {
     }
 
     /**
+     * Get presigned upload URL for direct file upload to Supabase Storage
+     *
+     * @since 1.0.0
+     * @param string $file_name Original file name (used for extension validation).
+     * @return array API response with uploadUrl, storagePath, token.
+     */
+    public function get_upload_url( $file_name ) {
+        return $this->rpc( 'GetUploadUrl', array(
+            'fileName' => sanitize_file_name( $file_name ),
+        ) );
+    }
+
+    /**
+     * Upload file directly to Supabase Storage using presigned URL
+     *
+     * @since 1.0.0
+     * @param string $upload_url  Presigned upload URL from get_upload_url().
+     * @param string $file_path   Local file path.
+     * @param string $mime_type   File MIME type.
+     * @return array Result with success/error.
+     */
+    public function upload_file_to_storage( $upload_url, $file_path, $mime_type ) {
+        if ( ! file_exists( $file_path ) ) {
+            return array(
+                'success' => false,
+                'error'   => __( 'File not found', 'bitbot' ),
+            );
+        }
+
+        $file_contents = file_get_contents( $file_path );
+        if ( $file_contents === false ) {
+            return array(
+                'success' => false,
+                'error'   => __( 'Could not read file', 'bitbot' ),
+            );
+        }
+
+        $response = wp_remote_request( $upload_url, array(
+            'method'  => 'PUT',
+            'timeout' => 120,
+            'headers' => array(
+                'Content-Type' => $mime_type,
+            ),
+            'body'    => $file_contents,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return array(
+                'success' => false,
+                'error'   => $response->get_error_message(),
+            );
+        }
+
+        $status_code = wp_remote_retrieve_response_code( $response );
+        if ( $status_code >= 400 ) {
+            return array(
+                'success' => false,
+                'error'   => sprintf( __( 'Upload failed with status %d', 'bitbot' ), $status_code ),
+            );
+        }
+
+        return array( 'success' => true );
+    }
+
+    /**
+     * Generate blog post from file uploaded to Supabase Storage
+     *
+     * @since 1.0.0
+     * @param string $storage_path Path in Supabase Storage.
+     * @param string $file_name    Original file name.
+     * @param string $instructions Additional instructions.
+     * @return array API response.
+     */
+    public function generate_post_from_storage( $storage_path, $file_name, $instructions = '' ) {
+        $payload = array(
+            'storagePath' => sanitize_text_field( $storage_path ),
+            'fileName'    => sanitize_file_name( $file_name ),
+        );
+
+        if ( ! empty( $instructions ) ) {
+            $payload['instructions'] = sanitize_textarea_field( $instructions );
+        }
+
+        return $this->rpc( 'GeneratePostFromStorage', $payload, 300 ); // 5 min timeout for generation
+    }
+
+    /**
+     * Generate blog post from uploaded file (handles full flow)
+     *
+     * This method handles the complete upload flow:
+     * 1. Get presigned upload URL from API
+     * 2. Upload file directly to Supabase Storage
+     * 3. Generate post from the uploaded file
+     *
+     * @since 1.0.0
+     * @param string $file_path    Local file path.
+     * @param string $file_name    Original file name.
+     * @param string $mime_type    File MIME type.
+     * @param string $instructions Additional instructions.
+     * @return array API response.
+     */
+    public function generate_post_from_file( $file_path, $file_name, $mime_type, $instructions = '' ) {
+        // Step 1: Get presigned upload URL
+        $url_result = $this->get_upload_url( $file_name );
+        if ( ! $url_result['success'] ) {
+            return $url_result;
+        }
+
+        $upload_url   = $url_result['data']['uploadUrl'];
+        $storage_path = $url_result['data']['storagePath'];
+
+        // Step 2: Upload file to Supabase Storage
+        $upload_result = $this->upload_file_to_storage( $upload_url, $file_path, $mime_type );
+        if ( ! $upload_result['success'] ) {
+            return $upload_result;
+        }
+
+        // Step 3: Generate post from the uploaded file
+        return $this->generate_post_from_storage( $storage_path, $file_name, $instructions );
+    }
+
+    /**
+     * Generate blog post from a public document URL
+     *
+     * @since 1.0.0
+     * @param string $doc_url      Public URL to a PDF or image file.
+     * @param string $file_name    File name (for type detection).
+     * @param string $instructions Additional instructions.
+     * @return array API response.
+     */
+    public function generate_post_from_doc_url( $doc_url, $file_name, $instructions = '' ) {
+        $payload = array(
+            'docUrl'   => esc_url_raw( $doc_url ),
+            'fileName' => sanitize_file_name( $file_name ),
+        );
+
+        if ( ! empty( $instructions ) ) {
+            $payload['instructions'] = sanitize_textarea_field( $instructions );
+        }
+
+        return $this->rpc( 'GeneratePostFromDocUrl', $payload, 300 ); // 5 min timeout for generation
+    }
+
+    /**
      * Discover topic suggestions for new content
      *
      * @since 1.0.0
