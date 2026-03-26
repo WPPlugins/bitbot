@@ -1,50 +1,64 @@
-=== BitBot ===
+=== BitBot - AI Chatbot & Content Generator ===
 Contributors: youamibot
 Donate link: https://youami.ai
-Tags: chatbot, ai chatbot, content generator, ai content, multilingual, bot, live chat, ai assistant, seo content, blog generator
+Tags: chatbot, ai chatbot, multilingual chatbot, customer support, content generator
 Requires at least: 5.8
-Tested up to: 6.9
+Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
+AI chatbot that actually knows your website. Answers visitor questions in 100+ languages with citations. Plus AI content generation.
 
 == Description ==
 
-BitBot by youami.ai transforms your WordPress site with an intelligent AI assistant that knows your content and speaks your visitors' language.
+Your visitors have questions. Your FAQ page isn't cutting it. Live chat means hiring staff. Generic chatbots give generic answers.
 
-= Multilingual Chat Assistant =
+**BitBot is different.** It reads your entire website, understands your content, and answers visitor questions accurately — with links back to the right pages. And it does it in over 100 languages, automatically.
 
-* **Supports 100+ languages** - Visitors can ask questions in their native language
-* **Automatic language detection** - No configuration needed, just works
-* **Cross-language search** - Finds relevant content regardless of query language
-* **Responds in visitor's language** - Natural conversation in any language
-* Answers visitor questions based on your actual site content
-* Provides clickable links to relevant pages and sections
-* Gracefully handles questions it cannot answer
-* Customizable appearance and widget position
-* Mobile-responsive chat widget
+[See it live on PolishingRocks.com](https://polishingrocks.com) — ask the chatbot anything about rock tumbling.
 
-**Reach a global audience** - Whether your site is in English, Spanish, Hindi, Chinese, Arabic, or any other language, BitBot helps visitors find what they need in the language they prefer.
+= What makes BitBot different from Tidio, Crisp, or LiveChat? =
 
-= AI Content Generator =
+Most chat plugins are either **live chat tools** (someone has to be online) or **rule-based bots** (you write every answer manually). BitBot is neither:
 
-* Creates SEO-optimized blog posts based on your site's niche
-* Discovers content gaps and suggests topics
-* Aware of your existing content to avoid duplication
-* Full editorial control - review and approve before publishing
-* Built-in SEO metadata generation
+* **No manual setup** — BitBot crawls your sitemap and learns your content automatically
+* **No canned responses** — It generates real answers from your actual pages, with citations
+* **No language configuration** — Visitors ask in Arabic, Hindi, or Spanish and get answers in the same language
+* **No staff required** — It works 24/7 without anyone monitoring it
+* **Content generation built in** — Most chat plugins don't generate blog posts for you
 
-= Key Features =
+= AI Chatbot — Knows Your Content =
 
-* **Global language support** - Works with any WordPress site language
-* Automatic sitemap crawling and content indexing
-* Deep linking to page sections via anchor tags
-* Conversation history for context-aware responses
-* Usage tracking dashboard
-* Subscription management with Stripe
+* Crawls and indexes every public page on your site
+* Answers questions based on your actual content, not generic AI responses
+* Provides clickable citations linking visitors to the right pages and sections
+* Supports **100+ languages** with automatic detection — no configuration needed
+* Remembers conversation context for natural follow-up questions
+* Mobile-responsive widget that works on any theme
+* Customizable colors and position
+
+= AI Content Generator — Fills Your Content Gaps =
+
+* Discovers trending topics in your niche with one click
+* Generates SEO-optimized blog posts aware of your existing content
+* Create posts from a prompt, a URL, or an uploaded document
+* Full editorial control — preview, edit, and approve before publishing
+* Built-in SEO metadata (title, description, focus keywords)
+* 7 drafts generated? Review them all before pushing to WordPress
+
+= Built for WordPress =
+
+* One-click install, automatic content sync
+* Admin dashboard with usage stats, conversation history, and page management
+* Works with all major caching plugins, themes, and page builders (Elementor, Divi, Gutenberg)
+* Lightweight — chat widget loads asynchronously, zero impact on page speed
+
+= Pricing =
+
+* **First month free** — full access to chatbot and content generation
+* **$10/month after that** — cancel anytime, no contracts
 
 = External Services =
 
@@ -80,39 +94,43 @@ By using this plugin, you agree to the terms of service and privacy policies of 
 
 1. Upload the `bitbot` folder to `/wp-content/plugins/`
 2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Go to BitBot in the admin menu to view the dashboard
-4. Your site will automatically register and begin syncing content
-5. Configure chatbot appearance in BitBot > Settings
+3. Go to BitBot in the admin menu — your site automatically registers and starts syncing
+4. Wait for content sync to complete (usually under 2 minutes)
+5. The chat widget appears on your site immediately — that's it
 
 == Frequently Asked Questions ==
 
 = Does BitBot support my language? =
 
-Yes! BitBot supports 100+ languages out of the box. It automatically detects the visitor's language and responds accordingly. Your site can be in any language - English, Spanish, French, German, Hindi, Chinese, Arabic, Japanese, Korean, Portuguese, Russian, and many more.
+Yes. BitBot supports 100+ languages out of the box. It automatically detects the visitor's language and responds in that language. Your site can be in English, Spanish, French, German, Hindi, Chinese, Arabic, Japanese, Korean, Portuguese, Russian, or any other language.
 
 = How does the chatbot learn about my site? =
 
-On activation, the plugin fetches your sitemap and crawls all public pages. Content is processed and indexed for AI retrieval. You can manually trigger a sync anytime from the dashboard.
+On activation, the plugin fetches your sitemap and crawls all public pages. Content is processed, chunked, and indexed with vector embeddings for semantic search. You can manually trigger a re-sync anytime from the dashboard.
+
+= How is this different from ChatGPT or other AI chatbots? =
+
+Generic AI chatbots don't know your website content. BitBot indexes your specific pages and only answers based on what's actually on your site, with citations linking back to the source. It won't make things up or give generic answers.
 
 = Does BitBot store my content? =
 
-Yes, your page content is stored securely on youami.ai servers to enable the AI chat functionality. This data is only used to answer visitor questions and is not shared with third parties or used to train AI models.
+Yes, your page content is stored securely on youami.ai servers to enable AI chat. This data is only used to answer visitor questions and is not shared with third parties or used to train AI models.
 
 = What happens to visitor chat data? =
 
-Chat conversations are stored to provide context-aware responses and allow you to review interactions in the dashboard. Visitor IP addresses may be collected for analytics purposes. You can view all conversations in your WordPress admin dashboard.
+Chat conversations are stored to provide context-aware responses. You can review all interactions in the admin dashboard. Visitor IP addresses may be collected for analytics.
 
 = How is the content generation different from other AI tools? =
 
-Our content generator is aware of your existing site content. It creates complementary posts that don't duplicate what you already have, ensuring fresh, unique content that fills gaps in your coverage.
+BitBot's content generator knows your existing content. It discovers gaps in your coverage and creates complementary posts that don't duplicate what you already have. It also generates SEO metadata automatically.
 
 = What AI model powers this? =
 
-We use Claude by Anthropic for both chat responses and content generation, known for high-quality, nuanced outputs.
+Claude by Anthropic — known for high-quality, accurate, and nuanced outputs. Used for both chat responses and content generation.
 
 = Is there a free trial? =
 
-Yes! Your first month is completely free. After that, the service is $10/month. You can cancel anytime.
+Yes. Your first month is completely free with full access. After that, the service is $10/month. Cancel anytime.
 
 = What data is sent to external servers? =
 
@@ -128,38 +146,41 @@ Yes. Contact support@youami.ai to request complete deletion of your site data fr
 
 = Does it work with caching plugins? =
 
-Yes, BitBot works with all major caching plugins. The chat widget loads asynchronously and doesn't affect page caching.
+Yes. The chat widget loads asynchronously and doesn't interfere with page caching. Compatible with WP Super Cache, W3 Total Cache, LiteSpeed Cache, and others.
 
 = Does it work with any theme? =
 
-Yes, BitBot is compatible with any modern WordPress theme and page builder (Elementor, Divi, Gutenberg, etc).
+Yes. BitBot works with any modern WordPress theme and page builder including Elementor, Divi, Gutenberg, Astra, GeneratePress, and more.
 
 == Screenshots ==
 
-1. AI Chatbot in action - Visitors ask questions and get instant answers with citations
-2. Content gap analysis - Discover missing topics and generate SEO-optimized posts
-3. Generated blog post - AI writes complete articles ready for review
-4. Multilingual support - Chatbot responds in visitor's language (Spanish, Arabic, etc.)
-5. Admin dashboard - Monitor usage, sync status, and manage settings
-6. Content sync - Click "Sync Now" to index your pages and make them searchable by the chatbot
+1. AI Chatbot answering a visitor question with detailed response and clickable citations to source pages
+2. Content Generator with topic discovery, prompt-based generation, and a table of generated drafts ready for review
+3. Admin Dashboard showing content sync status, usage statistics, subscription info, and indexed pages
+4. Multilingual support — chatbot automatically responds in Arabic when a visitor asks in Arabic
+5. Mobile-responsive chat widget that works perfectly on phones and tablets
 
 == Changelog ==
 
+= 1.3.1 =
+* Fixed null page title handling in chat contact page lookup
+* Fixed API endpoint configuration
+
 = 1.3.0 =
-* **URL-based content generation** - Generate blog posts from any web URL
-* Simplified source type dropdown - removed redundant options
+* **URL-based content generation** — Generate blog posts from any web URL
+* Simplified source type dropdown — removed redundant options
 * Improved error handling with user-friendly messages
 * Bug fixes and performance improvements
 
 = 1.2.0 =
-* Page management - add, remove, toggle and resync individual pages
+* Page management — add, remove, toggle and resync individual pages
 * Conversation history viewer in admin dashboard
 * Reconnect functionality for API key refresh
 * Improved sync reliability
 
 = 1.1.0 =
-* **Multilingual support** - 100+ languages with automatic detection
-* Cross-language search - query in any language, find content in site's language
+* **Multilingual support** — 100+ languages with automatic detection
+* Cross-language search — query in any language, find content in site's language
 * Responds in visitor's language automatically
 
 = 1.0.0 =
@@ -173,6 +194,9 @@ Yes, BitBot is compatible with any modern WordPress theme and page builder (Elem
 * Conversation history viewing
 
 == Upgrade Notice ==
+
+= 1.3.1 =
+Bug fix for sites with pages that have no title set. Recommended update for all users.
 
 = 1.3.0 =
 Generate blog posts directly from any URL! Simply paste a link and BitBot extracts the content to create SEO-optimized posts.
@@ -193,4 +217,4 @@ Data collected:
 * Visitor IP addresses for conversation tracking
 * Usage statistics (chat count, posts generated)
 
-This data is processed on youami.ai servers and may be transmitted to third-party AI services (Anthropic, OpenAI) for processing. Your content is never used to train AI models. We take your privacy seriously.
+This data is processed on youami.ai servers and may be transmitted to third-party AI services (Anthropic, OpenAI) for processing. Your content is never used to train AI models.

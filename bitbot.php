@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.3.0
+ * Version:           1.3.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,11 +45,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.3.0' );
+define( 'BITBOT_VERSION', '1.3.1' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-// define( 'BITBOT_API_URL', 'https://youami.ai/api' );
-define( 'BITBOT_API_URL', 'https://dev.youami.ai/api' );
+define( 'BITBOT_API_URL', 'https://youami.ai/api' );
+// define( 'BITBOT_API_URL', 'https://dev.youami.ai/api' );
 
 // Include required files
 require_once BITBOT_PLUGIN_DIR . 'includes/class-api-client.php';
