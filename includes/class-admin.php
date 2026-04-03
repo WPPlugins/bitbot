@@ -58,6 +58,23 @@ class BitBot_Admin {
         add_action('wp_ajax_bitbot_toggle_page', array($this, 'ajax_toggle_page'));
         add_action('wp_ajax_bitbot_resync_page', array($this, 'ajax_resync_page'));
 
+        // Leads AJAX handlers
+        add_action('wp_ajax_bitbot_get_leads', array($this, 'ajax_get_leads'));
+        add_action('wp_ajax_bitbot_get_lead', array($this, 'ajax_get_lead'));
+        add_action('wp_ajax_bitbot_update_lead_stage', array($this, 'ajax_update_lead_stage'));
+        add_action('wp_ajax_bitbot_add_lead_note', array($this, 'ajax_add_lead_note'));
+        add_action('wp_ajax_bitbot_delete_lead', array($this, 'ajax_delete_lead'));
+        add_action('wp_ajax_bitbot_run_lead_research', array($this, 'ajax_run_lead_research'));
+        add_action('wp_ajax_bitbot_draft_lead_email', array($this, 'ajax_draft_lead_email'));
+
+        // Form AJAX handlers
+        add_action('wp_ajax_bitbot_get_forms', array($this, 'ajax_get_forms'));
+        add_action('wp_ajax_bitbot_get_form', array($this, 'ajax_get_form'));
+        add_action('wp_ajax_bitbot_create_form', array($this, 'ajax_create_form'));
+        add_action('wp_ajax_bitbot_update_form', array($this, 'ajax_update_form'));
+        add_action('wp_ajax_bitbot_delete_form', array($this, 'ajax_delete_form'));
+        add_action('wp_ajax_bitbot_generate_form', array($this, 'ajax_generate_form'));
+
         // Reconnect handler
         add_action('wp_ajax_bitbot_reconnect', array($this, 'ajax_reconnect'));
     }
@@ -85,6 +102,26 @@ class BitBot_Admin {
             'manage_options',
             'bitbot',
             array($this, 'render_dashboard_page')
+        );
+
+        // Leads submenu
+        add_submenu_page(
+            'bitbot',
+            __('Leads', 'bitbot'),
+            __('Leads', 'bitbot'),
+            'manage_options',
+            'bitbot-leads',
+            array($this, 'render_leads_page')
+        );
+
+        // Form Builder submenu
+        add_submenu_page(
+            'bitbot',
+            __('Form Builder', 'bitbot'),
+            __('Form Builder', 'bitbot'),
+            'manage_options',
+            'bitbot-forms',
+            array($this, 'render_form_builder_page')
         );
 
         // Content Generator submenu
@@ -1210,5 +1247,1040 @@ class BitBot_Admin {
         } else {
             wp_send_json_error(array('error' => $result['error']));
         }
+    }
+
+    public function ajax_run_lead_research() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field($_POST['lead_id']) : '';
+        $result = $this->api_client->run_lead_research($lead_id);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    public function ajax_draft_lead_email() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field($_POST['lead_id']) : '';
+        $result = $this->api_client->draft_lead_email($lead_id);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    // ============================================
+    // Form Builder
+    // ============================================
+
+    /**
+     * Render form builder page — routes to list, create, or edit
+     */
+    public function render_form_builder_page() {
+        $form_id = isset($_GET['form_id']) ? sanitize_text_field($_GET['form_id']) : '';
+        $action = isset($_GET['action']) ? sanitize_text_field($_GET['action']) : '';
+
+        if ($action === 'new') {
+            $this->render_form_create_page();
+        } elseif ($form_id) {
+            $this->render_form_edit_page($form_id);
+        } else {
+            $this->render_forms_list_page();
+        }
+    }
+
+    /**
+     * Render forms list page
+     */
+    private function render_forms_list_page() {
+        $api_key = get_option('bitbot_api_key', '');
+        ?>
+        <div class="wrap">
+            <h1 style="display: flex; justify-content: space-between; align-items: center;">
+                <?php esc_html_e('Forms', 'bitbot'); ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=bitbot-forms&action=new')); ?>" class="page-title-action"><?php esc_html_e('Create New Form', 'bitbot'); ?></a>
+            </h1>
+
+            <div id="bitbot-forms-list" style="margin-top: 10px;">
+                <div class="spinner is-active" style="float: none;"></div>
+                <span><?php esc_html_e('Loading forms...', 'bitbot'); ?></span>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+        (function($) {
+            var config = window.bitbotAdmin || {};
+
+            $.ajax({
+                url: config.ajaxUrl, method: 'POST',
+                data: { action: 'bitbot_get_forms', nonce: config.nonce },
+                success: function(response) {
+                    if (!response.success) { $('#bitbot-forms-list').html('<p class="error">Failed to load forms.</p>'); return; }
+                    var forms = (response.data && response.data.forms) || [];
+                    if (forms.length === 0) {
+                        $('#bitbot-forms-list').html(
+                            '<div class="bitbot-card" style="text-align: center; padding: 40px;">' +
+                            '<h3>No forms yet</h3>' +
+                            '<p>Create your first lead capture form to start collecting leads.</p>' +
+                            '<a href="<?php echo esc_url(admin_url('admin.php?page=bitbot-forms&action=new')); ?>" class="button button-primary">Create New Form</a>' +
+                            '</div>'
+                        );
+                        return;
+                    }
+
+                    var html = '<table class="wp-list-table widefat fixed striped">';
+                    html += '<thead><tr><th style="width:25%;">Name</th><th style="width:10%;">Fields</th><th style="width:12%;">Status</th><th style="width:25%;">Shortcode</th><th style="width:15%;">Created</th><th style="width:13%;">Actions</th></tr></thead><tbody>';
+                    forms.forEach(function(f) {
+                        var editUrl = '<?php echo esc_url(admin_url('admin.php?page=bitbot-forms')); ?>&form_id=' + f.id;
+                        var statusColor = f.enabled ? '#46b450' : '#999';
+                        var statusText = f.enabled ? 'Active' : 'Inactive';
+                        var date = new Date(f.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        html += '<tr>';
+                        html += '<td><a href="' + editUrl + '" style="font-weight:600;">' + esc(f.name) + '</a></td>';
+                        html += '<td>' + (f.fields ? f.fields.length : 0) + '</td>';
+                        html += '<td><span class="bitbot-status" style="background:' + statusColor + ';color:#fff;">' + statusText + '</span></td>';
+                        html += '<td><code style="font-size:12px;">[bitbot_form id=&quot;' + f.id + '&quot;]</code></td>';
+                        html += '<td>' + date + '</td>';
+                        html += '<td><a href="' + editUrl + '" class="button button-small">Edit</a> <button class="button button-small bitbot-delete-form" data-id="' + f.id + '" style="color:#dc3545;">Delete</button></td>';
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    $('#bitbot-forms-list').html(html);
+
+                    $('.bitbot-delete-form').on('click', function() {
+                        if (!confirm('Delete this form?')) return;
+                        var $btn = $(this);
+                        $.ajax({ url: config.ajaxUrl, method: 'POST', data: { action: 'bitbot_delete_form', nonce: config.nonce, form_id: $btn.data('id') },
+                            success: function() { $btn.closest('tr').fadeOut(); }
+                        });
+                    });
+                },
+                error: function() { $('#bitbot-forms-list').html('<p class="error">Failed to load forms.</p>'); }
+            });
+
+            function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
+        })(jQuery);
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Render create form page — text box + Generate with AI
+     */
+    private function render_form_create_page() {
+        ?>
+        <div class="wrap">
+            <h1>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=bitbot-forms')); ?>" style="text-decoration: none;">&larr; <?php esc_html_e('Back to Forms', 'bitbot'); ?></a>
+            </h1>
+
+            <div style="max-width: 600px; margin: 40px auto;">
+                <div class="bitbot-card" style="padding: 30px;">
+                    <h2 style="margin-top: 0; border: none; font-size: 20px;">Create a New Form</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Describe what this form is for and AI will generate the perfect fields. Or start with basics.</p>
+
+                    <div style="margin-bottom: 16px;">
+                        <label for="bitbot-form-description" style="display: block; font-weight: 500; margin-bottom: 6px;">What is this form for?</label>
+                        <textarea id="bitbot-form-description" rows="3" class="large-text" placeholder="e.g., Tax consultation inquiry form for potential clients who want to book a free consultation..." style="font-size: 14px;"></textarea>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" class="button button-primary" id="bitbot-generate-form" style="background: #7c3aed; border-color: #7c3aed;">
+                            <span class="dashicons dashicons-superhero-alt" style="margin-top: 4px; font-size: 16px;"></span> Generate with AI
+                        </button>
+                        <span style="color: #999;">or</span>
+                        <button type="button" class="button" id="bitbot-basic-form">Start with Basics</button>
+                    </div>
+
+                    <div id="bitbot-create-status" style="margin-top: 16px; display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+        (function($) {
+            var config = window.bitbotAdmin || {};
+
+            function createForm(name, description, fields) {
+                $.ajax({
+                    url: config.ajaxUrl, method: 'POST',
+                    data: { action: 'bitbot_create_form', nonce: config.nonce, name: name, description: description, fields: JSON.stringify(fields) },
+                    success: function(response) {
+                        if (response.success && response.data.id) {
+                            window.location.href = '<?php echo esc_url(admin_url('admin.php?page=bitbot-forms')); ?>&form_id=' + response.data.id;
+                        } else {
+                            $('#bitbot-create-status').html('<p class="error">Failed to create form.</p>').show();
+                        }
+                    },
+                    error: function() {
+                        $('#bitbot-create-status').html('<p class="error">Failed to create form.</p>').show();
+                    }
+                });
+            }
+
+            // Generate with AI
+            $('#bitbot-generate-form').on('click', function() {
+                var desc = $('#bitbot-form-description').val().trim();
+                if (!desc) { alert('Please describe what the form is for.'); return; }
+                var $btn = $(this);
+                $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span> Generating...');
+
+                $.ajax({
+                    url: config.ajaxUrl, method: 'POST',
+                    data: { action: 'bitbot_generate_form', nonce: config.nonce, description: desc },
+                    success: function(response) {
+                        if (response.success && response.data.fields) {
+                            var name = response.data.name || desc.substring(0, 50);
+                            createForm(name, desc, response.data.fields);
+                        } else {
+                            $btn.prop('disabled', false).html('<span class="dashicons dashicons-superhero-alt" style="margin-top:4px;font-size:16px;"></span> Generate with AI');
+                            alert('Failed to generate form.');
+                        }
+                    },
+                    error: function() {
+                        $btn.prop('disabled', false).html('<span class="dashicons dashicons-superhero-alt" style="margin-top:4px;font-size:16px;"></span> Generate with AI');
+                        alert('Failed to generate form.');
+                    }
+                });
+            });
+
+            // Start with basics
+            $('#bitbot-basic-form').on('click', function() {
+                var desc = $('#bitbot-form-description').val().trim() || 'Contact Form';
+                var fields = [
+                    { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Your name' },
+                    { name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'you@example.com' },
+                    { name: 'phone', label: 'Phone', type: 'phone', required: false, placeholder: '+1 (555) 000-0000' },
+                    { name: 'message', label: 'Message', type: 'textarea', required: false, placeholder: 'How can we help?' }
+                ];
+                createForm(desc, desc, fields);
+            });
+        })(jQuery);
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Render form edit page — field editor + preview + embed codes
+     */
+    private function render_form_edit_page($form_id) {
+        $api_key = get_option('bitbot_api_key', '');
+        ?>
+        <div class="wrap">
+            <h1>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=bitbot-forms')); ?>" style="text-decoration: none;">&larr; <?php esc_html_e('Back to Forms', 'bitbot'); ?></a>
+            </h1>
+
+            <div id="bitbot-form-editor" style="margin-top: 20px;">
+                <div class="spinner is-active" style="float: none;"></div>
+                <span><?php esc_html_e('Loading form...', 'bitbot'); ?></span>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+        (function($) {
+            var config = window.bitbotAdmin || {};
+            var formId = '<?php echo esc_js($form_id); ?>';
+            var formData = null;
+
+            function loadForm() {
+                $.ajax({
+                    url: config.ajaxUrl, method: 'POST',
+                    data: { action: 'bitbot_get_form', nonce: config.nonce, form_id: formId },
+                    success: function(response) {
+                        if (!response.success) { $('#bitbot-form-editor').html('<p class="error">Failed to load form.</p>'); return; }
+                        formData = response.data;
+                        renderEditor();
+                    },
+                    error: function() { $('#bitbot-form-editor').html('<p class="error">Failed to load form.</p>'); }
+                });
+            }
+
+            function renderEditor() {
+                var fields = formData.fields || [];
+                var html = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">';
+
+                // Left: editor
+                html += '<div><div class="bitbot-card">';
+                html += '<h2 style="display:flex;justify-content:space-between;align-items:center;">';
+                html += '<input type="text" id="bitbot-form-name" value="' + escAttr(formData.name) + '" style="font-size:16px;font-weight:600;border:1px solid transparent;padding:2px 6px;flex:1;" placeholder="Form name">';
+                html += '</h2>';
+
+                html += '<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:8px;font-weight:500;">';
+                html += '<input type="checkbox" id="bitbot-form-enabled" ' + (formData.enabled ? 'checked' : '') + '> Active</label></div>';
+
+                html += '<div id="bitbot-fields-list">';
+                fields.forEach(function(f, i) { html += renderFieldRow(f, i); });
+                html += '</div>';
+
+                html += '<div style="margin-top:12px;display:flex;gap:8px;">';
+                html += '<button type="button" class="button" id="bitbot-add-field">+ Add Field</button>';
+                html += '<button type="button" class="button" id="bitbot-ai-regenerate" style="color:#7c3aed;border-color:#7c3aed;">Regenerate with AI</button>';
+                html += '</div>';
+
+                html += '<div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee;">';
+                html += '<button type="button" class="button button-primary" id="bitbot-save-form">Save Changes</button>';
+                html += '<span id="bitbot-save-status" style="margin-left:10px;color:#46b450;display:none;">Saved!</span>';
+                html += '</div>';
+                html += '</div></div>';
+
+                // Right: preview + embed
+                html += '<div>';
+                html += '<div class="bitbot-card" style="margin-bottom:20px;"><h2>Preview</h2>';
+                html += '<div id="bitbot-form-preview" style="background:#f9f9f9;padding:20px;border-radius:6px;">' + renderFormPreview(fields) + '</div></div>';
+
+                html += '<div class="bitbot-card"><h2>Embed</h2>';
+                html += '<div style="margin-bottom:12px;"><h4 style="margin:0 0 4px;">Shortcode</h4>';
+                html += '<div style="display:flex;gap:8px;"><code id="sc" style="flex:1;padding:8px 12px;background:#f0f0f1;border-radius:4px;font-size:13px;">[bitbot_form id=&quot;' + formId + '&quot;]</code>';
+                html += '<button type="button" class="button bitbot-copy-btn" data-target="sc">Copy</button></div></div>';
+
+                html += '<div><h4 style="margin:0 0 4px;">External Embed</h4>';
+                var embedScript = '&lt;script src=&quot;' + escHtml('<?php echo esc_js(BITBOT_PLUGIN_URL); ?>') + 'assets/js/form-embed.js&quot; data-form-id=&quot;' + formId + '&quot; data-api-key=&quot;' + escHtml('<?php echo esc_js($api_key); ?>') + '&quot; data-api-url=&quot;' + escHtml('<?php echo esc_js(BITBOT_API_URL); ?>') + '&quot;&gt;&lt;/script&gt;';
+                html += '<div style="display:flex;gap:8px;"><code id="ec" style="flex:1;padding:8px 12px;background:#f0f0f1;border-radius:4px;font-size:11px;word-break:break-all;line-height:1.4;">' + embedScript + '</code>';
+                html += '<button type="button" class="button bitbot-copy-btn" data-target="ec">Copy</button></div></div>';
+                html += '</div>';
+
+                html += '</div></div>';
+                $('#bitbot-form-editor').html(html);
+                bindEvents();
+            }
+
+            function renderFieldRow(field, idx) {
+                var types = ['text','email','phone','textarea','select','radio','checkbox'];
+                var h = '<div class="bitbot-field-row" data-index="' + idx + '" style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;padding:12px;margin-bottom:8px;">';
+                h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">';
+                h += '<span class="dashicons dashicons-menu" style="cursor:grab;color:#999;margin-top:2px;"></span>';
+                h += '<input type="text" class="regular-text field-label" value="' + escAttr(field.label) + '" placeholder="Field label" style="flex:1;">';
+                h += '<select class="field-type" style="width:110px;">';
+                types.forEach(function(t) { h += '<option value="' + t + '"' + (field.type===t?' selected':'') + '>' + t.charAt(0).toUpperCase()+t.slice(1) + '</option>'; });
+                h += '</select>';
+                h += '<label style="display:flex;align-items:center;gap:4px;white-space:nowrap;"><input type="checkbox" class="field-required"' + (field.required?' checked':'') + '> Req</label>';
+                h += '<button type="button" class="button bitbot-remove-field" style="color:#dc3545;border-color:#dc3545;padding:0 8px;">&times;</button>';
+                h += '</div>';
+                if (field.type==='select'||field.type==='radio') {
+                    h += '<div style="margin-left:32px;"><input type="text" class="regular-text field-options" value="' + escAttr((field.options||[]).join(', ')) + '" placeholder="Options (comma-separated)" style="width:100%;"></div>';
+                }
+                h += '<div style="margin-left:32px;margin-top:4px;"><input type="text" class="field-placeholder" value="' + escAttr(field.placeholder||'') + '" placeholder="Placeholder (optional)" style="width:100%;font-size:12px;color:#666;"></div>';
+                h += '</div>';
+                return h;
+            }
+
+            function renderFormPreview(fields) {
+                if (!fields || !fields.length) return '<p style="color:#999;text-align:center;">No fields</p>';
+                var h = '<form style="max-width:400px;" onsubmit="return false;">';
+                fields.forEach(function(f) {
+                    h += '<div style="margin-bottom:14px;">';
+                    h += '<label style="display:block;font-weight:500;margin-bottom:4px;font-size:14px;">' + escHtml(f.label);
+                    if (f.required) h += ' <span style="color:#dc3545;">*</span>';
+                    h += '</label>';
+                    if (f.type==='textarea') h += '<textarea style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:14px;" rows="3" placeholder="'+escAttr(f.placeholder||'')+'" disabled></textarea>';
+                    else if (f.type==='select') { h += '<select style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;" disabled><option>'+escHtml(f.placeholder||'Select...')+'</option>'; (f.options||[]).forEach(function(o){h+='<option>'+escHtml(o)+'</option>';}); h+='</select>'; }
+                    else if (f.type==='radio') (f.options||[]).forEach(function(o){h+='<label style="display:block;margin-bottom:4px;font-weight:normal;"><input type="radio" disabled> '+escHtml(o)+'</label>';});
+                    else if (f.type==='checkbox') h += '<label style="font-weight:normal;"><input type="checkbox" disabled> '+escHtml(f.placeholder||f.label)+'</label>';
+                    else { var t = f.type==='email'?'email':(f.type==='phone'?'tel':'text'); h += '<input type="'+t+'" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:14px;" placeholder="'+escAttr(f.placeholder||'')+'" disabled>'; }
+                    h += '</div>';
+                });
+                h += '<button type="button" style="background:#0073aa;color:#fff;border:none;padding:10px 24px;border-radius:4px;font-size:14px;cursor:pointer;width:100%;">Submit</button></form>';
+                return h;
+            }
+
+            function bindEvents() {
+                $('#bitbot-add-field').off('click').on('click', function() {
+                    formData.fields = collectFields();
+                    formData.fields.push({name:'field_'+(formData.fields.length+1),label:'',type:'text',required:false,placeholder:''});
+                    renderEditor();
+                });
+                $(document).off('click','.bitbot-remove-field').on('click','.bitbot-remove-field', function() {
+                    var i = $(this).closest('.bitbot-field-row').data('index');
+                    formData.fields = collectFields(); formData.fields.splice(i,1); renderEditor();
+                });
+                $(document).off('change','.field-type').on('change','.field-type', function() {
+                    formData.fields = collectFields(); renderEditor();
+                });
+                $(document).off('input','.field-label,.field-placeholder,.field-options').on('input','.field-label,.field-placeholder,.field-options', function() {
+                    $('#bitbot-form-preview').html(renderFormPreview(collectFields()));
+                });
+                $(document).off('change','.field-required').on('change','.field-required', function() {
+                    $('#bitbot-form-preview').html(renderFormPreview(collectFields()));
+                });
+                // AI regenerate
+                $('#bitbot-ai-regenerate').off('click').on('click', function() {
+                    var desc = prompt('Describe what this form is for:', formData.description || formData.name);
+                    if (!desc) return;
+                    var $btn = $(this); $btn.prop('disabled',true).text('Generating...');
+                    $.ajax({ url:config.ajaxUrl, method:'POST', data:{action:'bitbot_generate_form',nonce:config.nonce,description:desc},
+                        success: function(r) {
+                            if (r.success && r.data.fields) { formData.fields = r.data.fields; if(r.data.name) formData.name = r.data.name; renderEditor(); }
+                            else { alert('Failed.'); $btn.prop('disabled',false).text('Regenerate with AI'); }
+                        }, error: function() { alert('Failed.'); $btn.prop('disabled',false).text('Regenerate with AI'); }
+                    });
+                });
+                // Save
+                $('#bitbot-save-form').off('click').on('click', function() {
+                    var $btn = $(this); $btn.prop('disabled',true).text('Saving...');
+                    var fields = collectFields();
+                    var name = $('#bitbot-form-name').val();
+                    var enabled = $('#bitbot-form-enabled').is(':checked');
+                    $.ajax({ url:config.ajaxUrl, method:'POST', data:{action:'bitbot_update_form',nonce:config.nonce,form_id:formId,name:name,enabled:enabled?1:0,fields:JSON.stringify(fields)},
+                        success: function(r) { $btn.prop('disabled',false).text('Save Changes'); if(r.success) { formData.fields=fields; formData.name=name; formData.enabled=enabled; $('#bitbot-save-status').fadeIn().delay(2000).fadeOut(); } else alert('Failed to save.'); },
+                        error: function() { $btn.prop('disabled',false).text('Save Changes'); alert('Failed to save.'); }
+                    });
+                });
+                // Copy
+                $('.bitbot-copy-btn').off('click').on('click', function() {
+                    var t = $('#'+$(this).data('target')).text();
+                    if(navigator.clipboard){navigator.clipboard.writeText(t);$(this).text('Copied!');var b=$(this);setTimeout(function(){b.text('Copy');},1500);}
+                });
+            }
+
+            function collectFields() {
+                var fields = [];
+                $('#bitbot-fields-list .bitbot-field-row').each(function(i) {
+                    var $r=$(this), type=$r.find('.field-type').val(), label=$r.find('.field-label').val();
+                    var name = label ? label.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'') : 'field_'+(i+1);
+                    var f = {name:name,label:label,type:type,required:$r.find('.field-required').is(':checked'),placeholder:$r.find('.field-placeholder').val()||''};
+                    if((type==='select'||type==='radio')&&$r.find('.field-options').length){var o=$r.find('.field-options').val();f.options=o?o.split(',').map(function(s){return s.trim();}).filter(Boolean):[];}
+                    fields.push(f);
+                });
+                return fields;
+            }
+
+            function escHtml(s){if(!s)return '';var d=document.createElement('div');d.appendChild(document.createTextNode(s));return d.innerHTML;}
+            function escAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+            loadForm();
+        })(jQuery);
+        });
+        </script>
+        <?php
+    }
+
+    // ============================================
+    // Leads Pipeline
+    // ============================================
+
+    /**
+     * Render leads page — list view or detail view based on ?lead_id param
+     */
+    public function render_leads_page() {
+        $lead_id = isset($_GET['lead_id']) ? sanitize_text_field($_GET['lead_id']) : '';
+
+        if ($lead_id) {
+            $this->render_lead_detail_page($lead_id);
+        } else {
+            $this->render_leads_list_page();
+        }
+    }
+
+    /**
+     * Render leads list page
+     */
+    private function render_leads_list_page() {
+        $stage_filter = isset($_GET['stage']) ? sanitize_text_field($_GET['stage']) : '';
+        $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e('Leads', 'bitbot'); ?></h1>
+
+            <!-- Stage filter tabs -->
+            <ul class="subsubsub" style="margin-bottom: 15px;">
+                <?php
+                $stages = array(
+                    ''          => __('All', 'bitbot'),
+                    'new'       => __('New', 'bitbot'),
+                    'contacted' => __('Contacted', 'bitbot'),
+                    'qualified' => __('Qualified', 'bitbot'),
+                    'won'       => __('Won', 'bitbot'),
+                    'lost'      => __('Lost', 'bitbot'),
+                );
+                $i = 0;
+                foreach ($stages as $key => $label):
+                    $current = ($stage_filter === $key) ? ' class="current"' : '';
+                    $url = admin_url('admin.php?page=bitbot-leads');
+                    if ($key) $url = add_query_arg('stage', $key, $url);
+                    if ($search) $url = add_query_arg('s', $search, $url);
+                ?>
+                    <li>
+                        <a href="<?php echo esc_url($url); ?>"<?php echo $current; ?>><?php echo esc_html($label); ?></a>
+                        <?php if ($i < count($stages) - 1) echo ' |'; ?>
+                    </li>
+                <?php $i++; endforeach; ?>
+            </ul>
+
+            <!-- Search -->
+            <form method="get" style="float: right; margin-top: -30px;">
+                <input type="hidden" name="page" value="bitbot-leads">
+                <?php if ($stage_filter): ?>
+                    <input type="hidden" name="stage" value="<?php echo esc_attr($stage_filter); ?>">
+                <?php endif; ?>
+                <input type="search" name="s" value="<?php echo esc_attr($search); ?>" placeholder="<?php esc_attr_e('Search leads...', 'bitbot'); ?>" class="regular-text">
+                <button type="submit" class="button"><?php esc_html_e('Search', 'bitbot'); ?></button>
+            </form>
+
+            <div style="clear: both;"></div>
+
+            <!-- Leads table — loaded via AJAX -->
+            <div id="bitbot-leads-container" style="margin-top: 10px;">
+                <div class="spinner is-active" style="float: none;"></div>
+                <span><?php esc_html_e('Loading leads...', 'bitbot'); ?></span>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+        (function($) {
+            var config = window.bitbotAdmin || {};
+            var stageFilter = '<?php echo esc_js($stage_filter); ?>';
+            var searchQuery = '<?php echo esc_js($search); ?>';
+
+            function loadLeads() {
+                $.ajax({
+                    url: config.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'bitbot_get_leads',
+                        nonce: config.nonce,
+                        stage: stageFilter,
+                        search: searchQuery
+                    },
+                    success: function(response) {
+                        if (!response.success) {
+                            $('#bitbot-leads-container').html('<p class="error">' + ((response.data && response.data.error) || 'Failed to load leads') + '</p>');
+                            return;
+                        }
+                        var leads = response.data.leads || [];
+                        var total = response.data.total || 0;
+
+                        if (leads.length === 0) {
+                            $('#bitbot-leads-container').html(
+                                '<div class="bitbot-card" style="text-align: center; padding: 40px;">' +
+                                '<h3>No leads yet</h3>' +
+                                '<p>Leads will appear here when visitors submit forms or share contact info in chat.</p>' +
+                                '</div>'
+                            );
+                            return;
+                        }
+
+                        var html = '<p>' + total + ' lead' + (total !== 1 ? 's' : '') + '</p>';
+                        html += '<table class="wp-list-table widefat fixed striped">';
+                        html += '<thead><tr>';
+                        html += '<th style="width: 18%;">Name</th>';
+                        html += '<th style="width: 18%;">Email</th>';
+                        html += '<th style="width: 10%;">Source</th>';
+                        html += '<th style="width: 10%;">Location</th>';
+                        html += '<th style="width: 8%;">Stage</th>';
+                        html += '<th style="width: 22%;">Suggested Action</th>';
+                        html += '<th style="width: 14%;">Date</th>';
+                        html += '</tr></thead><tbody>';
+
+                        var stageColors = {
+                            'new': '#0073aa',
+                            'contacted': '#f0ad4e',
+                            'qualified': '#5bc0de',
+                            'won': '#46b450',
+                            'lost': '#dc3545'
+                        };
+
+                        leads.forEach(function(lead) {
+                            var detailUrl = '<?php echo esc_url(admin_url('admin.php?page=bitbot-leads')); ?>&lead_id=' + lead.id;
+                            var color = stageColors[lead.stage] || '#666';
+                            var date = new Date(lead.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+                            html += '<tr>';
+                            html += '<td><a href="' + detailUrl + '" style="font-weight: 600;">' + escHtml(lead.name) + '</a></td>';
+                            html += '<td>' + escHtml(lead.email) + '</td>';
+                            html += '<td><span class="bitbot-status" style="background: #f0f0f1; color: #50575e;">' + escHtml(lead.source) + '</span></td>';
+                            var location = lead.city && lead.country ? lead.city + ', ' + lead.country : (lead.country || '—');
+                            html += '<td style="font-size: 12px; color: #666;">' + escHtml(location) + '</td>';
+                            html += '<td><span class="bitbot-status" style="background: ' + color + '; color: #fff;">' + escHtml(lead.stage) + '</span></td>';
+                            html += '<td>' + escHtml(lead.suggestedAction || '—') + '</td>';
+                            html += '<td>' + date + '</td>';
+                            html += '</tr>';
+                        });
+
+                        html += '</tbody></table>';
+                        $('#bitbot-leads-container').html(html);
+                    },
+                    error: function() {
+                        $('#bitbot-leads-container').html('<p class="error">Failed to load leads.</p>');
+                    }
+                });
+            }
+
+            function escHtml(str) {
+                if (!str) return '';
+                var div = document.createElement('div');
+                div.appendChild(document.createTextNode(str));
+                return div.innerHTML;
+            }
+
+            loadLeads();
+        })(jQuery);
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Render lead detail page
+     */
+    private function render_lead_detail_page($lead_id) {
+        ?>
+        <div class="wrap">
+            <h1>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=bitbot-leads')); ?>" style="text-decoration: none;">&larr; <?php esc_html_e('Back to Leads', 'bitbot'); ?></a>
+            </h1>
+
+            <div id="bitbot-lead-detail" style="margin-top: 20px;">
+                <div class="spinner is-active" style="float: none;"></div>
+                <span><?php esc_html_e('Loading lead details...', 'bitbot'); ?></span>
+            </div>
+        </div>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+        (function($) {
+            var config = window.bitbotAdmin || {};
+            var leadId = '<?php echo esc_js($lead_id); ?>';
+
+            var stageColors = {
+                'new': '#0073aa',
+                'contacted': '#f0ad4e',
+                'qualified': '#5bc0de',
+                'won': '#46b450',
+                'lost': '#dc3545'
+            };
+
+            function loadLead() {
+                $.ajax({
+                    url: config.ajaxUrl,
+                    method: 'POST',
+                    data: {
+                        action: 'bitbot_get_lead',
+                        nonce: config.nonce,
+                        lead_id: leadId
+                    },
+                    success: function(response) {
+                        if (!response.success) {
+                            $('#bitbot-lead-detail').html('<p class="error">' + ((response.data && response.data.error) || 'Failed to load lead') + '</p>');
+                            return;
+                        }
+                        renderLead(response.data);
+                    },
+                    error: function() {
+                        $('#bitbot-lead-detail').html('<p class="error">Failed to load lead details.</p>');
+                    }
+                });
+            }
+
+            function renderLead(data) {
+                var lead = data.lead;
+                var activities = data.activities || [];
+                var emails = data.emails || [];
+                var color = stageColors[lead.stage] || '#666';
+                var date = new Date(lead.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+                var html = '<div class="bitbot-dashboard" style="grid-template-columns: 1fr 1fr;">';
+
+                // Left column — Lead info + stage
+                html += '<div class="bitbot-card">';
+                html += '<h2>' + escHtml(lead.name) + '</h2>';
+                html += '<p><strong>Email:</strong> <a href="mailto:' + escHtml(lead.email) + '">' + escHtml(lead.email) + '</a></p>';
+                if (lead.phone) html += '<p><strong>Phone:</strong> ' + escHtml(lead.phone) + '</p>';
+                if (lead.message) html += '<p><strong>Message:</strong> ' + escHtml(lead.message) + '</p>';
+                html += '<p><strong>Source:</strong> <span class="bitbot-status" style="background: #f0f0f1; color: #50575e;">' + escHtml(lead.source) + '</span></p>';
+                var location = lead.city && lead.country ? lead.city + ', ' + lead.country : (lead.country || '');
+                if (location) html += '<p><strong>Location:</strong> ' + escHtml(location) + '</p>';
+                html += '<p><strong>Date:</strong> ' + date + '</p>';
+
+                // Stage dropdown
+                html += '<div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">';
+                html += '<label><strong>Stage:</strong></label> ';
+                html += '<select id="bitbot-lead-stage" style="margin-left: 8px;">';
+                ['new', 'contacted', 'qualified', 'won', 'lost'].forEach(function(s) {
+                    var sel = (s === lead.stage) ? ' selected' : '';
+                    html += '<option value="' + s + '"' + sel + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>';
+                });
+                html += '</select>';
+                html += '</div>';
+
+                // Action buttons
+                html += '<div style="margin-top: 15px; display: flex; gap: 8px;">';
+                html += '<button id="bitbot-run-research" class="button button-primary"' + (lead.researchSummary ? ' style="display:none;"' : '') + '>Run AI Research</button>';
+                html += '<button id="bitbot-delete-lead" class="button" style="color: #a00;">Delete Lead</button>';
+                html += '</div>';
+
+                html += '</div>';
+
+                // Right column — Research summary + Draft Email
+                html += '<div class="bitbot-card">';
+                html += '<h2 style="display: flex; justify-content: space-between; align-items: center;">AI Research';
+                if (lead.researchSummary) {
+                    html += '<button id="bitbot-draft-email" class="button" style="color: #7c3aed; border-color: #7c3aed; font-size: 12px;">Draft Email</button>';
+                }
+                html += '</h2>';
+                html += '<div id="bitbot-research-content">';
+                if (lead.researchSummary) {
+                    html += '<p>' + escHtml(lead.researchSummary) + '</p>';
+                    if (lead.suggestedAction) {
+                        html += '<div style="margin-top: 15px; padding: 10px; background: #f0f6fc; border-left: 4px solid #0073aa; border-radius: 2px;">';
+                        html += '<strong>Next Step:</strong> ' + escHtml(lead.suggestedAction);
+                        html += '</div>';
+                    }
+                } else {
+                    html += '<p style="color: #666;">No research yet. Click "Run AI Research" to analyze this lead.</p>';
+                }
+                html += '</div>';
+                html += '</div>';
+
+                // Full width — Activity timeline + Add note
+                html += '<div class="bitbot-card bitbot-card-full">';
+                html += '<h2>Activity</h2>';
+
+                // Add note form
+                html += '<div style="margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 4px;">';
+                html += '<textarea id="bitbot-note-content" rows="2" style="width: 100%; margin-bottom: 8px;" placeholder="Add a note..."></textarea>';
+                html += '<button id="bitbot-add-note" class="button button-secondary">Add Note</button>';
+                html += '</div>';
+
+                if (activities.length > 0) {
+                    html += '<div style="max-height: 300px; overflow-y: auto;">';
+                    activities.forEach(function(activity) {
+                        var actDate = new Date(activity.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                        var icon = '📝';
+                        if (activity.type === 'email_sent') icon = '✉️';
+                        if (activity.type === 'stage_change') icon = '🔄';
+                        if (activity.type === 'auto_research') icon = '🔍';
+
+                        html += '<div style="padding: 10px 0; border-bottom: 1px solid #eee;">';
+                        html += '<span>' + icon + '</span> ';
+                        html += '<span style="color: #666; font-size: 12px;">' + actDate + '</span>';
+                        html += '<span style="margin-left: 5px; text-transform: capitalize; font-size: 12px; color: #999;">' + escHtml(activity.type.replace(/_/g, ' ')) + '</span>';
+                        if (activity.content) html += '<p style="margin: 4px 0 0 24px;">' + escHtml(activity.content) + '</p>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p style="color: #666;">No activity yet.</p>';
+                }
+
+                html += '</div>';
+
+                // Email draft modal (hidden, shown on button click)
+                html += '<div id="bitbot-email-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:100000; display:none; align-items:center; justify-content:center;">';
+                html += '<div style="background:#fff; border-radius:8px; width:90%; max-width:650px; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">';
+                html += '<div style="padding:16px 20px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center;">';
+                html += '<h3 style="margin:0;">Draft Email</h3>';
+                html += '<button id="bitbot-email-close" style="background:none; border:none; font-size:24px; cursor:pointer; color:#666;">&times;</button>';
+                html += '</div>';
+                html += '<div id="bitbot-email-body" style="padding:20px; overflow-y:auto; flex:1;">';
+                html += '<div style="text-align:center; padding:30px;"><div class="spinner is-active" style="float:none;"></div><p>Generating personalized email...</p></div>';
+                html += '</div>';
+                html += '<div style="padding:12px 20px; border-top:1px solid #ddd; display:flex; justify-content:flex-end; gap:8px;">';
+                html += '<button id="bitbot-email-copy" class="button button-primary" style="display:none;">Copy to Clipboard</button>';
+                html += '</div>';
+                html += '</div></div>';
+
+                html += '</div>'; // Close dashboard grid
+
+                $('#bitbot-lead-detail').html(html);
+
+                // Bind events
+                $('#bitbot-lead-stage').on('change', function() {
+                    var newStage = $(this).val();
+                    $.ajax({
+                        url: config.ajaxUrl,
+                        method: 'POST',
+                        data: { action: 'bitbot_update_lead_stage', nonce: config.nonce, lead_id: leadId, stage: newStage },
+                        success: function(r) {
+                            if (r.success) loadLead();
+                        }
+                    });
+                });
+
+                $('#bitbot-add-note').on('click', function() {
+                    var content = $('#bitbot-note-content').val().trim();
+                    if (!content) return;
+                    $.ajax({
+                        url: config.ajaxUrl,
+                        method: 'POST',
+                        data: { action: 'bitbot_add_lead_note', nonce: config.nonce, lead_id: leadId, content: content },
+                        success: function(r) {
+                            if (r.success) {
+                                $('#bitbot-note-content').val('');
+                                loadLead();
+                            }
+                        }
+                    });
+                });
+
+                // Run Research button
+                $('#bitbot-run-research').on('click', function() {
+                    var $btn = $(this);
+                    $btn.prop('disabled', true).text('Researching...');
+                    $('#bitbot-research-content').html('<div style="text-align:center;padding:20px;"><div class="spinner is-active" style="float:none;"></div><p>Scraping website, searching the web, analyzing with AI...</p></div>');
+                    $.ajax({
+                        url: config.ajaxUrl,
+                        method: 'POST',
+                        data: { action: 'bitbot_run_lead_research', nonce: config.nonce, lead_id: leadId },
+                        timeout: 30000,
+                        success: function(r) {
+                            if (r.success) {
+                                loadLead(); // Reload the whole page to show updated data
+                            } else {
+                                $btn.prop('disabled', false).text('Run AI Research');
+                                $('#bitbot-research-content').html('<p class="error">Research failed: ' + escHtml((r.data && r.data.error) || 'Unknown error') + '</p>');
+                            }
+                        },
+                        error: function() {
+                            $btn.prop('disabled', false).text('Run AI Research');
+                            $('#bitbot-research-content').html('<p class="error">Research timed out. Please try again.</p>');
+                        }
+                    });
+                });
+
+                $('#bitbot-delete-lead').on('click', function() {
+                    if (!confirm('Are you sure you want to delete this lead?')) return;
+                    $.ajax({
+                        url: config.ajaxUrl,
+                        method: 'POST',
+                        data: { action: 'bitbot_delete_lead', nonce: config.nonce, lead_id: leadId },
+                        success: function(r) {
+                            if (r.success) {
+                                window.location.href = '<?php echo esc_url(admin_url('admin.php?page=bitbot-leads')); ?>';
+                            }
+                        }
+                    });
+                });
+
+                // Draft Email button
+                $('#bitbot-draft-email').on('click', function() {
+                    var $modal = $('#bitbot-email-modal');
+                    $modal.css('display', 'flex');
+                    $('#bitbot-email-copy').hide();
+                    $('#bitbot-email-body').html('<div style="text-align:center;padding:30px;"><div class="spinner is-active" style="float:none;"></div><p>Generating personalized email...</p></div>');
+
+                    $.ajax({
+                        url: config.ajaxUrl,
+                        method: 'POST',
+                        data: { action: 'bitbot_draft_lead_email', nonce: config.nonce, lead_id: leadId },
+                        success: function(r) {
+                            if (r.success) {
+                                var h = '<div style="margin-bottom:16px;">';
+                                h += '<label style="font-weight:600;display:block;margin-bottom:4px;">Subject</label>';
+                                h += '<input type="text" id="bitbot-email-subject" class="large-text" value="' + escAttr(r.data.subject) + '" style="font-size:14px;">';
+                                h += '</div>';
+                                h += '<div>';
+                                h += '<label style="font-weight:600;display:block;margin-bottom:4px;">Body</label>';
+                                h += '<textarea id="bitbot-email-text" rows="12" class="large-text" style="font-size:14px;line-height:1.6;">' + escHtml(r.data.body) + '</textarea>';
+                                h += '</div>';
+                                $('#bitbot-email-body').html(h);
+                                $('#bitbot-email-copy').show();
+                            } else {
+                                $('#bitbot-email-body').html('<p class="error">Failed to generate email: ' + escHtml((r.data && r.data.error) || 'Unknown error') + '</p>');
+                            }
+                        },
+                        error: function() {
+                            $('#bitbot-email-body').html('<p class="error">Failed to generate email draft.</p>');
+                        }
+                    });
+                });
+
+                // Close modal
+                $('#bitbot-email-close').on('click', function() {
+                    $('#bitbot-email-modal').css('display', 'none');
+                });
+                $('#bitbot-email-modal').on('click', function(e) {
+                    if (e.target === this) $(this).css('display', 'none');
+                });
+
+                // Copy email to clipboard
+                $('#bitbot-email-copy').on('click', function() {
+                    var subject = $('#bitbot-email-subject').val();
+                    var body = $('#bitbot-email-text').val();
+                    var text = 'Subject: ' + subject + '\n\n' + body;
+                    if (navigator.clipboard) {
+                        navigator.clipboard.writeText(text);
+                        $(this).text('Copied!');
+                        var $b = $(this);
+                        setTimeout(function() { $b.text('Copy to Clipboard'); }, 1500);
+                    }
+                });
+            }
+
+            function escAttr(s) {
+                if (!s) return '';
+                return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            }
+
+            function escHtml(str) {
+                if (!str) return '';
+                var div = document.createElement('div');
+                div.appendChild(document.createTextNode(str));
+                return div.innerHTML;
+            }
+
+            loadLead();
+        })(jQuery);
+        });
+        </script>
+        <?php
+    }
+
+    // ============================================
+    // Leads AJAX Handlers
+    // ============================================
+
+    public function ajax_get_leads() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        $stage = isset($_POST['stage']) ? sanitize_text_field($_POST['stage']) : '';
+        $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+        $result = $this->api_client->get_leads($stage, $search);
+
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    public function ajax_get_lead() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field($_POST['lead_id']) : '';
+        if (empty($lead_id)) {
+            wp_send_json_error(array('error' => 'Lead ID required'));
+        }
+
+        $result = $this->api_client->get_lead($lead_id);
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    public function ajax_update_lead_stage() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        $lead_id = sanitize_text_field($_POST['lead_id'] ?? '');
+        $stage = sanitize_text_field($_POST['stage'] ?? '');
+        if (empty($lead_id) || empty($stage)) {
+            wp_send_json_error(array('error' => 'Lead ID and stage required'));
+        }
+
+        $result = $this->api_client->update_lead_stage($lead_id, $stage);
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    public function ajax_add_lead_note() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        $lead_id = sanitize_text_field($_POST['lead_id'] ?? '');
+        $content = sanitize_textarea_field($_POST['content'] ?? '');
+        if (empty($lead_id) || empty($content)) {
+            wp_send_json_error(array('error' => 'Lead ID and content required'));
+        }
+
+        $result = $this->api_client->add_lead_note($lead_id, $content);
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    public function ajax_delete_lead() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        $lead_id = sanitize_text_field($_POST['lead_id'] ?? '');
+        if (empty($lead_id)) {
+            wp_send_json_error(array('error' => 'Lead ID required'));
+        }
+
+        $result = $this->api_client->delete_lead($lead_id);
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error(array('error' => $result['error']));
+        }
+    }
+
+    // ============================================
+    // Form Config AJAX Handlers
+    // ============================================
+
+    public function ajax_get_forms() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $result = $this->api_client->get_forms();
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    public function ajax_get_form() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : '';
+        $result = $this->api_client->get_form($form_id);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    public function ajax_create_form() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $name = isset($_POST['name']) ? sanitize_text_field($_POST['name']) : '';
+        $description = isset($_POST['description']) ? sanitize_text_field($_POST['description']) : '';
+        $fields = isset($_POST['fields']) ? json_decode(stripslashes($_POST['fields']), true) : array();
+        $result = $this->api_client->create_form($name, $description, $fields);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    public function ajax_update_form() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : '';
+        $data = array();
+        if (isset($_POST['name'])) $data['name'] = sanitize_text_field($_POST['name']);
+        if (isset($_POST['fields'])) $data['fields'] = json_decode(stripslashes($_POST['fields']), true);
+        if (isset($_POST['enabled'])) $data['enabled'] = rest_sanitize_boolean($_POST['enabled']);
+        $result = $this->api_client->update_form($form_id, $data);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    public function ajax_delete_form() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : '';
+        $result = $this->api_client->delete_form($form_id);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    public function ajax_generate_form() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
+        $description = isset($_POST['description']) ? sanitize_text_field($_POST['description']) : '';
+        $result = $this->api_client->generate_form($description);
+        $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
     }
 }

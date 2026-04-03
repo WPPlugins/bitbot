@@ -5,7 +5,7 @@ Tags: chatbot, ai chatbot, multilingual chatbot, customer support, content gener
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.3.1
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -159,8 +159,22 @@ Yes. BitBot works with any modern WordPress theme and page builder including Ele
 3. Admin Dashboard showing content sync status, usage statistics, subscription info, and indexed pages
 4. Multilingual support — chatbot automatically responds in Arabic when a visitor asks in Arabic
 5. Mobile-responsive chat widget that works perfectly on phones and tablets
+6. Leads Pipeline with stage tracking, AI-suggested next steps, location detection, and source tracking from forms and chat
+7. Lead Detail with AI Research summary, Draft Email button, activity timeline with notes and stage changes
+8. Form Builder showing all created forms with shortcodes, field counts, and status
+9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.4.0 =
+* **Leads Pipeline** — capture and manage leads with stage tracking (New, Contacted, Qualified, Won, Lost)
+* **Form Builder** — create unlimited lead capture forms, with AI-generated fields or start from basics
+* **AI Lead Research** — one-click research on any lead to understand who they are and what they need
+* **Draft Email** — AI writes personalized follow-up emails you can copy and send
+* **Geolocation** — see where your leads are coming from (country/city)
+* **Shortcode embed** — drop `[bitbot_form]` on any page to start capturing leads
+* Spam protection with rate limiting on form submissions
+* Activity timeline with notes, stage changes, and research history
 
 = 1.3.1 =
 * Fixed null page title handling in chat contact page lookup
@@ -194,6 +208,9 @@ Yes. BitBot works with any modern WordPress theme and page builder including Ele
 * Conversation history viewing
 
 == Upgrade Notice ==
+
+= 1.4.0 =
+New leads pipeline! Capture leads with custom forms, track them through stages, and let AI research and draft follow-up emails for you.
 
 = 1.3.1 =
 Bug fix for sites with pages that have no title set. Recommended update for all users.

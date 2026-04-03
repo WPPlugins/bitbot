@@ -777,6 +777,157 @@ class BitBot_API_Client {
         ), 120 ); // 2 min timeout for resync
     }
 
+    // ============================================
+    // Leads & Forms API Methods
+    // ============================================
+
+    /**
+     * Submit a form (creates a lead)
+     *
+     * @since 1.1.0
+     * @param string $name    Lead name.
+     * @param string $email   Lead email.
+     * @param string $phone   Lead phone (optional).
+     * @param string $message Lead message (optional).
+     * @return array API response.
+     */
+    public function submit_form( $form_id, $name, $email, $phone = '', $message = '', $ip_address = '' ) {
+        $payload = array(
+            'formId' => sanitize_text_field( $form_id ),
+            'name'   => sanitize_text_field( $name ),
+            'email'  => sanitize_email( $email ),
+        );
+        if ( ! empty( $phone ) ) {
+            $payload['phone'] = sanitize_text_field( $phone );
+        }
+        if ( ! empty( $message ) ) {
+            $payload['message'] = sanitize_textarea_field( $message );
+        }
+        if ( ! empty( $ip_address ) ) {
+            $payload['ipAddress'] = sanitize_text_field( $ip_address );
+        }
+        return $this->rpc( 'SubmitForm', $payload );
+    }
+
+    /**
+     * Get leads list
+     *
+     * @since 1.1.0
+     * @param string $stage  Filter by stage (optional).
+     * @param string $search Search query (optional).
+     * @return array API response.
+     */
+    public function get_leads( $stage = '', $search = '' ) {
+        $payload = array();
+        if ( ! empty( $stage ) ) {
+            $payload['stage'] = sanitize_text_field( $stage );
+        }
+        if ( ! empty( $search ) ) {
+            $payload['search'] = sanitize_text_field( $search );
+        }
+        return $this->rpc( 'GetLeads', $payload );
+    }
+
+    /**
+     * Get single lead with activities and emails
+     *
+     * @since 1.1.0
+     * @param string $lead_id Lead ID.
+     * @return array API response.
+     */
+    public function get_lead( $lead_id ) {
+        return $this->rpc( 'GetLead', array(
+            'leadId' => sanitize_text_field( $lead_id ),
+        ) );
+    }
+
+    /**
+     * Update lead stage
+     *
+     * @since 1.1.0
+     * @param string $lead_id Lead ID.
+     * @param string $stage   New stage.
+     * @return array API response.
+     */
+    public function update_lead_stage( $lead_id, $stage ) {
+        return $this->rpc( 'UpdateLeadStage', array(
+            'leadId' => sanitize_text_field( $lead_id ),
+            'stage'  => sanitize_text_field( $stage ),
+        ) );
+    }
+
+    /**
+     * Add note to a lead
+     *
+     * @since 1.1.0
+     * @param string $lead_id Lead ID.
+     * @param string $content Note content.
+     * @return array API response.
+     */
+    public function add_lead_note( $lead_id, $content ) {
+        return $this->rpc( 'AddLeadNote', array(
+            'leadId'  => sanitize_text_field( $lead_id ),
+            'content' => sanitize_textarea_field( $content ),
+        ) );
+    }
+
+    /**
+     * Delete a lead
+     *
+     * @since 1.1.0
+     * @param string $lead_id Lead ID.
+     * @return array API response.
+     */
+    public function delete_lead( $lead_id ) {
+        return $this->rpc( 'DeleteLead', array(
+            'leadId' => sanitize_text_field( $lead_id ),
+        ) );
+    }
+
+    public function run_lead_research( $lead_id ) {
+        return $this->rpc( 'RunLeadResearch', array(
+            'leadId' => sanitize_text_field( $lead_id ),
+        ) );
+    }
+
+    public function draft_lead_email( $lead_id ) {
+        return $this->rpc( 'DraftLeadEmail', array(
+            'leadId' => sanitize_text_field( $lead_id ),
+        ) );
+    }
+
+    public function get_forms() {
+        return $this->rpc( 'GetForms' );
+    }
+
+    public function get_form( $form_id ) {
+        return $this->rpc( 'GetForm', array( 'formId' => sanitize_text_field( $form_id ) ) );
+    }
+
+    public function create_form( $name, $description, $fields ) {
+        return $this->rpc( 'CreateForm', array(
+            'name'        => sanitize_text_field( $name ),
+            'description' => sanitize_text_field( $description ),
+            'fields'      => $fields,
+        ) );
+    }
+
+    public function update_form( $form_id, $data ) {
+        $payload = array( 'formId' => sanitize_text_field( $form_id ) );
+        if ( isset( $data['name'] ) )    $payload['name']    = sanitize_text_field( $data['name'] );
+        if ( isset( $data['fields'] ) )  $payload['fields']  = $data['fields'];
+        if ( isset( $data['enabled'] ) ) $payload['enabled'] = (bool) $data['enabled'];
+        return $this->rpc( 'UpdateForm', $payload );
+    }
+
+    public function delete_form( $form_id ) {
+        return $this->rpc( 'DeleteForm', array( 'formId' => sanitize_text_field( $form_id ) ) );
+    }
+
+    public function generate_form( $description ) {
+        return $this->rpc( 'GenerateForm', array( 'description' => sanitize_text_field( $description ) ) );
+    }
+
     /**
      * Create WordPress post from draft
      *

@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.3.1
+ * Version:           1.4.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.3.1' );
+define( 'BITBOT_VERSION', '1.4.0' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BITBOT_API_URL', 'https://youami.ai/api' );
@@ -136,6 +136,9 @@ class BitBot {
 
         // Ensure API key exists (in case activation hook didn't run)
         $this->ensure_api_key();
+
+        // Register shortcodes
+        add_shortcode( 'bitbot_form', array( $this, 'render_form_shortcode' ) );
 
         // Add settings link to plugins page
         add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), array( $this, 'add_settings_link' ) );
@@ -333,6 +336,13 @@ class BitBot {
             ),
         ) );
 
+        // Form submission endpoint (public)
+        register_rest_route( 'bitbot/v1', '/form-submit', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'handle_form_submit' ),
+            'permission_callback' => '__return_true',
+        ) );
+
         // Sync endpoint (admin only)
         register_rest_route( 'bitbot/v1', '/sync', array(
             'methods'             => 'POST',
@@ -350,6 +360,196 @@ class BitBot {
                 return current_user_can( 'edit_posts' );
             },
         ) );
+    }
+
+    /**
+     * Handle form submission from shortcode
+     *
+     * @since 1.4.0
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handle_form_submit( $request ) {
+        $params = $request->get_json_params();
+
+        $form_id = isset( $params['formId'] ) ? sanitize_text_field( $params['formId'] ) : '';
+        $name = isset( $params['name'] ) ? sanitize_text_field( $params['name'] ) : '';
+        $email = isset( $params['email'] ) ? sanitize_email( $params['email'] ) : '';
+        $phone = isset( $params['phone'] ) ? sanitize_text_field( $params['phone'] ) : '';
+        $message = isset( $params['message'] ) ? sanitize_textarea_field( $params['message'] ) : '';
+
+        if ( empty( $name ) || empty( $email ) ) {
+            return new WP_REST_Response( array( 'error' => 'Name and email are required' ), 400 );
+        }
+
+        // Get visitor IP for geolocation
+        $ip_address = $request->get_header( 'X-Forwarded-For' );
+        if ( $ip_address ) {
+            $ip_address = explode( ',', $ip_address )[0]; // First IP in chain
+        } else {
+            $ip_address = isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : '';
+        }
+        $ip_address = sanitize_text_field( trim( $ip_address ) );
+
+        $result = $this->api_client->submit_form( $form_id, $name, $email, $phone, $message, $ip_address );
+
+        if ( $result['success'] ) {
+            return new WP_REST_Response( array( 'success' => true ), 200 );
+        } else {
+            return new WP_REST_Response( array( 'error' => $result['error'] ), 500 );
+        }
+    }
+
+    /**
+     * Render [bitbot_form] shortcode
+     *
+     * @since 1.4.0
+     * @return string
+     */
+    public function render_form_shortcode( $atts = array() ) {
+        $atts = shortcode_atts( array( 'id' => '' ), $atts, 'bitbot_form' );
+        $form_id = sanitize_text_field( $atts['id'] );
+
+        $fields = array();
+        if ( $form_id ) {
+            $form_data = $this->api_client->get_form( $form_id );
+            if ( $form_data['success'] && ! empty( $form_data['data']['fields'] ) ) {
+                $fields = $form_data['data']['fields'];
+            }
+        }
+
+        // Fallback: if no form_id or fetch failed, try first available form
+        if ( empty( $fields ) && empty( $form_id ) ) {
+            $forms_result = $this->api_client->get_forms();
+            if ( $forms_result['success'] && ! empty( $forms_result['data']['forms'] ) ) {
+                $first_form = $forms_result['data']['forms'][0];
+                $form_id = $first_form['id'];
+                $fields = $first_form['fields'];
+            }
+        }
+
+        if ( empty( $fields ) ) {
+            // Fallback default fields
+            $fields = array(
+                array( 'name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Your name' ),
+                array( 'name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'placeholder' => 'you@example.com' ),
+                array( 'name' => 'message', 'label' => 'Message', 'type' => 'textarea', 'required' => false, 'placeholder' => 'How can we help?' ),
+            );
+        }
+
+        $primary_color = sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) );
+
+        ob_start();
+        ?>
+        <div class="bitbot-lead-form" style="max-width: 500px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <form id="bitbot-lead-form" novalidate>
+                <?php foreach ( $fields as $field ) :
+                    $name = esc_attr( $field['name'] );
+                    $label = esc_html( $field['label'] );
+                    $type = esc_attr( $field['type'] );
+                    $required = ! empty( $field['required'] );
+                    $placeholder = isset( $field['placeholder'] ) ? esc_attr( $field['placeholder'] ) : '';
+                    $options = isset( $field['options'] ) ? $field['options'] : array();
+                ?>
+                <div style="margin-bottom: 16px;">
+                    <label for="bitbot-field-<?php echo $name; ?>" style="display: block; font-weight: 500; margin-bottom: 4px; font-size: 14px;">
+                        <?php echo $label; ?>
+                        <?php if ( $required ) : ?><span style="color: #dc3545;">*</span><?php endif; ?>
+                    </label>
+                    <?php if ( $type === 'textarea' ) : ?>
+                        <textarea id="bitbot-field-<?php echo $name; ?>" name="<?php echo $name; ?>" placeholder="<?php echo $placeholder; ?>" rows="4" <?php echo $required ? 'required' : ''; ?>
+                            style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; resize: vertical;"></textarea>
+                    <?php elseif ( $type === 'select' ) : ?>
+                        <select id="bitbot-field-<?php echo $name; ?>" name="<?php echo $name; ?>" <?php echo $required ? 'required' : ''; ?>
+                            style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;">
+                            <option value=""><?php echo $placeholder ? $placeholder : 'Select...'; ?></option>
+                            <?php foreach ( $options as $opt ) : ?>
+                                <option value="<?php echo esc_attr( $opt ); ?>"><?php echo esc_html( $opt ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php elseif ( $type === 'radio' ) : ?>
+                        <?php foreach ( $options as $opt ) : ?>
+                            <label style="display: block; margin-bottom: 4px; font-weight: normal; font-size: 14px;">
+                                <input type="radio" name="<?php echo $name; ?>" value="<?php echo esc_attr( $opt ); ?>" <?php echo $required ? 'required' : ''; ?>>
+                                <?php echo esc_html( $opt ); ?>
+                            </label>
+                        <?php endforeach; ?>
+                    <?php elseif ( $type === 'checkbox' ) : ?>
+                        <label style="font-weight: normal; font-size: 14px;">
+                            <input type="checkbox" id="bitbot-field-<?php echo $name; ?>" name="<?php echo $name; ?>" value="1" <?php echo $required ? 'required' : ''; ?>>
+                            <?php echo $placeholder ? esc_html( $placeholder ) : $label; ?>
+                        </label>
+                    <?php else :
+                        $input_type = ( $type === 'email' ) ? 'email' : ( ( $type === 'phone' ) ? 'tel' : 'text' );
+                    ?>
+                        <input type="<?php echo $input_type; ?>" id="bitbot-field-<?php echo $name; ?>" name="<?php echo $name; ?>" placeholder="<?php echo $placeholder; ?>" <?php echo $required ? 'required' : ''; ?>
+                            style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;">
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+
+                <div id="bitbot-form-message" style="display: none; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 14px;"></div>
+
+                <button type="submit" id="bitbot-form-submit"
+                    style="background: <?php echo $primary_color; ?>; color: #fff; border: none; padding: 12px 24px; border-radius: 6px; font-size: 15px; cursor: pointer; width: 100%; font-weight: 500;">
+                    <?php esc_html_e( 'Submit', 'bitbot' ); ?>
+                </button>
+            </form>
+
+            <script>
+            (function() {
+                var form = document.getElementById('bitbot-lead-form');
+                if (!form) return;
+
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    var btn = document.getElementById('bitbot-form-submit');
+                    var msg = document.getElementById('bitbot-form-message');
+                    btn.disabled = true;
+                    btn.textContent = 'Submitting...';
+                    msg.style.display = 'none';
+
+                    var formData = new FormData(form);
+                    var data = { formId: '<?php echo esc_js( $form_id ); ?>' };
+                    formData.forEach(function(value, key) { data[key] = value; });
+
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', '<?php echo esc_url( rest_url( 'bitbot/v1/form-submit' ) ); ?>');
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.setRequestHeader('X-WP-Nonce', '<?php echo wp_create_nonce( 'wp_rest' ); ?>');
+                    xhr.onload = function() {
+                        btn.disabled = false;
+                        btn.textContent = 'Submit';
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            msg.style.display = 'block';
+                            msg.style.background = '#edfaef';
+                            msg.style.color = '#00a32a';
+                            msg.textContent = 'Thank you! We\'ll be in touch soon.';
+                            form.reset();
+                        } else {
+                            var errMsg = 'Something went wrong. Please try again.';
+                            try { var resp = JSON.parse(xhr.responseText); if (resp.error) errMsg = resp.error; } catch(e) {}
+                            msg.style.display = 'block';
+                            msg.style.background = '#fcf0f1';
+                            msg.style.color = '#d63638';
+                            msg.textContent = errMsg;
+                        }
+                    };
+                    xhr.onerror = function() {
+                        btn.disabled = false;
+                        btn.textContent = 'Submit';
+                        msg.style.display = 'block';
+                        msg.style.background = '#fcf0f1';
+                        msg.style.color = '#d63638';
+                        msg.textContent = 'Could not connect. Please check your internet and try again.';
+                    };
+                    xhr.send(JSON.stringify(data));
+                });
+            })();
+            </script>
+        </div>
+        <?php
+        return ob_get_clean();
     }
 
     /**
