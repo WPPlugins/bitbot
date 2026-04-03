@@ -217,6 +217,7 @@ class BitBot_Widget {
                     'message'         => $result['data']['message'],
                     'citations'       => $result['data']['citations'] ?? array(),
                     'suggest_contact' => $result['data']['suggestContact'] ?? false,
+                    'lead_captured'   => $result['data']['leadCaptured'] ?? false,
                 ),
             ), 200 );
         }

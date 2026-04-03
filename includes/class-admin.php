@@ -34,6 +34,9 @@ class BitBot_Admin {
         // Register settings
         add_action('admin_init', array($this, 'register_settings'));
 
+        // Redirect Sync Now menu to dashboard before headers are sent
+        add_action('admin_init', array($this, 'handle_sync_redirect'));
+
         // Register AJAX handlers
         add_action('wp_ajax_bitbot_sync', array($this, 'ajax_sync'));
         add_action('wp_ajax_bitbot_generate', array($this, 'ajax_generate'));
@@ -102,6 +105,16 @@ class BitBot_Admin {
             'manage_options',
             'bitbot',
             array($this, 'render_dashboard_page')
+        );
+
+        // Sync Now submenu — redirects to dashboard with auto_sync flag
+        add_submenu_page(
+            'bitbot',
+            __('Sync Now', 'bitbot'),
+            __('Sync Now', 'bitbot'),
+            'manage_options',
+            'bitbot-sync',
+            array($this, 'redirect_to_sync')
         );
 
         // Leads submenu
@@ -214,6 +227,23 @@ class BitBot_Admin {
     }
 
     /**
+     * Handle Sync Now redirect (runs on admin_init, before headers)
+     */
+    public function handle_sync_redirect() {
+        if ( isset( $_GET['page'] ) && $_GET['page'] === 'bitbot-sync' ) {
+            wp_safe_redirect( admin_url( 'admin.php?page=bitbot&auto_sync=1' ) );
+            exit;
+        }
+    }
+
+    /**
+     * Fallback render for Sync Now page (should never be reached due to redirect)
+     */
+    public function redirect_to_sync() {
+        echo '<p>Redirecting...</p>';
+    }
+
+    /**
      * Render dashboard page
      */
     public function render_dashboard_page() {
@@ -252,9 +282,28 @@ class BitBot_Admin {
             </div>
             <?php endif; ?>
 
+            <?php
+            $auto_sync = isset($_GET['auto_sync']) && $_GET['auto_sync'] === '1';
+            $pages_count = $sync_status['data']['pagesCount'] ?? 0;
+            $last_sync = $sync_status['data']['lastSync'] ?? null;
+            $needs_sync = ! $last_sync || $pages_count === 0;
+            ?>
+
+            <?php if ($needs_sync && ! $auto_sync): ?>
+            <div class="notice notice-warning" style="padding: 12px; border-left-color: #0073aa;">
+                <p style="font-size: 14px; margin: 0;">
+                    <strong><?php esc_html_e('Your content is not synced yet.', 'bitbot'); ?></strong>
+                    <?php esc_html_e('The chatbot needs your content indexed to answer visitor questions.', 'bitbot'); ?>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=bitbot&auto_sync=1' ) ); ?>" class="button button-primary" style="margin-left: 10px;">
+                        <?php esc_html_e('Sync Now', 'bitbot'); ?>
+                    </a>
+                </p>
+            </div>
+            <?php endif; ?>
+
             <div class="bitbot-dashboard">
                 <!-- Sync Status Card -->
-                <div class="bitbot-card">
+                <div class="bitbot-card" style="<?php echo $needs_sync ? 'border: 2px solid #0073aa; box-shadow: 0 0 0 1px #0073aa;' : ''; ?>">
                     <h2><?php esc_html_e('Content Sync', 'bitbot'); ?></h2>
                     <?php if ($sync_status['success']): ?>
                         <p>
@@ -263,21 +312,19 @@ class BitBot_Admin {
                         </p>
                         <p>
                             <strong><?php esc_html_e('Pages Indexed:', 'bitbot'); ?></strong>
-                            <?php echo esc_html($sync_status['data']['pagesCount'] ?? 0); ?>
+                            <?php echo esc_html($pages_count); ?>
                         </p>
                         <p>
                             <strong><?php esc_html_e('Last Sync:', 'bitbot'); ?></strong>
-                            <?php
-                            $last_sync = $sync_status['data']['lastSync'] ?? null;
-                            echo $last_sync ? esc_html(wp_date('M j, Y g:i A', strtotime($last_sync))) : 'Never';
-                            ?>
+                            <?php echo $last_sync ? esc_html(wp_date('M j, Y g:i A', strtotime($last_sync))) : '<span style="color: #dc3545; font-weight: bold;">Never</span>'; ?>
                         </p>
                     <?php else: ?>
                         <p class="error"><?php echo esc_html($sync_status['error'] ?? 'Unable to fetch status'); ?></p>
                     <?php endif; ?>
-                    <button id="bitbot-sync-btn" class="button button-primary">
+                    <button id="bitbot-sync-btn" class="button button-primary" style="font-size: 14px; padding: 6px 20px; height: auto;">
                         <?php esc_html_e('Sync Now', 'bitbot'); ?>
                     </button>
+                    <span id="bitbot-sync-status" style="margin-left: 10px; display: none; color: #666;"></span>
                 </div>
 
                 <!-- Usage Card -->
@@ -1889,7 +1936,11 @@ class BitBot_Admin {
                 html += '<p><strong>Email:</strong> <a href="mailto:' + escHtml(lead.email) + '">' + escHtml(lead.email) + '</a></p>';
                 if (lead.phone) html += '<p><strong>Phone:</strong> ' + escHtml(lead.phone) + '</p>';
                 if (lead.message) html += '<p><strong>Message:</strong> ' + escHtml(lead.message) + '</p>';
-                html += '<p><strong>Source:</strong> <span class="bitbot-status" style="background: #f0f0f1; color: #50575e;">' + escHtml(lead.source) + '</span></p>';
+                html += '<p><strong>Source:</strong> <span class="bitbot-status" style="background: #f0f0f1; color: #50575e;">' + escHtml(lead.source) + '</span>';
+                if (lead.conversationId && data.conversationMessages && data.conversationMessages.length > 0) {
+                    html += ' <button id="bitbot-view-conversation" class="button" style="margin-left: 8px; font-size: 11px; padding: 0 8px; min-height: 26px;">View Conversation</button>';
+                }
+                html += '</p>';
                 var location = lead.city && lead.country ? lead.city + ', ' + lead.country : (lead.country || '');
                 if (location) html += '<p><strong>Location:</strong> ' + escHtml(location) + '</p>';
                 html += '<p><strong>Date:</strong> ' + date + '</p>';
@@ -1981,6 +2032,30 @@ class BitBot_Admin {
                 html += '<button id="bitbot-email-copy" class="button button-primary" style="display:none;">Copy to Clipboard</button>';
                 html += '</div>';
                 html += '</div></div>';
+
+                // Conversation modal (for chat-sourced leads)
+                if (data.conversationMessages && data.conversationMessages.length > 0) {
+                    html += '<div id="bitbot-convo-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:100000; align-items:center; justify-content:center;">';
+                    html += '<div style="background:#fff; border-radius:8px; width:90%; max-width:500px; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">';
+                    html += '<div style="padding:16px 20px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center;">';
+                    html += '<h3 style="margin:0;">Chat Conversation</h3>';
+                    html += '<button id="bitbot-convo-close" style="background:none; border:none; font-size:24px; cursor:pointer; color:#666;">&times;</button>';
+                    html += '</div>';
+                    html += '<div style="padding:20px; overflow-y:auto; flex:1;">';
+                    data.conversationMessages.forEach(function(msg) {
+                        var isUser = msg.role === 'user';
+                        var align = isUser ? 'flex-end' : 'flex-start';
+                        var bg = isUser ? '#0073aa' : '#f0f0f1';
+                        var color = isUser ? '#fff' : '#333';
+                        var label = isUser ? 'Visitor' : 'Bot';
+                        var time = new Date(msg.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                        html += '<div style="display:flex; flex-direction:column; align-items:' + align + '; margin-bottom:12px;">';
+                        html += '<div style="font-size:11px; color:#999; margin-bottom:2px;">' + label + ' &middot; ' + time + '</div>';
+                        html += '<div style="background:' + bg + '; color:' + color + '; padding:8px 12px; border-radius:12px; max-width:80%; font-size:13px; line-height:1.4;">' + escHtml(msg.content) + '</div>';
+                        html += '</div>';
+                    });
+                    html += '</div></div></div>';
+                }
 
                 html += '</div>'; // Close dashboard grid
 
@@ -2106,6 +2181,17 @@ class BitBot_Admin {
                         var $b = $(this);
                         setTimeout(function() { $b.text('Copy to Clipboard'); }, 1500);
                     }
+                });
+
+                // View Conversation modal
+                $('#bitbot-view-conversation').on('click', function() {
+                    $('#bitbot-convo-modal').css('display', 'flex');
+                });
+                $('#bitbot-convo-close').on('click', function() {
+                    $('#bitbot-convo-modal').css('display', 'none');
+                });
+                $('#bitbot-convo-modal').on('click', function(e) {
+                    if (e.target === this) $(this).css('display', 'none');
                 });
             }
 

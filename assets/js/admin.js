@@ -62,51 +62,64 @@
     }
 
     /**
+     * Run sync — called by button click or auto-sync
+     */
+    function runSync() {
+        var $btn = $('#bitbot-sync-btn');
+        if ($btn.prop('disabled')) return; // Already syncing
+
+        var originalText = $btn.text();
+        $btn.text('Syncing... please wait').addClass('syncing').prop('disabled', true);
+
+        var $status = $('<div id="sync-progress" style="margin-top: 10px; padding: 10px; background: #f0f0f1; border-radius: 4px;"><span class="spinner is-active" style="float: none; margin: 0 8px 0 0;"></span>Syncing content... This may take a few minutes for large sites.</div>');
+        $btn.after($status);
+
+        $.ajax({
+            url: config.ajaxUrl,
+            method: 'POST',
+            timeout: 600000,
+            data: {
+                action: 'bitbot_sync',
+                nonce: config.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    var data = response.data;
+                    var msg = data.message || 'Sync complete! ' + (data.pagesSaved || 0) + ' pages synced.';
+                    alert(msg);
+                    location.reload();
+                } else {
+                    alert('Sync failed: ' + ((response.data && response.data.error) || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                if (status === 'timeout') {
+                    alert('Sync timed out. Please try again or check if you have a large number of posts.');
+                } else {
+                    alert('Failed to connect to server: ' + error);
+                }
+            },
+            complete: function() {
+                $btn.text(originalText).removeClass('syncing').prop('disabled', false);
+                $('#sync-progress').remove();
+            }
+        });
+    }
+
+    /**
+     * Auto-sync trigger (called directly, no delays)
+     */
+    function triggerAutoSync() {
+        runSync();
+    }
+
+    /**
      * Sync button functionality
      */
     function bindSyncButton() {
         $('#bitbot-sync-btn').on('click', function(e) {
             e.preventDefault();
-
-            const $btn = $(this);
-            const originalText = $btn.text();
-
-            $btn.text('Syncing... please wait').addClass('syncing').prop('disabled', true);
-
-            // Show progress indicator
-            const $status = $('<div id="sync-progress" style="margin-top: 10px; padding: 10px; background: #f0f0f1; border-radius: 4px;"><span class="spinner is-active" style="float: none; margin: 0 8px 0 0;"></span>Syncing content... This may take a few minutes for large sites.</div>');
-            $btn.after($status);
-
-            $.ajax({
-                url: config.ajaxUrl,
-                method: 'POST',
-                timeout: 600000, // 10 minute timeout (batches are 5 min each)
-                data: {
-                    action: 'bitbot_sync',
-                    nonce: config.nonce
-                },
-                success: function(response) {
-                    if (response.success) {
-                        const data = response.data;
-                        const msg = data.message || `Sync complete! ${data.pagesSaved || 0} pages synced.`;
-                        alert(msg);
-                        location.reload();
-                    } else {
-                        alert('Sync failed: ' + (response.data?.error || 'Unknown error'));
-                    }
-                },
-                error: function(xhr, status, error) {
-                    if (status === 'timeout') {
-                        alert('Sync timed out. Please try again or check if you have a large number of posts.');
-                    } else {
-                        alert('Failed to connect to server: ' + error);
-                    }
-                },
-                complete: function() {
-                    $btn.text(originalText).removeClass('syncing').prop('disabled', false);
-                    $('#sync-progress').remove();
-                }
-            });
+            runSync();
         });
     }
 
@@ -1207,6 +1220,12 @@
         init();
         bindConversationsActions();
         bindPagesActions();
+
+        // Auto-trigger sync when redirected with auto_sync=1
+        if (new URLSearchParams(window.location.search).get('auto_sync') === '1') {
+            window.history.replaceState({}, '', window.location.pathname + '?page=bitbot');
+            triggerAutoSync();
+        }
     });
 
 })(jQuery);

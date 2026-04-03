@@ -20,6 +20,7 @@
     let isOpen = false;
     let isLoading = false;
     let sessionId = null;
+    let leadCapturedEmail = null; // Track if a lead was already captured this session
 
     /**
      * Generate or retrieve session ID
@@ -153,6 +154,18 @@
             if (data.success) {
                 addMessage(data.data.message, 'bot', data.data.citations);
                 chatHistory.push({ role: 'assistant', content: data.data.message });
+
+                // Show lead captured confirmation
+                if (data.data.lead_captured && !leadCapturedEmail) {
+                    var emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                    leadCapturedEmail = emailMatch ? emailMatch[0] : true;
+                    var confirmDiv = document.createElement('div');
+                    confirmDiv.className = 'bitbot-lead-confirmed';
+                    confirmDiv.innerHTML = '<span class="bitbot-lead-check">&#10003;</span> We\'ll follow up' +
+                        (typeof leadCapturedEmail === 'string' ? ' at ' + escapeHtml(leadCapturedEmail) : '') + '.';
+                    messages.appendChild(confirmDiv);
+                    scrollToBottom();
+                }
             } else {
                 addMessage('Sorry, I encountered an error. Please try again.', 'bot');
             }

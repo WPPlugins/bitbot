@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.4.0
+ * Version:           1.5.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.4.0' );
+define( 'BITBOT_VERSION', '1.5.0' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BITBOT_API_URL', 'https://youami.ai/api' );
@@ -131,8 +131,13 @@ class BitBot {
         // Register REST API endpoints
         add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
 
-        // Auto-sync when a post is published
-        add_action( 'transition_post_status', array( $this, 'on_post_published' ), 10, 3 );
+        // Auto-sync on content changes
+        add_action( 'save_post', array( $this, 'on_post_saved' ), 10, 2 );
+        add_action( 'trashed_post', array( $this, 'on_post_deleted' ) );
+        add_action( 'before_delete_post', array( $this, 'on_post_deleted' ) );
+
+        // Redirect to dashboard after activation
+        add_action( 'admin_init', array( $this, 'activation_redirect' ) );
 
         // Ensure API key exists (in case activation hook didn't run)
         $this->ensure_api_key();
@@ -170,25 +175,66 @@ class BitBot {
     }
 
     /**
-     * Trigger sync when a post is published
+     * Redirect to dashboard after plugin activation
      *
-     * @since 1.0.0
-     * @param string  $new_status New post status.
-     * @param string  $old_status Old post status.
-     * @param WP_Post $post       Post object.
+     * @since 1.5.0
      */
-    public function on_post_published( $new_status, $old_status, $post ) {
-        // Only trigger when transitioning TO 'publish' status
-        if ( $new_status === 'publish' && $old_status !== 'publish' ) {
-            // Only for posts (not pages, attachments, etc.) - or customize as needed
-            if ( $post->post_type === 'post' ) {
-                // Get the published post URL
-                $post_url = get_permalink( $post->ID );
+    public function activation_redirect() {
+        if ( get_transient( 'bitbot_activation_redirect' ) ) {
+            delete_transient( 'bitbot_activation_redirect' );
 
-                // Sync only this single URL (much more efficient than full site sync)
-                $this->api_client->sync_single_url( $post_url );
+            // Don't redirect on bulk activations or network admin
+            if ( is_network_admin() || isset( $_GET['activate-multi'] ) ) {
+                return;
             }
+
+            wp_safe_redirect( admin_url( 'admin.php?page=bitbot&auto_sync=1' ) );
+            exit;
         }
+    }
+
+    /**
+     * Sync when a post or page is saved (published or updated)
+     *
+     * @since 1.5.0
+     * @param int     $post_id Post ID.
+     * @param WP_Post $post    Post object.
+     */
+    public function on_post_saved( $post_id, $post ) {
+        // Skip autosaves, revisions, and non-public post types
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
+        if ( wp_is_post_revision( $post_id ) ) return;
+        if ( ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
+
+        // Only sync published content
+        if ( $post->post_status !== 'publish' ) return;
+
+        $post_url = get_permalink( $post_id );
+        $content  = apply_filters( 'the_content', $post->post_content );
+
+        $this->api_client->rpc( 'SyncContent', array(
+            'pages'        => array( array(
+                'url'     => $post_url,
+                'title'   => get_the_title( $post_id ),
+                'content' => $content,
+            ) ),
+            'batchIndex'   => 0,
+            'totalBatches' => 1,
+        ), 120 );
+    }
+
+    /**
+     * Remove from index when a post or page is trashed/deleted
+     *
+     * @since 1.5.0
+     * @param int $post_id Post ID.
+     */
+    public function on_post_deleted( $post_id ) {
+        $post = get_post( $post_id );
+        if ( ! $post || ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
+
+        // Full sync sends allUrls — backend removes pages not in that list
+        $this->api_client->trigger_sync();
     }
 
     /**
@@ -223,6 +269,9 @@ class BitBot {
         // Register site immediately on activation
         $api_client = new BitBot_API_Client();
         $api_client->register_site();
+
+        // Flag to redirect to dashboard and auto-sync on first load
+        set_transient( 'bitbot_activation_redirect', true, 60 );
     }
 
     /**

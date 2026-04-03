@@ -1,64 +1,79 @@
-=== BitBot - AI Chatbot & Content Generator ===
+=== BitBot - AI Chatbot, Content Generator, Forms & Leads ===
 Contributors: youamibot
 Donate link: https://youami.ai
-Tags: chatbot, ai chatbot, multilingual chatbot, customer support, content generator
+Tags: chatbot, ai, chatgpt, live chat, content generator
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-AI chatbot that actually knows your website. Answers visitor questions in 100+ languages with citations. Plus AI content generation.
+4 AI-powered tools for WordPress — chatbot, content generator, forms, and leads pipeline.
 
 == Description ==
 
-Your visitors have questions. Your FAQ page isn't cutting it. Live chat means hiring staff. Generic chatbots give generic answers.
+**Turn your WordPress site into a lead-generating machine.**
 
-**BitBot is different.** It reads your entire website, understands your content, and answers visitor questions accurately — with links back to the right pages. And it does it in over 100 languages, automatically.
+Install BitBot and get four tools working in under 2 minutes — no API keys, no training, no configuration:
+
+**AI Content Generator** — Discover trending topics in your niche. Generate SEO-optimized blog posts from a topic, a URL, or an uploaded document. Preview, edit, and publish to WordPress with one click. SEO metadata included.
+
+**AI Chatbot** — Reads every page on your site and answers visitor questions accurately in 100+ languages — with clickable citations linking back to the source page. Works 24/7 without staff.
+
+**Form Builder** — Describe your form in plain English and BitBot builds it. Or start from basics. Embed anywhere with `[bitbot_form]`. Spam protection built in.
+
+**Leads Pipeline** — Every form submission and chat email captured as a lead. Track through stages (New, Contacted, Qualified, Won, Lost). One-click AI research on any lead. AI-drafted follow-up emails. Geolocation included.
+
+All four work together: content brings traffic, the chatbot answers questions and captures leads, forms capture the rest, and the pipeline helps you close them.
+
+**$10/month. First month free. No API keys. No per-token billing. Just install and go.**
 
 [See it live on PolishingRocks.com](https://polishingrocks.com) — ask the chatbot anything about rock tumbling.
 
-= What makes BitBot different from Tidio, Crisp, or LiveChat? =
+= Content Generator =
 
-Most chat plugins are either **live chat tools** (someone has to be online) or **rule-based bots** (you write every answer manually). BitBot is neither:
+* Discover trending topics in your niche with one click
+* Generate posts that complement your existing content — no duplicates
+* Create from a prompt, a URL, or an uploaded document
+* Full editorial control — preview, edit, approve before publishing
+* SEO metadata generated automatically (title, description, focus keywords)
 
-* **No manual setup** — BitBot crawls your sitemap and learns your content automatically
-* **No canned responses** — It generates real answers from your actual pages, with citations
-* **No language configuration** — Visitors ask in Arabic, Hindi, or Spanish and get answers in the same language
-* **No staff required** — It works 24/7 without anyone monitoring it
-* **Content generation built in** — Most chat plugins don't generate blog posts for you
+= AI Chatbot =
 
-= AI Chatbot — Knows Your Content =
+* Reads and indexes every page and post on your site automatically
+* Answers from your content — not generic AI, not hallucinations
+* Every answer includes citations linking back to the source page and section
+* 100+ languages — visitor asks in Hindi, bot answers in Hindi, even if your site is in English
+* Remembers conversation context — follow-up questions just work
+* When the bot can't fully answer, it naturally suggests sharing an email — lead created automatically
+* Auto-syncs when you publish, update, or delete content
+* Mobile-responsive, customizable colors, loads async (zero speed impact)
 
-* Crawls and indexes every public page on your site
-* Answers questions based on your actual content, not generic AI responses
-* Provides clickable citations linking visitors to the right pages and sections
-* Supports **100+ languages** with automatic detection — no configuration needed
-* Remembers conversation context for natural follow-up questions
-* Mobile-responsive widget that works on any theme
-* Customizable colors and position
+= Form Builder =
 
-= AI Content Generator — Fills Your Content Gaps =
+* Create unlimited lead capture forms
+* Describe what you need in plain English — BitBot generates the fields
+* Or start with basic fields and customize manually
+* Embed on any page with `[bitbot_form]` shortcode
+* Rate limiting and spam protection built in
 
-* Discovers trending topics in your niche with one click
-* Generates SEO-optimized blog posts aware of your existing content
-* Create posts from a prompt, a URL, or an uploaded document
-* Full editorial control — preview, edit, and approve before publishing
-* Built-in SEO metadata (title, description, focus keywords)
-* 7 drafts generated? Review them all before pushing to WordPress
+= Leads Pipeline =
 
-= Built for WordPress =
+* Every form submission and chat email becomes a lead
+* Track leads through stages: New, Contacted, Qualified, Won, Lost
+* AI lead research — scrapes their company website, searches the web, reads the full chat conversation, tells you who they are and what they need
+* AI-drafted personalized follow-up emails
+* View the full chat conversation for any lead that came from the chatbot
+* Geolocation — see where leads are coming from (country and city)
+* Activity timeline with notes, stage changes, and research history
 
-* One-click install, automatic content sync
-* Admin dashboard with usage stats, conversation history, and page management
-* Works with all major caching plugins, themes, and page builders (Elementor, Divi, Gutenberg)
-* Lightweight — chat widget loads asynchronously, zero impact on page speed
+One plugin handles it all — generate content for your niche, answer customer queries 24/7, capture genuine leads through forms and chat, and reach out with AI-drafted emails. $10/month.
 
 = Pricing =
 
-* **First month free** — full access to chatbot and content generation
-* **$10/month after that** — cancel anytime, no contracts
+* **Free to try** — full access for one month, no credit card required
+* **$10/month if you plan to continue** — cancel anytime
 
 = External Services =
 
@@ -100,57 +115,49 @@ By using this plugin, you agree to the terms of service and privacy policies of 
 
 == Frequently Asked Questions ==
 
-= Does BitBot support my language? =
+= What do I get out of the box? =
 
-Yes. BitBot supports 100+ languages out of the box. It automatically detects the visitor's language and responds in that language. Your site can be in English, Spanish, French, German, Hindi, Chinese, Arabic, Japanese, Korean, Portuguese, Russian, or any other language.
+Four tools, all working in under 2 minutes after install: AI Content Generator, AI Chatbot, Form Builder, and Leads Pipeline. No API keys, no configuration, no training data to upload.
 
-= How does the chatbot learn about my site? =
+= How does the AI chatbot work? =
 
-On activation, the plugin fetches your sitemap and crawls all public pages. Content is processed, chunked, and indexed with vector embeddings for semantic search. You can manually trigger a re-sync anytime from the dashboard.
+On activation, BitBot indexes all your published pages and posts. When a visitor asks a question, it finds the most relevant content and generates an accurate answer with citations linking back to the source page. It auto-syncs when you publish, update, or delete content.
 
-= How is this different from ChatGPT or other AI chatbots? =
+= Can the chatbot answer in multiple languages? =
 
-Generic AI chatbots don't know your website content. BitBot indexes your specific pages and only answers based on what's actually on your site, with citations linking back to the source. It won't make things up or give generic answers.
+Yes. BitBot supports 100+ languages automatically. If a visitor asks in Hindi, the chatbot answers in Hindi — even if your site is in English. No language configuration needed.
 
-= Does BitBot store my content? =
+= How does the AI content generator work? =
 
-Yes, your page content is stored securely on youami.ai servers to enable AI chat. This data is only used to answer visitor questions and is not shared with third parties or used to train AI models.
+Enter a topic, paste a URL, or upload a document. BitBot generates an SEO-optimized blog post with title, meta description, and focus keywords. It knows your existing content and avoids duplicates. You preview, edit, and publish with one click.
 
-= What happens to visitor chat data? =
+= How does lead capture work? =
 
-Chat conversations are stored to provide context-aware responses. You can review all interactions in the admin dashboard. Visitor IP addresses may be collected for analytics.
+Two ways. First, you can create lead capture forms with the form builder and embed them anywhere with `[bitbot_form]`. Second, when the chatbot can't fully answer a visitor's question, it naturally suggests they share their email — and a lead is created automatically with the full conversation, their location, and AI research attached.
 
-= How is the content generation different from other AI tools? =
+= What can I do with captured leads? =
 
-BitBot's content generator knows your existing content. It discovers gaps in your coverage and creates complementary posts that don't duplicate what you already have. It also generates SEO metadata automatically.
+Track them through stages (New, Contacted, Qualified, Won, Lost). Run AI research to learn who they are and what they need. Draft personalized follow-up emails with one click. View the full chat conversation for leads that came through the chatbot.
 
-= What AI model powers this? =
+= Do I need API keys or a ChatGPT account? =
 
-Claude by Anthropic — known for high-quality, accurate, and nuanced outputs. Used for both chat responses and content generation.
+No. BitBot handles all AI infrastructure. No API keys, no per-token billing, no configuration. Everything is included.
+
+= Will the chatbot make things up? =
+
+No. BitBot only answers based on your actual website content. Every answer includes citations linking to the source page. If it can't find the answer in your content, it says so and offers to connect the visitor with you.
+
+= Does it slow down my site? =
+
+No. The chat widget loads asynchronously with zero impact on page speed. Works with all caching plugins and page builders.
 
 = Is there a free trial? =
 
-Yes. Your first month is completely free with full access. After that, the service is $10/month. Cancel anytime.
+Yes. Full access for one month, no credit card required. $10/month if you plan to continue. Cancel anytime.
 
-= What data is sent to external servers? =
+= What happens to my data? =
 
-* Website URL and sitemap location
-* Public page content for indexing
-* Chat messages between visitors and the bot
-* Visitor IP addresses for conversation tracking
-* Email address for subscription billing (via Stripe)
-
-= Can I delete my data? =
-
-Yes. Contact support@youami.ai to request complete deletion of your site data from our servers.
-
-= Does it work with caching plugins? =
-
-Yes. The chat widget loads asynchronously and doesn't interfere with page caching. Compatible with WP Super Cache, W3 Total Cache, LiteSpeed Cache, and others.
-
-= Does it work with any theme? =
-
-Yes. BitBot works with any modern WordPress theme and page builder including Elementor, Divi, Gutenberg, Astra, GeneratePress, and more.
+Your content is stored securely and used only to answer your visitors' questions. It is not shared with third parties or used to train AI models. Contact support@youami.ai to request deletion at any time.
 
 == Screenshots ==
 
@@ -165,6 +172,16 @@ Yes. BitBot works with any modern WordPress theme and page builder including Ele
 9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.5.0 =
+* **Chat-to-Lead Capture** — chatbot detects emails in conversation and creates leads automatically
+* **View Conversation** — see the full chat history for any lead that came from the chatbot
+* **AI Research with chat context** — lead research now includes the full conversation for better insights
+* **Auto-sync on activation** — content indexed immediately after plugin install
+* **Incremental sync** — new posts and pages indexed automatically on publish or update
+* **Delete detection** — trashed content removed from chatbot knowledge automatically
+* **Sync Now menu item** — quick access to trigger content sync from the sidebar
+* **Dashboard sync improvements** — warning banner and highlighted card when content needs syncing
 
 = 1.4.0 =
 * **Leads Pipeline** — capture and manage leads with stage tracking (New, Contacted, Qualified, Won, Lost)
@@ -208,6 +225,9 @@ Yes. BitBot works with any modern WordPress theme and page builder including Ele
 * Conversation history viewing
 
 == Upgrade Notice ==
+
+= 1.5.0 =
+Chat-to-lead capture is here! The chatbot now detects emails in conversation and creates leads automatically. Plus auto-sync on install, incremental sync on publish/update, and full conversation history in lead details.
 
 = 1.4.0 =
 New leads pipeline! Capture leads with custom forms, track them through stages, and let AI research and draft follow-up emails for you.
