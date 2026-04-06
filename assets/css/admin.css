@@ -238,3 +238,16 @@
     background: #fcf0f1;
     color: #d63638;
 }
+
+/* Form builder drag-to-reorder */
+.bitbot-field-placeholder {
+    border: 2px dashed #0073aa;
+    background: #f0f6fc;
+    border-radius: 4px;
+    height: 50px;
+    margin-bottom: 8px;
+}
+
+.bitbot-field-row.ui-sortable-helper {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}

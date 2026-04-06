@@ -5,7 +5,7 @@ Tags: chatbot, ai, chatgpt, live chat, content generator
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.5.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -172,6 +172,9 @@ Your content is stored securely and used only to answer your visitors' questions
 9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.5.1 =
+* **Drag-to-reorder fields** — form builder fields can now be reordered by dragging the grab handle
 
 = 1.5.0 =
 * **Chat-to-Lead Capture** — chatbot detects emails in conversation and creates leads automatically

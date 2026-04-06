@@ -1633,6 +1633,19 @@ class BitBot_Admin {
             }
 
             function bindEvents() {
+                // Drag-to-reorder fields
+                $('#bitbot-fields-list').sortable({
+                    handle: '.dashicons-menu',
+                    axis: 'y',
+                    cursor: 'grabbing',
+                    placeholder: 'bitbot-field-placeholder',
+                    tolerance: 'pointer',
+                    stop: function() {
+                        // Re-index and update preview
+                        $('#bitbot-fields-list .bitbot-field-row').each(function(i) { $(this).data('index', i); });
+                        $('#bitbot-form-preview').html(renderFormPreview(collectFields()));
+                    }
+                });
                 $('#bitbot-add-field').off('click').on('click', function() {
                     formData.fields = collectFields();
                     formData.fields.push({name:'field_'+(formData.fields.length+1),label:'',type:'text',required:false,placeholder:''});
