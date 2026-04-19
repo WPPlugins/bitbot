@@ -151,9 +151,29 @@ class BitBot_API_Client {
      * @return array API response.
      */
     public function register_site() {
-        return $this->rpc( 'RegisterSite', array(
+        $admin_email = sanitize_email( get_option( 'admin_email', '' ) );
+
+        $payload = array(
             'domain'     => $this->get_site_domain(),
             'sitemapUrl' => $this->get_sitemap_url(),
+        );
+        if ( ! empty( $admin_email ) ) {
+            $payload['notificationEmail'] = $admin_email;
+        }
+
+        return $this->rpc( 'RegisterSite', $payload );
+    }
+
+    /**
+     * Update the email address that receives new-lead notifications.
+     *
+     * @since 1.5.2
+     * @param string $email Email address (empty string disables notifications).
+     * @return array API response.
+     */
+    public function update_notification_email( $email ) {
+        return $this->rpc( 'UpdateNotificationEmail', array(
+            'notificationEmail' => sanitize_email( $email ),
         ) );
     }
 
@@ -741,6 +761,27 @@ class BitBot_API_Client {
     }
 
     /**
+     * Sync a single page's content to the backend (used by save_post hook)
+     *
+     * @since 1.5.2
+     * @param string $url     Page URL.
+     * @param string $title   Page title.
+     * @param string $content Rendered page content.
+     * @return array API response.
+     */
+    public function sync_single_page( $url, $title, $content ) {
+        return $this->rpc( 'SyncContent', array(
+            'pages'        => array( array(
+                'url'     => esc_url_raw( $url ),
+                'title'   => sanitize_text_field( $title ),
+                'content' => $content,
+            ) ),
+            'batchIndex'   => 0,
+            'totalBatches' => 1,
+        ), 120 );
+    }
+
+    /**
      * Resync a specific page by gathering its content from WordPress
      *
      * @since 1.0.0
@@ -817,6 +858,16 @@ class BitBot_API_Client {
      * @param string $search Search query (optional).
      * @return array API response.
      */
+    /**
+     * Get the count of leads that haven't been opened yet.
+     *
+     * @since 1.5.2
+     * @return array API response with { count: int }.
+     */
+    public function get_unviewed_leads_count() {
+        return $this->rpc( 'GetUnviewedLeadsCount' );
+    }
+
     public function get_leads( $stage = '', $search = '' ) {
         $payload = array();
         if ( ! empty( $stage ) ) {

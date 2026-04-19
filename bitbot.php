@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.5.1
+ * Version:           1.5.2
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.5.1' );
+define( 'BITBOT_VERSION', '1.5.2' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BITBOT_API_URL', 'https://youami.ai/api' );
@@ -136,6 +136,9 @@ class BitBot {
         add_action( 'trashed_post', array( $this, 'on_post_deleted' ) );
         add_action( 'before_delete_post', array( $this, 'on_post_deleted' ) );
 
+        // Deferred sync handler (runs via WP-Cron, not inside the REST save request)
+        add_action( 'bitbot_sync_post', array( $this, 'run_deferred_post_sync' ) );
+
         // Redirect to dashboard after activation
         add_action( 'admin_init', array( $this, 'activation_redirect' ) );
 
@@ -209,18 +212,34 @@ class BitBot {
         // Only sync published content
         if ( $post->post_status !== 'publish' ) return;
 
-        $post_url = get_permalink( $post_id );
-        $content  = apply_filters( 'the_content', $post->post_content );
+        // Debounce: if a sync for this post is already pending, cancel it and re-queue.
+        // Latest save wins — no duplicate runs.
+        $args = array( (int) $post_id );
+        $existing = wp_next_scheduled( 'bitbot_sync_post', $args );
+        if ( $existing ) {
+            wp_unschedule_event( $existing, 'bitbot_sync_post', $args );
+        }
 
-        $this->api_client->rpc( 'SyncContent', array(
-            'pages'        => array( array(
-                'url'     => $post_url,
-                'title'   => get_the_title( $post_id ),
-                'content' => $content,
-            ) ),
-            'batchIndex'   => 0,
-            'totalBatches' => 1,
-        ), 120 );
+        wp_schedule_single_event( time() + 10, 'bitbot_sync_post', $args );
+    }
+
+    /**
+     * Deferred sync handler — runs via WP-Cron outside the REST save request.
+     *
+     * @since 1.5.2
+     * @param int $post_id Post ID.
+     */
+    public function run_deferred_post_sync( $post_id ) {
+        $post = get_post( $post_id );
+        if ( ! $post ) return;
+        if ( ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
+        if ( $post->post_status !== 'publish' ) return;
+
+        $this->api_client->sync_single_page(
+            get_permalink( $post_id ),
+            get_the_title( $post_id ),
+            apply_filters( 'the_content', $post->post_content )
+        );
     }
 
     /**

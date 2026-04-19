@@ -5,7 +5,7 @@ Tags: chatbot, ai, chatgpt, live chat, content generator
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.5.1
+Stable tag: 1.5.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -172,6 +172,13 @@ Your content is stored securely and used only to answer your visitors' questions
 9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.5.2 =
+* **New lead email notifications** — get an email the moment a visitor turns into a lead, with their details and a link to the dashboard
+* **Notification email setting** — customise the recipient in BitBot → Settings; defaults to the WordPress admin email
+* **Menu badge for unviewed leads** — red pill on the BitBot menu shows how many leads you haven't opened yet (drops as soon as you open each one)
+* **Fixed: 500 error when saving posts in the block editor** — REST save no longer blocks on BitBot's background sync; saves return immediately
+* **Faster editor saves** — content re-indexing now happens ~10s after save in the background, and rapid saves coalesce into a single sync
 
 = 1.5.1 =
 * **Drag-to-reorder fields** — form builder fields can now be reordered by dragging the grab handle

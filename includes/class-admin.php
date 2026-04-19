@@ -83,13 +83,59 @@ class BitBot_Admin {
     }
 
     /**
+     * Cache key for the "new leads" count transient.
+     *
+     * @var string
+     */
+    const NEW_LEADS_COUNT_TRANSIENT = 'bitbot_new_leads_count';
+
+    /**
+     * Get count of unviewed leads — leads that haven't been opened in the
+     * admin yet. Cached for 60s.
+     *
+     * Returns 0 on failure (e.g. API down, unregistered site) so the menu
+     * still renders cleanly.
+     *
+     * @return int
+     */
+    private function get_new_leads_count() {
+        $cached = get_transient( self::NEW_LEADS_COUNT_TRANSIENT );
+        if ( $cached !== false ) {
+            return (int) $cached;
+        }
+
+        $result = $this->api_client->get_unviewed_leads_count();
+        $count  = 0;
+        if ( ! empty( $result['success'] ) && isset( $result['data']['count'] ) ) {
+            $count = (int) $result['data']['count'];
+        }
+
+        set_transient( self::NEW_LEADS_COUNT_TRANSIENT, $count, MINUTE_IN_SECONDS );
+        return $count;
+    }
+
+    /**
+     * Bust the new-leads count cache so the next admin page render refreshes it.
+     */
+    private function bust_new_leads_count_cache() {
+        delete_transient( self::NEW_LEADS_COUNT_TRANSIENT );
+    }
+
+    /**
      * Add admin menu pages
      */
     public function add_admin_menu() {
+        $new_leads   = $this->get_new_leads_count();
+        $bubble      = $new_leads > 0
+            ? ' <span class="awaiting-mod update-plugins count-' . absint( $new_leads ) . '"><span class="pending-count">' . absint( $new_leads ) . '</span></span>'
+            : '';
+        $bitbot_label = __( 'BitBot', 'bitbot' ) . $bubble;
+        $leads_label  = __( 'Leads', 'bitbot' ) . $bubble;
+
         // Main menu page
         add_menu_page(
             __('BitBot', 'bitbot'),
-            __('BitBot', 'bitbot'),
+            $bitbot_label,
             'manage_options',
             'bitbot',
             array($this, 'render_dashboard_page'),
@@ -121,7 +167,7 @@ class BitBot_Admin {
         add_submenu_page(
             'bitbot',
             __('Leads', 'bitbot'),
-            __('Leads', 'bitbot'),
+            $leads_label,
             'manage_options',
             'bitbot-leads',
             array($this, 'render_leads_page')
@@ -183,6 +229,11 @@ class BitBot_Admin {
             'sanitize_callback' => 'sanitize_textarea_field',
             'default'           => 'Hi! How can I help you navigate our website today?',
         ));
+        register_setting('bitbot_settings', 'bitbot_notification_email', array(
+            'type'              => 'string',
+            'sanitize_callback' => array($this, 'sanitize_notification_email'),
+            'default'           => get_option('admin_email', ''),
+        ));
 
         // Add settings sections
         add_settings_section(
@@ -224,6 +275,46 @@ class BitBot_Admin {
             'bitbot-settings',
             'bitbot_chatbot_section'
         );
+
+        // Leads & Notifications section
+        add_settings_section(
+            'bitbot_leads_section',
+            __('Leads & Notifications', 'bitbot'),
+            array($this, 'render_leads_section'),
+            'bitbot-settings'
+        );
+
+        add_settings_field(
+            'bitbot_notification_email',
+            __('Notification Email', 'bitbot'),
+            array($this, 'render_notification_email_field'),
+            'bitbot-settings',
+            'bitbot_leads_section'
+        );
+    }
+
+    /**
+     * Sanitize notification email and push the change to the BitBot backend.
+     *
+     * @since 1.5.2
+     * @param string $value Raw input.
+     * @return string Sanitized email (or empty string to disable notifications).
+     */
+    public function sanitize_notification_email( $value ) {
+        $clean = sanitize_email( (string) $value );
+        if ( ! empty( $value ) && empty( $clean ) ) {
+            add_settings_error(
+                'bitbot_notification_email',
+                'bitbot_notification_email_invalid',
+                __( 'Notification email is not a valid address — leaving unchanged.', 'bitbot' )
+            );
+            return (string) get_option( 'bitbot_notification_email', '' );
+        }
+
+        // Push the change upstream — failures are non-fatal, local option still persists.
+        $this->api_client->update_notification_email( $clean );
+
+        return $clean;
     }
 
     /**
@@ -749,6 +840,26 @@ class BitBot_Admin {
         $message = get_option('bitbot_welcome_message', 'Hi! How can I help you navigate our website today?');
         ?>
         <textarea name="bitbot_welcome_message" rows="2" class="large-text"><?php echo esc_textarea($message); ?></textarea>
+        <?php
+    }
+
+    public function render_leads_section() {
+        echo '<p>' . esc_html__( 'Where BitBot should send an email when a new lead comes in. Leave blank to disable notifications.', 'bitbot' ) . '</p>';
+    }
+
+    public function render_notification_email_field() {
+        $email = get_option( 'bitbot_notification_email', get_option( 'admin_email', '' ) );
+        ?>
+        <input
+            type="email"
+            name="bitbot_notification_email"
+            value="<?php echo esc_attr( $email ); ?>"
+            class="regular-text"
+            placeholder="you@example.com"
+        >
+        <p class="description">
+            <?php esc_html_e( 'Defaults to the WordPress admin email. You can change it any time.', 'bitbot' ); ?>
+        </p>
         <?php
     }
 
@@ -2261,6 +2372,8 @@ class BitBot_Admin {
 
         $result = $this->api_client->get_lead($lead_id);
         if ($result['success']) {
+            // Opening a lead marks it viewed upstream — refresh the badge count.
+            $this->bust_new_leads_count_cache();
             wp_send_json_success($result['data']);
         } else {
             wp_send_json_error(array('error' => $result['error']));
@@ -2281,6 +2394,7 @@ class BitBot_Admin {
 
         $result = $this->api_client->update_lead_stage($lead_id, $stage);
         if ($result['success']) {
+            $this->bust_new_leads_count_cache();
             wp_send_json_success($result['data']);
         } else {
             wp_send_json_error(array('error' => $result['error']));
@@ -2320,6 +2434,7 @@ class BitBot_Admin {
 
         $result = $this->api_client->delete_lead($lead_id);
         if ($result['success']) {
+            $this->bust_new_leads_count_cache();
             wp_send_json_success($result['data']);
         } else {
             wp_send_json_error(array('error' => $result['error']));
