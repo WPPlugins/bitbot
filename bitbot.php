@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.5.2
+ * Version:           1.6.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.5.2' );
+define( 'BITBOT_VERSION', '1.6.0' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BITBOT_API_URL', 'https://youami.ai/api' );
@@ -142,6 +142,9 @@ class BitBot {
         // Redirect to dashboard after activation
         add_action( 'admin_init', array( $this, 'activation_redirect' ) );
 
+        // One-time upgrade tasks (e.g., backfill notification_email on 1.5.2 -> 1.6.0)
+        add_action( 'admin_init', array( $this, 'maybe_run_upgrade_tasks' ) );
+
         // Ensure API key exists (in case activation hook didn't run)
         $this->ensure_api_key();
 
@@ -175,6 +178,40 @@ class BitBot {
             $api_key = 'bb_' . str_replace( '-', '', wp_generate_uuid4() );
             update_option( 'bitbot_api_key', $api_key );
         }
+    }
+
+    /**
+     * One-time upgrade tasks. Runs on every admin page load; the stored
+     * `bitbot_db_version` option ensures each task fires at most once per install.
+     *
+     * @since 1.6.0
+     */
+    public function maybe_run_upgrade_tasks() {
+        $stored = get_option( 'bitbot_db_version', '0' );
+        if ( version_compare( $stored, BITBOT_VERSION, '>=' ) ) {
+            return;
+        }
+
+        // 1.6.0: backfill notification_email on the backend for sites that installed
+        // pre-1.5.2 (migration 009 added the column as NULL for existing rows).
+        if ( version_compare( $stored, '1.6.0', '<' ) ) {
+            $local_notification = get_option( 'bitbot_notification_email', '' );
+            $admin_email        = get_option( 'admin_email', '' );
+            $email              = ! empty( $local_notification ) ? $local_notification : $admin_email;
+
+            if ( ! empty( $email ) && is_email( $email ) ) {
+                // Fire and forget — backend update. Failure is non-fatal; next
+                // time the user opens Settings the sanitize callback will retry.
+                $this->api_client->update_notification_email( $email );
+
+                // Mirror into the local option so the Settings UI shows the correct value.
+                if ( empty( $local_notification ) ) {
+                    update_option( 'bitbot_notification_email', $email );
+                }
+            }
+        }
+
+        update_option( 'bitbot_db_version', BITBOT_VERSION );
     }
 
     /**

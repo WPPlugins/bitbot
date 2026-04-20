@@ -141,9 +141,33 @@ class BitBot_Widget {
                     </button>
                 </form>
 
-                            </div>
+                <?php if ( ! $this->is_pro() ) : ?>
+                    <div class="bitbot-branding">
+                        <?php esc_html_e( 'Powered by', 'bitbot' ); ?>
+                        <a href="https://youami.ai/?utm_source=widget&utm_medium=branding&utm_campaign=free_tier"
+                           target="_blank"
+                           rel="noopener nofollow">
+                           BitBot
+                        </a>
+                    </div>
+                <?php endif; ?>
+
+            </div>
         </div>
         <?php
+    }
+
+    /**
+     * Read cached plan status (written by BitBot_Admin on admin page loads).
+     * Widget can't reliably hit the API on every page view, so we rely on the
+     * cached value and default to Free (show branding) when no cache is present.
+     *
+     * @since 1.6.0
+     * @return bool True if the site is on the Pro plan.
+     */
+    private function is_pro() {
+        $status = get_transient( 'bitbot_plan_status' );
+        return is_array( $status ) && ! empty( $status['plan'] ) && $status['plan'] === 'pro';
     }
 
     /**

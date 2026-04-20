@@ -5,7 +5,7 @@ Tags: chatbot, ai, chatgpt, live chat, content generator
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.5.2
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -172,6 +172,15 @@ Your content is stored securely and used only to answer your visitors' questions
 9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.6.0 =
+* **Free plan is now free forever** — no more trials that expire. Upgrade to Pro ($20/mo) whenever you're ready.
+* **Free plan includes:** 100 chat messages/month, 3 AI-generated blog posts/month (24h cooldown), 1 contact form, up to 10 stored leads, multilingual chatbot, full content indexing.
+* **Pro plan ($20/mo) unlocks:** unlimited chat, unlimited posts from any source (prompt, URL, PDF upload), unlimited forms, unlimited leads, AI lead research + drafted follow-up emails, email notifications on new leads, Topic Discovery, Style Analysis, AI form generation, and removes the "Powered by BitBot" branding.
+* **Usage banner** — see your current-period usage on the BitBot Dashboard at a glance.
+* **Fixed: "Settings saved" notice now appears** when saving BitBot settings.
+* **Fixed: Chat no longer resets** when visitors navigate between pages in the same tab.
+* **Fixed: Existing installs get their notification email auto-configured** on upgrade (no need to open Settings).
 
 = 1.5.2 =
 * **New lead email notifications** — get an email the moment a visitor turns into a lead, with their details and a link to the dashboard

@@ -90,6 +90,126 @@ class BitBot_Admin {
     const NEW_LEADS_COUNT_TRANSIENT = 'bitbot_new_leads_count';
 
     /**
+     * Cache key for the plan status transient.
+     *
+     * @var string
+     */
+    const PLAN_STATUS_TRANSIENT = 'bitbot_plan_status';
+
+    /**
+     * Get the site's plan status (plan + usage + limits), cached for 5 minutes.
+     *
+     * @since 1.6.0
+     * @return array { plan: 'free'|'pro', limits: array, usage: array }
+     */
+    private function get_plan_status() {
+        $cached = get_transient( self::PLAN_STATUS_TRANSIENT );
+        if ( $cached !== false && is_array( $cached ) ) {
+            return $cached;
+        }
+
+        $result = $this->api_client->get_plan_status();
+        if ( empty( $result['success'] ) || empty( $result['data'] ) ) {
+            // API unreachable — assume free so we show the conservative UI.
+            $fallback = array(
+                'plan'   => 'free',
+                'limits' => array(
+                    'chatMessagesPerMonth' => 100,
+                    'postsPerMonth'        => 3,
+                    'postCooldownHours'    => 24,
+                    'maxLeads'             => 10,
+                    'maxForms'             => 1,
+                ),
+                'usage'  => array(
+                    'chatMessagesThisMonth' => 0,
+                    'postsThisMonth'        => 0,
+                    'leadsCount'            => 0,
+                    'formsCount'            => 0,
+                    'lastPostGeneratedAt'   => null,
+                ),
+            );
+            return $fallback;
+        }
+
+        $status = $result['data'];
+        set_transient( self::PLAN_STATUS_TRANSIENT, $status, 5 * MINUTE_IN_SECONDS );
+        return $status;
+    }
+
+    /**
+     * Convenience: true if site is on the Pro plan.
+     *
+     * @return bool
+     */
+    public function is_pro() {
+        $status = $this->get_plan_status();
+        return ! empty( $status['plan'] ) && $status['plan'] === 'pro';
+    }
+
+    /**
+     * Bust plan-status cache (e.g. after a successful Stripe checkout).
+     */
+    private function bust_plan_status_cache() {
+        delete_transient( self::PLAN_STATUS_TRANSIENT );
+    }
+
+    /**
+     * Render the plan banner at the top of BitBot admin pages.
+     * Shows plan name + current usage vs limits + upgrade CTA for Free users.
+     *
+     * @since 1.6.0
+     */
+    private function render_plan_banner() {
+        $status = $this->get_plan_status();
+        $plan   = $status['plan'] ?? 'free';
+        $is_pro = $plan === 'pro';
+        $u      = $status['usage'] ?? array();
+        $l      = $status['limits'] ?? array();
+
+        if ( $is_pro ) {
+            ?>
+            <div class="notice" style="border-left-color: #22863a; padding: 10px 14px;">
+                <p style="margin: 0; font-size: 14px;">
+                    <strong style="color: #22863a;"><?php esc_html_e( 'Pro plan', 'bitbot' ); ?></strong>
+                    — <?php esc_html_e( 'all features unlocked. Thanks for supporting BitBot!', 'bitbot' ); ?>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        $chat_cap  = absint( $l['chatMessagesPerMonth'] ?? 100 );
+        $chat_used = absint( $u['chatMessagesThisMonth'] ?? 0 );
+        $post_cap  = absint( $l['postsPerMonth'] ?? 3 );
+        $post_used = absint( $u['postsThisMonth'] ?? 0 );
+        $leads_cap = absint( $l['maxLeads'] ?? 10 );
+        $leads_used = absint( $u['leadsCount'] ?? 0 );
+
+        $upgrade_url = esc_url( admin_url( 'admin.php?page=bitbot#upgrade' ) );
+        ?>
+        <div class="notice" style="border-left-color: #0073aa; padding: 12px 16px; background: #fff;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <div>
+                    <strong><?php esc_html_e( 'Free plan', 'bitbot' ); ?></strong>
+                    — <?php
+                    printf(
+                        /* translators: 1: chat used, 2: chat cap, 3: posts used, 4: posts cap, 5: leads used, 6: leads cap */
+                        esc_html__( '%1$d / %2$d chat messages · %3$d / %4$d posts · %5$d / %6$d leads this month.', 'bitbot' ),
+                        $chat_used, $chat_cap, $post_used, $post_cap, $leads_used, $leads_cap
+                    );
+                    ?>
+                </div>
+                <div>
+                    <button id="bitbot-subscribe-btn" class="button button-primary">
+                        <?php esc_html_e( 'Upgrade to Pro — $20/mo', 'bitbot' ); ?>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
      * Get count of unviewed leads — leads that haven't been opened in the
      * admin yet. Cached for 60s.
      *
@@ -340,6 +460,12 @@ class BitBot_Admin {
     public function render_dashboard_page() {
         $reconnected = false;
 
+        // Returning from a successful Stripe checkout — bust cached plan so the
+        // dashboard reflects Pro immediately (webhook may have already run).
+        if ( isset( $_GET['subscription'] ) && $_GET['subscription'] === 'success' ) {
+            $this->bust_plan_status_cache();
+        }
+
         // Check if API key is valid by testing subscription endpoint
         $subscription = $this->api_client->get_subscription();
 
@@ -372,6 +498,8 @@ class BitBot_Admin {
                 <p><?php esc_html_e('Site reconnected successfully!', 'bitbot'); ?></p>
             </div>
             <?php endif; ?>
+
+            <?php $this->render_plan_banner(); ?>
 
             <?php
             $auto_sync = isset($_GET['auto_sync']) && $_GET['auto_sync'] === '1';
@@ -645,6 +773,7 @@ class BitBot_Admin {
         ?>
         <div class="wrap">
             <h1><?php esc_html_e('Content Generator', 'bitbot'); ?></h1>
+            <?php $this->render_plan_banner(); ?>
 
             <!-- Discover Topics Card -->
             <div class="bitbot-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
@@ -788,9 +917,21 @@ class BitBot_Admin {
      * Render settings page
      */
     public function render_settings_page() {
+        // WordPress auto-renders the "Settings saved." notice on options-general.php
+        // but not on custom admin pages like ours. Surface it manually.
+        if ( isset( $_GET['settings-updated'] ) ) {
+            add_settings_error(
+                'bitbot_messages',
+                'bitbot_settings_saved',
+                __( 'Settings saved.', 'bitbot' ),
+                'updated'
+            );
+        }
         ?>
         <div class="wrap">
             <h1><?php esc_html_e('BitBot Settings', 'bitbot'); ?></h1>
+            <?php settings_errors( 'bitbot_messages' ); ?>
+            <?php $this->render_plan_banner(); ?>
             <form method="post" action="options.php">
                 <?php
                 settings_fields('bitbot_settings');
@@ -1179,6 +1320,7 @@ class BitBot_Admin {
         $result = $this->api_client->cancel_subscription();
 
         if ($result['success']) {
+            $this->bust_plan_status_cache();
             wp_send_json_success($result['data']);
         } else {
             wp_send_json_error(array('error' => $result['error']));
@@ -1198,6 +1340,7 @@ class BitBot_Admin {
         $result = $this->api_client->reactivate_subscription();
 
         if ($result['success']) {
+            $this->bust_plan_status_cache();
             wp_send_json_success($result['data']);
         } else {
             wp_send_json_error(array('error' => $result['error']));
@@ -1454,6 +1597,7 @@ class BitBot_Admin {
                 <?php esc_html_e('Forms', 'bitbot'); ?>
                 <a href="<?php echo esc_url(admin_url('admin.php?page=bitbot-forms&action=new')); ?>" class="page-title-action"><?php esc_html_e('Create New Form', 'bitbot'); ?></a>
             </h1>
+            <?php $this->render_plan_banner(); ?>
 
             <div id="bitbot-forms-list" style="margin-top: 10px;">
                 <div class="spinner is-active" style="float: none;"></div>
@@ -1853,6 +1997,7 @@ class BitBot_Admin {
         ?>
         <div class="wrap">
             <h1><?php esc_html_e('Leads', 'bitbot'); ?></h1>
+            <?php $this->render_plan_banner(); ?>
 
             <!-- Stage filter tabs -->
             <ul class="subsubsub" style="margin-bottom: 15px;">

@@ -868,6 +868,17 @@ class BitBot_API_Client {
         return $this->rpc( 'GetUnviewedLeadsCount' );
     }
 
+    /**
+     * Get the site's plan + current-period usage + limits.
+     * Powers UI gating: watermarks, upgrade CTAs, disabled buttons.
+     *
+     * @since 1.6.0
+     * @return array API response with { plan, limits, usage }.
+     */
+    public function get_plan_status() {
+        return $this->rpc( 'GetPlanStatus' );
+    }
+
     public function get_leads( $stage = '', $search = '' ) {
         $payload = array();
         if ( ! empty( $stage ) ) {
@@ -996,10 +1007,25 @@ class BitBot_API_Client {
         $draft = $result['data'];
         $seo   = $draft['seoMeta'] ?? array();
 
+        // Free plan: append a subtle "Draft by BitBot →" footer to the post body.
+        // Pro plan leaves the content untouched.
+        $content = $draft['content'];
+        $plan_status = $this->get_plan_status();
+        $is_pro = ! empty( $plan_status['success'] )
+            && ( $plan_status['data']['plan'] ?? 'free' ) === 'pro';
+
+        if ( ! $is_pro ) {
+            $content .= "\n\n<!-- bitbot-draft-footer -->\n";
+            $content .= '<p style="font-size: 12px; color: #888; text-align: center; margin-top: 32px;">';
+            $content .= '<em>' . esc_html__( 'Draft by', 'bitbot' ) . ' ';
+            $content .= '<a href="https://youami.ai/?utm_source=post&utm_medium=draft_footer&utm_campaign=free_tier" ';
+            $content .= 'target="_blank" rel="noopener nofollow">BitBot</a> →</em></p>';
+        }
+
         // Create WordPress post
         $post_data = array(
             'post_title'   => sanitize_text_field( $draft['title'] ),
-            'post_content' => wp_kses_post( $draft['content'] ),
+            'post_content' => wp_kses_post( $content ),
             'post_status'  => 'draft',
             'post_type'    => 'post',
             'post_name'    => sanitize_title( $draft['slug'] ?? $draft['title'] ),

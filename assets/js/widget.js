@@ -22,6 +22,33 @@
     let sessionId = null;
     let leadCapturedEmail = null; // Track if a lead was already captured this session
 
+    // Per-tab chat persistence (1.5.3): sessionStorage so the conversation
+    // survives navigation within the same tab, wipes on tab close.
+    const CHAT_STORAGE_KEY = 'bitbot_chat_state';
+
+    function saveChatState() {
+        try {
+            sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+                sessionId: sessionId,
+                history: chatHistory,
+                leadCapturedEmail: leadCapturedEmail,
+                isOpen: isOpen,
+            }));
+        } catch (e) {
+            // Storage quota or privacy mode — not fatal.
+        }
+    }
+
+    function loadChatState() {
+        try {
+            const raw = sessionStorage.getItem(CHAT_STORAGE_KEY);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (e) {
+            return null;
+        }
+    }
+
     /**
      * Generate or retrieve session ID
      */
@@ -83,6 +110,26 @@
                 toggleChat();
             }
         });
+
+        // Rehydrate chat state from sessionStorage (persists across page navigation
+        // within the same tab).
+        const saved = loadChatState();
+        if (saved && Array.isArray(saved.history) && saved.history.length > 0) {
+            if (saved.sessionId) sessionId = saved.sessionId;
+            chatHistory = saved.history;
+            leadCapturedEmail = saved.leadCapturedEmail || null;
+
+            // Remove the static welcome message — replay the real conversation.
+            messages.innerHTML = '';
+            chatHistory.forEach(function(msg) {
+                addMessage(msg.content, msg.role === 'user' ? 'user' : 'bot');
+            });
+
+            // Re-open the chat if the visitor had it open when they navigated.
+            if (saved.isOpen) {
+                toggleChat();
+            }
+        }
     }
 
     /**
@@ -104,6 +151,8 @@
             if (iconChat) iconChat.style.display = 'block';
             if (iconClose) iconClose.style.display = 'none';
         }
+
+        saveChatState();
     }
 
     /**
@@ -118,6 +167,7 @@
         // Add user message
         addMessage(message, 'user');
         chatHistory.push({ role: 'user', content: message });
+        saveChatState();
 
         // Clear input
         input.value = '';
@@ -154,11 +204,13 @@
             if (data.success) {
                 addMessage(data.data.message, 'bot', data.data.citations);
                 chatHistory.push({ role: 'assistant', content: data.data.message });
+                saveChatState();
 
                 // Show lead captured confirmation
                 if (data.data.lead_captured && !leadCapturedEmail) {
                     var emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
                     leadCapturedEmail = emailMatch ? emailMatch[0] : true;
+                    saveChatState();
                     var confirmDiv = document.createElement('div');
                     confirmDiv.className = 'bitbot-lead-confirmed';
                     confirmDiv.innerHTML = '<span class="bitbot-lead-check">&#10003;</span> We\'ll follow up' +

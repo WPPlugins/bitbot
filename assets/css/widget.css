@@ -336,3 +336,26 @@
     font-weight: bold;
     margin-right: 4px;
 }
+
+/* Free-tier branding footer (1.6.0) */
+.bitbot-branding {
+    text-align: center;
+    font-size: 11px;
+    color: #8a8a8a;
+    padding: 6px 0 8px;
+    background: #fafafa;
+    border-top: 1px solid #eee;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+.bitbot-branding a {
+    color: #6b6b6b;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.bitbot-branding a:hover {
+    color: var(--bitbot-primary, #0073aa);
+    text-decoration: underline;
+}
