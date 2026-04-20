@@ -563,110 +563,74 @@ class BitBot_Admin {
                     <?php endif; ?>
                 </div>
 
-                <!-- Subscription Card -->
+                <!-- Plan Card -->
                 <div class="bitbot-card">
-                    <h2><?php esc_html_e('Subscription', 'bitbot'); ?></h2>
-                    <?php if ($subscription['success']):
-                        $sub_data = $subscription['data'];
-                        $status = $sub_data['subscriptionStatus'] ?? 'trialing';
-                        $is_active = $sub_data['isActive'] ?? false;
-                        $days_remaining = $sub_data['daysRemaining'] ?? null;
-                        $trial_ends_at = $sub_data['trialEndsAt'] ?? null;
-                        $current_period_end = $sub_data['currentPeriodEnd'] ?? null;
-
-                        // Status badge styles
-                        $status_styles = array(
-                            'trialing' => 'background: #0073aa; color: white;',
-                            'active' => 'background: #46b450; color: white;',
-                            'cancelled' => 'background: #f0ad4e; color: white;',
-                            'expired' => 'background: #dc3545; color: white;',
-                        );
-                        $status_style = $status_styles[$status] ?? $status_styles['trialing'];
-                        $status_label = ucfirst($status);
+                    <h2><?php esc_html_e('Plan', 'bitbot'); ?></h2>
+                    <?php
+                    $plan_status_card       = $this->get_plan_status();
+                    $plan                   = $plan_status_card['plan'] ?? 'free';
+                    $is_pro                 = $plan === 'pro';
+                    $sub_data               = $subscription['success'] ? $subscription['data'] : array();
+                    $sub_status             = $sub_data['subscriptionStatus'] ?? '';
+                    $current_period_end     = $sub_data['currentPeriodEnd'] ?? null;
+                    $is_cancelled_but_paid  = $sub_status === 'cancelled' && ! empty( $sub_data['isActive'] );
                     ?>
                         <p>
                             <strong><?php esc_html_e('Status:', 'bitbot'); ?></strong>
-                            <span style="<?php echo esc_attr($status_style); ?> padding: 3px 10px; border-radius: 3px; font-size: 12px;">
-                                <?php echo esc_html($status_label); ?>
-                            </span>
+                            <?php if ( $is_pro ) : ?>
+                                <span style="background: #46b450; color: white; padding: 3px 10px; border-radius: 3px; font-size: 12px;">Pro</span>
+                            <?php else : ?>
+                                <span style="background: #6b6b6b; color: white; padding: 3px 10px; border-radius: 3px; font-size: 12px;">Free</span>
+                            <?php endif; ?>
                         </p>
 
-                        <?php if ($status === 'trialing' && $trial_ends_at): ?>
+                        <?php if ( $is_pro && $current_period_end ) : ?>
                             <p>
-                                <strong><?php esc_html_e('Trial Ends:', 'bitbot'); ?></strong>
-                                <?php echo esc_html(gmdate('F j, Y', strtotime($trial_ends_at))); ?>
-                                <?php if ($days_remaining !== null): ?>
-                                    <span style="color: #666;">(<?php echo esc_html($days_remaining); ?> days remaining)</span>
-                                <?php endif; ?>
-                                <?php if ($days_remaining !== null && $days_remaining <= 7): ?>
-                                    <br><span style="color: #dc3545; font-weight: bold;">
-                                        <?php esc_html_e('Subscribe now to avoid interruption!', 'bitbot'); ?>
-                                    </span>
-                                <?php endif; ?>
+                                <strong><?php esc_html_e( 'Next renewal:', 'bitbot' ); ?></strong>
+                                <?php echo esc_html( gmdate( 'F j, Y', strtotime( $current_period_end ) ) ); ?>
                             </p>
                         <?php endif; ?>
 
-                        <?php if ($status === 'active' && $current_period_end): ?>
-                            <p>
-                                <strong><?php esc_html_e('Next Renewal:', 'bitbot'); ?></strong>
-                                <?php echo esc_html(gmdate('F j, Y', strtotime($current_period_end))); ?>
-                            </p>
-                        <?php endif; ?>
-
-                        <?php if ($status === 'cancelled' && $is_active && $current_period_end): ?>
+                        <?php if ( $is_cancelled_but_paid && $current_period_end ) : ?>
                             <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;">
-                                <strong><?php esc_html_e('Subscription Cancelled', 'bitbot'); ?></strong>
+                                <strong><?php esc_html_e( 'Subscription cancelled', 'bitbot' ); ?></strong>
                                 <p style="margin: 5px 0 0;">
                                     <?php
                                     /* translators: %s: subscription end date */
-                                    printf(esc_html__('Your subscription is cancelled but you still have access until %s.', 'bitbot'), esc_html(gmdate('F j, Y', strtotime($current_period_end))));
+                                    printf( esc_html__( 'Your Pro access continues until %s, then the site drops to the Free plan.', 'bitbot' ), esc_html( gmdate( 'F j, Y', strtotime( $current_period_end ) ) ) );
                                     ?>
                                 </p>
                             </div>
                         <?php endif; ?>
 
-                        <?php if ($status === 'expired'): ?>
-                            <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; margin: 10px 0;">
-                                <strong><?php esc_html_e('Your trial has expired!', 'bitbot'); ?></strong>
-                                <p style="margin: 5px 0 0;"><?php esc_html_e('Subscribe now for just $10/month to continue using BitBot.', 'bitbot'); ?></p>
-                            </div>
-                        <?php endif; ?>
-
                         <p style="margin-top: 15px;">
-                            <strong><?php esc_html_e('Price:', 'bitbot'); ?></strong> $10/month
+                            <strong><?php esc_html_e( 'Price:', 'bitbot' ); ?></strong>
+                            <?php echo $is_pro ? '$20/month' : esc_html__( 'Free forever', 'bitbot' ); ?>
                         </p>
 
-                        <?php if ($status === 'active'): ?>
+                        <?php if ( $is_pro && ! $is_cancelled_but_paid ) : ?>
                             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                                 <button id="bitbot-billing-btn" class="button button-secondary">
-                                    <?php esc_html_e('Manage Billing / Invoices', 'bitbot'); ?>
+                                    <?php esc_html_e( 'Manage Billing / Invoices', 'bitbot' ); ?>
                                 </button>
                                 <button id="bitbot-cancel-btn" class="button" style="color: #a00;">
-                                    <?php esc_html_e('Cancel Subscription', 'bitbot'); ?>
+                                    <?php esc_html_e( 'Cancel Subscription', 'bitbot' ); ?>
                                 </button>
                             </div>
-                        <?php elseif ($status === 'cancelled' && $is_active): ?>
+                        <?php elseif ( $is_cancelled_but_paid ) : ?>
                             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                                 <button id="bitbot-billing-btn" class="button button-secondary">
-                                    <?php esc_html_e('Manage Billing / Invoices', 'bitbot'); ?>
+                                    <?php esc_html_e( 'Manage Billing / Invoices', 'bitbot' ); ?>
                                 </button>
                                 <button id="bitbot-reactivate-btn" class="button button-primary">
-                                    <?php esc_html_e('Reactivate Subscription', 'bitbot'); ?>
+                                    <?php esc_html_e( 'Reactivate Subscription', 'bitbot' ); ?>
                                 </button>
                             </div>
-                        <?php elseif ($status === 'expired' || ($status === 'cancelled' && !$is_active)): ?>
+                        <?php else : ?>
                             <button id="bitbot-subscribe-btn" class="button button-primary button-hero" style="margin-top: 10px;">
-                                <?php esc_html_e('Subscribe Now - $10/mo', 'bitbot'); ?>
-                            </button>
-                        <?php elseif ($status === 'trialing'): ?>
-                            <button id="bitbot-subscribe-btn" class="button button-primary button-hero" style="margin-top: 10px;">
-                                <?php esc_html_e('Subscribe - $10/mo', 'bitbot'); ?>
+                                <?php esc_html_e( 'Upgrade to Pro — $20/mo', 'bitbot' ); ?>
                             </button>
                         <?php endif; ?>
-
-                    <?php else: ?>
-                        <p class="error"><?php echo esc_html($subscription['error'] ?? 'Unable to fetch subscription'); ?></p>
-                    <?php endif; ?>
                 </div>
 
                 <!-- Indexed Pages Card -->

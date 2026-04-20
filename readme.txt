@@ -5,7 +5,7 @@ Tags: chatbot, ai, chatgpt, live chat, content generator
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.6.0
+Stable tag: 1.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,7 +27,7 @@ Install BitBot and get four tools working in under 2 minutes — no API keys, no
 
 All four work together: content brings traffic, the chatbot answers questions and captures leads, forms capture the rest, and the pipeline helps you close them.
 
-**$10/month. First month free. No API keys. No per-token billing. Just install and go.**
+**Free forever (with sensible limits). Upgrade to Pro for $20/month when you outgrow the free tier. No API keys. No per-token billing. Just install and go.**
 
 [See it live on PolishingRocks.com](https://polishingrocks.com) — ask the chatbot anything about rock tumbling.
 
@@ -68,12 +68,13 @@ All four work together: content brings traffic, the chatbot answers questions an
 * Geolocation — see where leads are coming from (country and city)
 * Activity timeline with notes, stage changes, and research history
 
-One plugin handles it all — generate content for your niche, answer customer queries 24/7, capture genuine leads through forms and chat, and reach out with AI-drafted emails. $10/month.
+One plugin handles it all — generate content for your niche, answer customer queries 24/7, capture genuine leads through forms and chat, and reach out with AI-drafted emails.
 
 = Pricing =
 
-* **Free to try** — full access for one month, no credit card required
-* **$10/month if you plan to continue** — cancel anytime
+**Free forever** — 100 chat messages/month, 3 AI blog posts/month (24h cooldown), 1 contact form, up to 10 stored leads, multilingual chatbot, full content indexing. Shows a small "Powered by BitBot" link in the widget.
+
+**Pro — $20/month** unlocks everything: unlimited chat, unlimited posts (from prompts, URLs, or PDF uploads), unlimited forms, unlimited leads, AI lead research + drafted follow-up emails, email notifications on new leads, Topic Discovery, Style Analysis, AI form generation, and removes all branding. Cancel anytime.
 
 = External Services =
 
@@ -151,9 +152,9 @@ No. BitBot only answers based on your actual website content. Every answer inclu
 
 No. The chat widget loads asynchronously with zero impact on page speed. Works with all caching plugins and page builders.
 
-= Is there a free trial? =
+= Is there a free plan? =
 
-Yes. Full access for one month, no credit card required. $10/month if you plan to continue. Cancel anytime.
+Yes — Free forever, no credit card required. 100 chat messages/month, 3 AI blog posts/month, 1 contact form, up to 10 stored leads. Upgrade to Pro ($20/month) for unlimited everything + AI lead research and email notifications. Cancel anytime.
 
 = What happens to my data? =
 
@@ -172,6 +173,10 @@ Your content is stored securely and used only to answer your visitors' questions
 9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.6.1 =
+* **Fixed: BitBot Dashboard Subscription card still said "$10/month"** — now correctly shows Free / Pro plan + $20/mo pricing.
+* **Fixed: Plugin description and FAQ** — removed the old "$10/month, first month free trial" wording now that Free is forever.
 
 = 1.6.0 =
 * **Free plan is now free forever** — no more trials that expire. Upgrade to Pro ($20/mo) whenever you're ready.
