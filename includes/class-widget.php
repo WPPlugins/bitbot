@@ -146,7 +146,7 @@ class BitBot_Widget {
                         <?php esc_html_e( 'Powered by', 'bitbot' ); ?>
                         <a href="https://youami.ai/?utm_source=widget&utm_medium=branding&utm_campaign=free_tier"
                            target="_blank"
-                           rel="noopener nofollow">
+                           rel="noopener">
                            BitBot
                         </a>
                     </div>

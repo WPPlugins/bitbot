@@ -5,7 +5,7 @@ Tags: chatbot, ai, chatgpt, live chat, content generator
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.6.1
+Stable tag: 1.6.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -173,6 +173,9 @@ Your content is stored securely and used only to answer your visitors' questions
 9. Create New Form with AI-powered field generation or start with basic fields
 
 == Changelog ==
+
+= 1.6.2 =
+* **SEO fix:** the "Powered by BitBot" widget footer and "Draft by BitBot" post footer are now regular dofollow links (was `nofollow` by mistake in 1.6.0–1.6.1). Free-tier installs now contribute proper backlinks.
 
 = 1.6.1 =
 * **Fixed: BitBot Dashboard Subscription card still said "$10/month"** — now correctly shows Free / Pro plan + $20/mo pricing.

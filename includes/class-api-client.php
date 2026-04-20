@@ -1019,7 +1019,7 @@ class BitBot_API_Client {
             $content .= '<p style="font-size: 12px; color: #888; text-align: center; margin-top: 32px;">';
             $content .= '<em>' . esc_html__( 'Draft by', 'bitbot' ) . ' ';
             $content .= '<a href="https://youami.ai/?utm_source=post&utm_medium=draft_footer&utm_campaign=free_tier" ';
-            $content .= 'target="_blank" rel="noopener nofollow">BitBot</a> →</em></p>';
+            $content .= 'target="_blank" rel="noopener">BitBot</a> →</em></p>';
         }
 
         // Create WordPress post
