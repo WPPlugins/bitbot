@@ -85,12 +85,32 @@ class BitBot_Widget {
 
         $position        = sanitize_text_field( get_option( 'bitbot_widget_position', 'bottom-right' ) );
         $primary_color   = sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) );
+        // Owner-configurable pixel offsets from the chosen corner. JS
+        // auto-flip can override --bitbot-offset-y at runtime when it
+        // detects collision in the corner (stack on top of the
+        // occupant) without touching the saved option.
+        $offset_x = max( 0, min( 200, (int) get_option( 'bitbot_widget_offset_x', 20 ) ) );
+        $offset_y = max( 0, min( 200, (int) get_option( 'bitbot_widget_offset_y', 20 ) ) );
 
         // Check if user has set a custom welcome message, otherwise use localized default
         $custom_message  = get_option( 'bitbot_welcome_message', '' );
         $welcome_message = ! empty( $custom_message ) ? wp_kses_post( $custom_message ) : $this->get_localized_greeting();
         ?>
-        <div id="bitbot-widget" class="bitbot-widget bitbot-<?php echo esc_attr( $position ); ?>" style="--bitbot-primary: <?php echo esc_attr( $primary_color ); ?>">
+        <?php
+        // The class on the root is what visually places the widget; the
+        // data-preferred attribute records what the OWNER configured so
+        // the auto-flip JS can always reason from the original
+        // preference even after it's mutated the class once. Strips the
+        // 'bottom-' prefix so JS gets a clean 'left' / 'right'.
+        $preferred_corner = ( strpos( $position, 'left' ) !== false ) ? 'left' : 'right';
+        $widget_style     = sprintf(
+            '--bitbot-primary: %s; --bitbot-offset-x: %dpx; --bitbot-offset-y: %dpx;',
+            esc_attr( $primary_color ),
+            $offset_x,
+            $offset_y
+        );
+        ?>
+        <div id="bitbot-widget" class="bitbot-widget bitbot-<?php echo esc_attr( $position ); ?>" data-preferred="<?php echo esc_attr( $preferred_corner ); ?>" data-base-offset-y="<?php echo esc_attr( $offset_y ); ?>" style="<?php echo esc_attr( $widget_style ); ?>">
             <!-- Chat Toggle Button -->
             <button id="bitbot-toggle" class="bitbot-toggle" aria-label="<?php esc_attr_e( 'Open chat', 'bitbot' ); ?>">
                 <svg class="bitbot-icon-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -158,16 +178,21 @@ class BitBot_Widget {
     }
 
     /**
-     * Read cached plan status (written by BitBot_Admin on admin page loads).
-     * Widget can't reliably hit the API on every page view, so we rely on the
-     * cached value and default to Free (show branding) when no cache is present.
+     * Read the persisted plan snapshot. Written by admin-side refreshes
+     * and the scheduled refresh cron, so the widget sees a reasonably
+     * fresh plan even on sites where an admin rarely opens the dashboard.
      *
-     * @since 1.6.0
-     * @return bool True if the site is on the Pro plan.
+     * Front-end code MUST NOT hit the API on every page view, so we
+     * default to Free (show branding) when the cache is missing — a
+     * conservative default that favours paying customers briefly seeing
+     * branding during a first-visit race, not losing them forever.
+     *
+     * @since 1.6.0 (persistent-cache rewrite in 1.7.0)
+     * @return bool True if the site is on a paid plan (pro or pro_plus).
      */
     private function is_pro() {
-        $status = get_transient( 'bitbot_plan_status' );
-        return is_array( $status ) && ! empty( $status['plan'] ) && $status['plan'] === 'pro';
+        $status = BitBot_Plan::get_cached_status();
+        return BitBot_Plan::is_paid( $status['plan'] ?? null );
     }
 
     /**
@@ -205,11 +230,13 @@ class BitBot_Widget {
      * @return WP_REST_Response REST response.
      */
     public function handle_chat_request( $request ) {
-        $message       = sanitize_text_field( $request->get_param( 'message' ) );
-        $history       = $request->get_param( 'history' ) ?? array();
-        $session_id    = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
-        $site_language = sanitize_text_field( $request->get_param( 'siteLanguage' ) ?? substr( get_locale(), 0, 2 ) );
-        $visitor_ip    = $this->get_visitor_ip();
+        $message          = sanitize_text_field( $request->get_param( 'message' ) );
+        $history          = $request->get_param( 'history' ) ?? array();
+        $session_id       = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
+        $visitor_id       = sanitize_text_field( $request->get_param( 'visitorId' ) ?? '' );
+        $visitor_timezone = sanitize_text_field( $request->get_param( 'visitorTimezone' ) ?? '' );
+        $site_language    = sanitize_text_field( $request->get_param( 'siteLanguage' ) ?? substr( get_locale(), 0, 2 ) );
+        $visitor_ip       = $this->get_visitor_ip();
 
         if ( empty( $message ) ) {
             return new WP_REST_Response( array(
@@ -232,7 +259,7 @@ class BitBot_Widget {
             }
         }
 
-        $result = $this->api_client->chat( $message, $sanitized_history, $session_id, $visitor_ip, $site_language );
+        $result = $this->api_client->chat( $message, $sanitized_history, $session_id, $visitor_ip, $site_language, $visitor_id, $visitor_timezone );
 
         if ( $result['success'] ) {
             return new WP_REST_Response( array(
@@ -242,6 +269,15 @@ class BitBot_Widget {
                     'citations'       => $result['data']['citations'] ?? array(),
                     'suggest_contact' => $result['data']['suggestContact'] ?? false,
                     'lead_captured'   => $result['data']['leadCaptured'] ?? false,
+                    // 1.7.0: surfaced by the Pro+ agent when the conversation
+                    // is in live-mode (a human is handling it). Widget uses
+                    // this to switch to poll mode.
+                    'live_mode'       => $result['data']['liveMode'] ?? false,
+                    // 1.7.0: structured product cards from `searchProducts`.
+                    // Widget renders these as visual cards with image +
+                    // price + CTA instead of relying on the agent's inline
+                    // markdown links.
+                    'products'        => $result['data']['products'] ?? array(),
                 ),
             ), 200 );
         }
@@ -250,5 +286,73 @@ class BitBot_Widget {
             'success' => false,
             'error'   => $result['error'] ?? __( 'Failed to get response', 'bitbot' ),
         ), 500 );
+    }
+
+    /**
+     * Poll endpoint used by the widget while a conversation is in live
+     * mode to pick up new admin messages + detect thread closure.
+     *
+     * @since 1.7.0
+     */
+    public function handle_live_updates_request( $request ) {
+        $session_id      = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
+        $since_message_id = sanitize_text_field( $request->get_param( 'sinceMessageId' ) ?? '' );
+
+        if ( empty( $session_id ) ) {
+            return new WP_REST_Response( array(
+                'success' => false,
+                'error'   => 'sessionId required',
+            ), 400 );
+        }
+
+        $result = $this->api_client->get_live_chat_updates( $session_id, $since_message_id );
+        if ( $result['success'] ) {
+            return new WP_REST_Response( array(
+                'success' => true,
+                'data'    => $result['data'],
+            ), 200 );
+        }
+        return new WP_REST_Response( array( 'success' => false, 'error' => $result['error'] ?? 'poll failed' ), 500 );
+    }
+
+    /**
+     * Visitor heartbeat — fired every 30s while the widget is open and
+     * the page is visible. Stamps conversations.visitor_last_seen_at so
+     * the admin dashboard can render an accurate "present / idle / left"
+     * pill. Best-effort: failures are silent, the visitor doesn't need
+     * to know.
+     *
+     * @since 1.7.0
+     */
+    public function handle_visitor_heartbeat( $request ) {
+        $session_id = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
+        if ( empty( $session_id ) ) {
+            return new WP_REST_Response( array( 'success' => false ), 400 );
+        }
+        $result = $this->api_client->visitor_heartbeat( $session_id );
+        // Forward the liveMode flag so the widget can detect admin-initiated
+        // takeover on its next tick (see assets/js/widget.js startHeartbeat).
+        $live_mode = ! empty( $result['success'] ) && ! empty( $result['data']['liveMode'] );
+        return new WP_REST_Response( array(
+            'success' => true,
+            'data'    => array( 'liveMode' => (bool) $live_mode ),
+        ), 200 );
+    }
+
+    /**
+     * Visitor-left beacon — fired from beforeunload via sendBeacon so
+     * the tab can close without waiting for our ack. Stamps
+     * conversations.visitor_left_at so the admin sees "left" immediately
+     * instead of waiting for the heartbeat to go stale.
+     *
+     * @since 1.7.0
+     */
+    public function handle_visitor_left( $request ) {
+        $session_id = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
+        if ( empty( $session_id ) ) {
+            return new WP_REST_Response( array( 'success' => false ), 400 );
+        }
+        $this->api_client->visitor_left( $session_id );
+        return new WP_REST_Response( array( 'success' => true ), 200 );
     }
 }

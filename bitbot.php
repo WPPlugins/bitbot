@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.6.2
+ * Version:           1.8.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,13 +45,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.6.2' );
+define( 'BITBOT_VERSION', '1.8.1' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BITBOT_API_URL', 'https://youami.ai/api' );
 // define( 'BITBOT_API_URL', 'https://dev.youami.ai/api' );
 
 // Include required files
+require_once BITBOT_PLUGIN_DIR . 'includes/class-plan.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-api-client.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-admin.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-widget.php';
@@ -62,6 +63,28 @@ require_once BITBOT_PLUGIN_DIR . 'includes/class-widget.php';
  * @since 1.0.0
  */
 class BitBot {
+
+    /**
+     * Cron hook: hourly retry of first content sync. Self-unregisters
+     * once the backend reports at least one indexed page, so it's a
+     * bounded safety net, not a steady-state load.
+     */
+    const FIRST_SYNC_CRON_HOOK = 'bitbot_retry_first_sync';
+
+    /**
+     * Single-shot cron fired once from activate(). Runs every outbound
+     * HTTP call (register_site, get_plan_status, trigger_sync) off the
+     * activation-request critical path so slow hosts don't half-install.
+     */
+    const FIRST_BOOT_CRON_HOOK = 'bitbot_first_boot';
+
+    /**
+     * Deferred first sync — scheduled by first_boot_cron for +65s so it
+     * runs in a separate wp-cron.php invocation, with its own PHP
+     * execution budget, avoiding "blocking POST killed mid-flight"
+     * failures on shared hosts.
+     */
+    const FIRST_SYNC_RUN_HOOK = 'bitbot_first_sync_run';
 
     /**
      * Singleton instance
@@ -139,6 +162,18 @@ class BitBot {
         // Deferred sync handler (runs via WP-Cron, not inside the REST save request)
         add_action( 'bitbot_sync_post', array( $this, 'run_deferred_post_sync' ) );
 
+        // Daily plan-cache refresh (hook scheduled in activate()).
+        add_action( BitBot_Plan::REFRESH_CRON_HOOK, array( $this, 'refresh_plan_status_cron' ) );
+
+        // Hourly safety-net that retries the first content sync until
+        // at least one page is indexed. Self-unregisters on success.
+        add_action( self::FIRST_SYNC_CRON_HOOK, array( $this, 'retry_first_sync_cron' ) );
+
+        // Single-shot first-boot handler (register + plan seed + first
+        // sync). Bumps PHP limits internally so the blocking sync POST
+        // doesn't get killed by tight wp-cron execution budgets.
+        add_action( self::FIRST_BOOT_CRON_HOOK, array( $this, 'first_boot_cron' ) );
+
         // Redirect to dashboard after activation
         add_action( 'admin_init', array( $this, 'activation_redirect' ) );
 
@@ -208,6 +243,23 @@ class BitBot {
                 if ( empty( $local_notification ) ) {
                     update_option( 'bitbot_notification_email', $email );
                 }
+            }
+        }
+
+        // 1.7.0: sites upgrading from 1.6.x never ran activate() for
+        // this version, so defer a first-boot cron to seed the plan
+        // cache + kick sync + schedule the refresh crons. Same deferral
+        // pattern as a fresh install — outbound calls never block the
+        // admin page load.
+        if ( version_compare( $stored, '1.7.0', '<' ) ) {
+            if ( ! wp_next_scheduled( self::FIRST_BOOT_CRON_HOOK ) ) {
+                wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
+            }
+            if ( ! wp_next_scheduled( BitBot_Plan::REFRESH_CRON_HOOK ) ) {
+                wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', BitBot_Plan::REFRESH_CRON_HOOK );
+            }
+            if ( ! wp_next_scheduled( self::FIRST_SYNC_CRON_HOOK ) ) {
+                wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'hourly', self::FIRST_SYNC_CRON_HOOK );
             }
         }
 
@@ -322,12 +374,68 @@ class BitBot {
         // Flush rewrite rules
         flush_rewrite_rules();
 
-        // Register site immediately on activation
-        $api_client = new BitBot_API_Client();
-        $api_client->register_site();
+        // Defer every outbound HTTP call to a single-shot wp_cron so
+        // activation finishes cleanly — TasteWP-style sandboxes, shared
+        // hosts with short max_execution_time, and cheap hostgators
+        // routinely kill activation mid-register_site / trigger_sync,
+        // leaving the plugin half-seeded and the chatbot pointed at
+        // an empty corpus forever. The cron runs on the next WP tick,
+        // a few seconds after activation.
+        if ( ! wp_next_scheduled( self::FIRST_BOOT_CRON_HOOK ) ) {
+            wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
+        }
+
+        // Refresh the cached plan once a day so paying customers aren't
+        // stuck showing Free branding if no admin visits the dashboard
+        // and the plan changes server-side (checkout, downgrade, etc.).
+        if ( ! wp_next_scheduled( BitBot_Plan::REFRESH_CRON_HOOK ) ) {
+            wp_schedule_event( time() + DAY_IN_SECONDS, 'daily', BitBot_Plan::REFRESH_CRON_HOOK );
+        }
+
+        // Hourly safety-net: retries the first sync until the site has
+        // at least one indexed page. Self-unregisters on success.
+        if ( ! wp_next_scheduled( self::FIRST_SYNC_CRON_HOOK ) ) {
+            wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'hourly', self::FIRST_SYNC_CRON_HOOK );
+        }
 
         // Flag to redirect to dashboard and auto-sync on first load
         set_transient( 'bitbot_activation_redirect', true, 60 );
+    }
+
+    /**
+     * First-boot handler, fired once from a single-shot wp_cron a few
+     * seconds after activation. Does all the outbound work (register
+     * site, fetch plan, initial sync) outside the activation request
+     * so a slow API can't brick the install.
+     *
+     * @since 1.7.0
+     */
+    public function first_boot_cron() {
+        // Give this cron invocation more runway — shared hosts often
+        // inherit a 30s max_execution_time from the parent wp-cron.php
+        // request, which kills trigger_sync mid-POST. Raise both time +
+        // memory for the duration of THIS callback, and keep processing
+        // even if the HTTP client that spawned us disconnects.
+        @set_time_limit( 300 );
+        @ignore_user_abort( true );
+        wp_raise_memory_limit( 'admin' );
+
+        update_option( 'bitbot_first_boot_started', current_time( 'mysql' ), false );
+
+        $this->api_client->register_site();
+
+        $plan = $this->api_client->get_plan_status();
+        if ( ! empty( $plan['success'] ) && ! empty( $plan['data'] ) ) {
+            BitBot_Plan::store_cached_status( $plan['data'] );
+        }
+
+        $sync = $this->api_client->trigger_sync();
+
+        update_option(
+            'bitbot_first_boot_finished',
+            current_time( 'mysql' ) . ' sync=' . ( ! empty( $sync['success'] ) ? 'ok' : 'err:' . ( $sync['error'] ?? 'unknown' ) ),
+            false
+        );
     }
 
     /**
@@ -338,6 +446,45 @@ class BitBot {
     public function deactivate() {
         // Clear scheduled events
         wp_clear_scheduled_hook( 'bitbot_scheduled_posts' );
+        wp_clear_scheduled_hook( BitBot_Plan::REFRESH_CRON_HOOK );
+        wp_clear_scheduled_hook( self::FIRST_SYNC_CRON_HOOK );
+        wp_clear_scheduled_hook( self::FIRST_BOOT_CRON_HOOK );
+        wp_clear_scheduled_hook( self::FIRST_SYNC_RUN_HOOK );
+    }
+
+    /**
+     * Daily background refresh of the persistent plan cache. Runs via
+     * WP-Cron so the widget stays current even on sites where admins
+     * rarely open the dashboard.
+     *
+     * @since 1.7.0
+     */
+    public function refresh_plan_status_cron() {
+        $result = $this->api_client->get_plan_status();
+        if ( ! empty( $result['success'] ) && ! empty( $result['data'] ) ) {
+            BitBot_Plan::store_cached_status( $result['data'] );
+        }
+    }
+
+    /**
+     * Hourly safety-net: if the site still has zero indexed pages, kick
+     * the sync again. Self-unregisters once pagesCount > 0 so we don't
+     * keep hammering sync on already-synced sites.
+     *
+     * @since 1.7.0
+     */
+    public function retry_first_sync_cron() {
+        $status = $this->api_client->get_sync_status();
+        if ( ! empty( $status['success'] ) ) {
+            $pages_count = (int) ( $status['data']['pagesCount'] ?? 0 );
+            if ( $pages_count > 0 ) {
+                wp_clear_scheduled_hook( self::FIRST_SYNC_CRON_HOOK );
+                return;
+            }
+        }
+        // Still zero — re-kick non-blocking so a tight cron budget can't
+        // kill us mid-POST and leave the site empty forever.
+        $this->api_client->trigger_sync( true );
     }
 
     /**
@@ -350,18 +497,27 @@ class BitBot {
             return;
         }
 
+        // Use filemtime-derived cache-bust suffix so in-place plugin
+        // updates (same BITBOT_VERSION, new asset content) still get
+        // picked up by visitor browsers. Without this, a parseMarkdown
+        // change shipped between releases would serve the old JS until
+        // the plugin version bumped — visitors see literal `[text](url)`
+        // markdown even when the deployed file has the fix.
+        $css_ver = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/css/widget.css' );
+        $js_ver  = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/js/widget.js' );
+
         wp_enqueue_style(
             'bitbot-widget',
             BITBOT_PLUGIN_URL . 'assets/css/widget.css',
             array(),
-            BITBOT_VERSION
+            $css_ver
         );
 
         wp_enqueue_script(
             'bitbot-widget',
             BITBOT_PLUGIN_URL . 'assets/js/widget.js',
             array(),
-            BITBOT_VERSION,
+            $js_ver,
             true
         );
 
@@ -390,22 +546,48 @@ class BitBot {
             return;
         }
 
+        // Same cache-bust strategy as the widget: use the asset's filemtime
+        // suffix so in-place plugin updates (same BITBOT_VERSION, new asset
+        // content) actually reach the admin's browser. Without this, the
+        // browser holds the previous admin.js until BITBOT_VERSION bumps —
+        // which made the post-cap notice fix invisible during dev cycles.
+        $admin_css_ver = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/css/admin.css' );
+        $admin_js_ver  = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/js/admin.js' );
+
         wp_enqueue_style(
             'bitbot-admin',
             BITBOT_PLUGIN_URL . 'assets/css/admin.css',
             array(),
-            BITBOT_VERSION
+            $admin_css_ver
         );
 
         wp_enqueue_script(
             'bitbot-admin',
             BITBOT_PLUGIN_URL . 'assets/js/admin.js',
             array( 'jquery', 'jquery-ui-sortable' ),
-            BITBOT_VERSION,
+            $admin_js_ver,
             true
         );
 
         wp_localize_script( 'bitbot-admin', 'bitbotAdmin', array(
+            'ajaxUrl'    => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
+            'nonce'      => wp_create_nonce( 'bitbot_admin_nonce' ),
+            // Used by the inline cap/error notice on the Content Generator
+            // page so the "Upgrade to Pro" CTA links to the right place.
+            'upgradeUrl' => esc_url_raw( admin_url( 'admin.php?page=bitbot-upgrade' ) ),
+        ) );
+
+        // Heartbeat so the agent knows the site owner is online (powers
+        // live-handover on Pro+). Small script, fires every 2 min while
+        // any BitBot admin page is open.
+        wp_enqueue_script(
+            'bitbot-heartbeat',
+            BITBOT_PLUGIN_URL . 'assets/js/heartbeat.js',
+            array( 'jquery' ),
+            BITBOT_VERSION,
+            true
+        );
+        wp_localize_script( 'bitbot-heartbeat', 'bitbotHeartbeat', array(
             'ajaxUrl' => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
             'nonce'   => wp_create_nonce( 'bitbot_admin_nonce' ),
         ) );
@@ -445,6 +627,28 @@ class BitBot {
         register_rest_route( 'bitbot/v1', '/form-submit', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'handle_form_submit' ),
+            'permission_callback' => '__return_true',
+        ) );
+
+        // Live-mode update poll (public — used by the widget while a
+        // conversation is in live handover mode).
+        register_rest_route( 'bitbot/v1', '/live-updates', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this->widget, 'handle_live_updates_request' ),
+            'permission_callback' => '__return_true',
+        ) );
+
+        // Visitor presence: heartbeat while widget is open, beforeunload
+        // beacon on tab close. Both are public — the backend scopes them
+        // to (site, sessionId) after looking up the API key.
+        register_rest_route( 'bitbot/v1', '/visitor-heartbeat', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this->widget, 'handle_visitor_heartbeat' ),
+            'permission_callback' => '__return_true',
+        ) );
+        register_rest_route( 'bitbot/v1', '/visitor-left', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this->widget, 'handle_visitor_left' ),
             'permission_callback' => '__return_true',
         ) );
 

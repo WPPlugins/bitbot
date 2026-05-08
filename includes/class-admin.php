@@ -70,6 +70,13 @@ class BitBot_Admin {
         add_action('wp_ajax_bitbot_run_lead_research', array($this, 'ajax_run_lead_research'));
         add_action('wp_ajax_bitbot_draft_lead_email', array($this, 'ajax_draft_lead_email'));
 
+        // Live chat handlers (Pro+ live-handover)
+        add_action( 'wp_ajax_bitbot_heartbeat',              array( $this, 'ajax_heartbeat' ) );
+        add_action( 'wp_ajax_bitbot_live_chats_thread',      array( $this, 'ajax_live_chats_thread' ) );
+        add_action( 'admin_post_bitbot_live_chats_reply',    array( $this, 'handle_live_chats_reply' ) );
+        add_action( 'admin_post_bitbot_live_chats_close',    array( $this, 'handle_live_chats_close' ) );
+        add_action( 'admin_post_bitbot_live_chats_takeover', array( $this, 'handle_live_chats_takeover' ) );
+
         // Form AJAX handlers
         add_action('wp_ajax_bitbot_get_forms', array($this, 'ajax_get_forms'));
         add_action('wp_ajax_bitbot_get_form', array($this, 'ajax_get_form'));
@@ -88,31 +95,43 @@ class BitBot_Admin {
      * @var string
      */
     const NEW_LEADS_COUNT_TRANSIENT = 'bitbot_new_leads_count';
+    const LIVE_CHATS_COUNT_TRANSIENT = 'bitbot_live_chats_count';
+    const UPCOMING_APTS_COUNT_TRANSIENT = 'bitbot_upcoming_apts_count';
 
     /**
-     * Cache key for the plan status transient.
+     * Get the site's plan status (plan + usage + limits).
      *
-     * @var string
-     */
-    const PLAN_STATUS_TRANSIENT = 'bitbot_plan_status';
-
-    /**
-     * Get the site's plan status (plan + usage + limits), cached for 5 minutes.
+     * Caching strategy:
+     *   1. Persistent option (written by store_cached_status) — survives
+     *      transient expiry, plugin reinstall-with-deactivate, and is the
+     *      authoritative read path for the widget.
+     *   2. Short-lived throttle transient — while live, we don't re-hit
+     *      the API and just return the cached option.
+     *
+     * If we have no cache AND the API call fails, we return a conservative
+     * "free" fallback but do NOT persist it — so the next refresh can
+     * still populate the real plan.
      *
      * @since 1.6.0
-     * @return array { plan: 'free'|'pro', limits: array, usage: array }
+     * @return array { plan: string, limits: array, usage: array }
      */
     private function get_plan_status() {
-        $cached = get_transient( self::PLAN_STATUS_TRANSIENT );
-        if ( $cached !== false && is_array( $cached ) ) {
+        $cached = BitBot_Plan::get_cached_status();
+
+        if ( $cached !== null && BitBot_Plan::is_refresh_throttled() ) {
             return $cached;
         }
 
         $result = $this->api_client->get_plan_status();
         if ( empty( $result['success'] ) || empty( $result['data'] ) ) {
-            // API unreachable — assume free so we show the conservative UI.
-            $fallback = array(
-                'plan'   => 'free',
+            // API unreachable. Prefer the last-known good cache over the
+            // generic fallback so a paying customer never sees "Free plan"
+            // during a transient upstream outage.
+            if ( $cached !== null ) {
+                return $cached;
+            }
+            return array(
+                'plan'   => BitBot_Plan::FREE,
                 'limits' => array(
                     'chatMessagesPerMonth' => 100,
                     'postsPerMonth'        => 3,
@@ -128,29 +147,66 @@ class BitBot_Admin {
                     'lastPostGeneratedAt'   => null,
                 ),
             );
-            return $fallback;
         }
 
-        $status = $result['data'];
-        set_transient( self::PLAN_STATUS_TRANSIENT, $status, 5 * MINUTE_IN_SECONDS );
-        return $status;
+        BitBot_Plan::store_cached_status( $result['data'] );
+        return $result['data'];
     }
 
     /**
-     * Convenience: true if site is on the Pro plan.
+     * Convenience: true if site is on a paid plan (pro or pro_plus).
+     *
+     * 1.7.0: pro_plus is paid too — treat both the same here so branding +
+     * paywalled UI surfaces (upgrade cards, quota bars, etc.) flip to the
+     * paid variant.
      *
      * @return bool
      */
     public function is_pro() {
         $status = $this->get_plan_status();
-        return ! empty( $status['plan'] ) && $status['plan'] === 'pro';
+        return BitBot_Plan::is_paid( $status['plan'] ?? null );
     }
 
     /**
-     * Bust plan-status cache (e.g. after a successful Stripe checkout).
+     * Pro+ specifically (not Pro). Used to gate Settings sections that are
+     * Pro+-only (Appointments, Cart Recovery, WooCommerce Integration).
+     *
+     * @return bool
+     */
+    public function is_pro_plus() {
+        $status = $this->get_plan_status();
+        return BitBot_Plan::is_pro_plus( $status['plan'] ?? null );
+    }
+
+    /**
+     * Render the standard yellow "Upgrade to Pro+" card used inside settings
+     * sections that the current plan can't unlock yet. Keep one renderer so
+     * the visual treatment stays consistent across Appointments, Cart
+     * Recovery and WooCommerce Integration on Free / Pro.
+     *
+     * @param string $headline Short feature name.
+     * @param string $blurb    One-sentence value prop.
+     * @return void
+     */
+    private function render_proplus_gate_card( $headline, $blurb ) {
+        ?>
+        <div style="padding: 12px 14px; background: #fff8e5; border: 1px solid #f0c33c; border-radius: 6px; margin-bottom: 10px;">
+            <p style="margin: 0 0 6px; font-weight: 600; color: #3c2f00;">
+                <?php echo esc_html( $headline ); ?>
+            </p>
+            <p style="margin: 0; color: #5c4a00; font-size: 13px;">
+                <?php echo esc_html( $blurb ); ?>
+            </p>
+        </div>
+        <?php
+    }
+
+    /**
+     * Bust plan-status cache (e.g. after a successful Stripe checkout
+     * or a plan downgrade so we don't keep showing stale gated UI).
      */
     private function bust_plan_status_cache() {
-        delete_transient( self::PLAN_STATUS_TRANSIENT );
+        BitBot_Plan::bust_cache();
     }
 
     /**
@@ -161,16 +217,17 @@ class BitBot_Admin {
      */
     private function render_plan_banner() {
         $status = $this->get_plan_status();
-        $plan   = $status['plan'] ?? 'free';
-        $is_pro = $plan === 'pro';
+        $plan   = $status['plan'] ?? BitBot_Plan::FREE;
         $u      = $status['usage'] ?? array();
         $l      = $status['limits'] ?? array();
 
-        if ( $is_pro ) {
+        if ( BitBot_Plan::is_paid( $plan ) ) {
+            /* translators: %s: plan label e.g. "Pro" or "Pro+" */
+            $label = sprintf( __( '%s plan', 'bitbot' ), BitBot_Plan::label( $plan ) );
             ?>
             <div class="notice" style="border-left-color: #22863a; padding: 10px 14px;">
                 <p style="margin: 0; font-size: 14px;">
-                    <strong style="color: #22863a;"><?php esc_html_e( 'Pro plan', 'bitbot' ); ?></strong>
+                    <strong style="color: #22863a;"><?php echo esc_html( $label ); ?></strong>
                     — <?php esc_html_e( 'all features unlocked. Thanks for supporting BitBot!', 'bitbot' ); ?>
                 </p>
             </div>
@@ -185,7 +242,7 @@ class BitBot_Admin {
         $leads_cap = absint( $l['maxLeads'] ?? 10 );
         $leads_used = absint( $u['leadsCount'] ?? 0 );
 
-        $upgrade_url = esc_url( admin_url( 'admin.php?page=bitbot#upgrade' ) );
+        $upgrade_url = esc_url( admin_url( 'admin.php?page=bitbot-upgrade' ) );
         ?>
         <div class="notice" style="border-left-color: #0073aa; padding: 12px 16px; background: #fff;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
@@ -200,9 +257,9 @@ class BitBot_Admin {
                     ?>
                 </div>
                 <div>
-                    <button id="bitbot-subscribe-btn" class="button button-primary">
-                        <?php esc_html_e( 'Upgrade to Pro — $20/mo', 'bitbot' ); ?>
-                    </button>
+                    <a href="<?php echo $upgrade_url; ?>" class="button button-primary">
+                        <?php esc_html_e( 'Upgrade plan', 'bitbot' ); ?>
+                    </a>
                 </div>
             </div>
         </div>
@@ -242,6 +299,56 @@ class BitBot_Admin {
     }
 
     /**
+     * Count of live chat threads currently in live_mode. Cached 30s — short
+     * enough that admin closing a thread or a new handover starting shows up
+     * on the next page load. Failure → 0 so the menu still renders cleanly.
+     *
+     * @since 1.7.0
+     * @return int
+     */
+    private function get_live_chats_count() {
+        $cached = get_transient( self::LIVE_CHATS_COUNT_TRANSIENT );
+        if ( $cached !== false ) {
+            return (int) $cached;
+        }
+
+        $result = $this->api_client->get_live_badge_count();
+        $count  = 0;
+        if ( ! empty( $result['success'] ) && isset( $result['data']['count'] ) ) {
+            $count = (int) $result['data']['count'];
+        }
+
+        set_transient( self::LIVE_CHATS_COUNT_TRANSIENT, $count, 30 );
+        return $count;
+    }
+
+    /**
+     * Count of future-dated, non-cancelled appointments. Cached 60s.
+     * Drives the Calendar menu-bubble + folds into the top-level
+     * BitBot attention badge so owners notice pending bookings even
+     * when they're parked on Posts / Pages / etc. Returns 0 on
+     * transient API failures so the menu still renders.
+     *
+     * @since 1.7.0
+     * @return int
+     */
+    private function get_upcoming_appointments_count() {
+        $cached = get_transient( self::UPCOMING_APTS_COUNT_TRANSIENT );
+        if ( $cached !== false ) {
+            return (int) $cached;
+        }
+
+        $result = $this->api_client->get_upcoming_appointments_count();
+        $count  = 0;
+        if ( ! empty( $result['success'] ) && isset( $result['data']['count'] ) ) {
+            $count = (int) $result['data']['count'];
+        }
+
+        set_transient( self::UPCOMING_APTS_COUNT_TRANSIENT, $count, MINUTE_IN_SECONDS );
+        return $count;
+    }
+
+    /**
      * Add admin menu pages
      */
     public function add_admin_menu() {
@@ -249,8 +356,28 @@ class BitBot_Admin {
         $bubble      = $new_leads > 0
             ? ' <span class="awaiting-mod update-plugins count-' . absint( $new_leads ) . '"><span class="pending-count">' . absint( $new_leads ) . '</span></span>'
             : '';
-        $bitbot_label = __( 'BitBot', 'bitbot' ) . $bubble;
-        $leads_label  = __( 'Leads', 'bitbot' ) . $bubble;
+        // Live Chats gets its own bubble — drops to 0 when admin closes or
+        // the thread times out (30 min idle, enforced server-side).
+        $live_chats   = $this->get_live_chats_count();
+        $live_bubble  = $live_chats > 0
+            ? ' <span class="awaiting-mod update-plugins count-' . absint( $live_chats ) . '"><span class="pending-count">' . absint( $live_chats ) . '</span></span>'
+            : '';
+        // Calendar bubble — count of future-dated bookings the team
+        // hasn't acted on yet. Same visual treatment as Leads / Live
+        // Chats so the owner reads "X things waiting" at a glance.
+        $upcoming_apts = $this->get_upcoming_appointments_count();
+        $cal_bubble    = $upcoming_apts > 0
+            ? ' <span class="awaiting-mod update-plugins count-' . absint( $upcoming_apts ) . '"><span class="pending-count">' . absint( $upcoming_apts ) . '</span></span>'
+            : '';
+        // Top-level BitBot badge shows combined attention-needed count.
+        $attention   = $new_leads + $live_chats + $upcoming_apts;
+        $top_bubble  = $attention > 0
+            ? ' <span class="awaiting-mod update-plugins count-' . absint( $attention ) . '"><span class="pending-count">' . absint( $attention ) . '</span></span>'
+            : '';
+        $bitbot_label      = __( 'BitBot', 'bitbot' ) . $top_bubble;
+        $leads_label       = __( 'Leads', 'bitbot' ) . $bubble;
+        $live_chats_label  = __( 'Live Chats', 'bitbot' ) . $live_bubble;
+        $calendar_label    = __( 'Calendar', 'bitbot' ) . $cal_bubble;
 
         // Main menu page
         add_menu_page(
@@ -303,6 +430,32 @@ class BitBot_Admin {
             array($this, 'render_form_builder_page')
         );
 
+        // Live Chats submenu — Pro+ live handover inbox. Label gets a
+        // count badge when live_mode=true threads are active; drops to no
+        // badge on admin close or 30-min idle timeout.
+        add_submenu_page(
+            'bitbot',
+            __( 'Live Chats', 'bitbot' ),
+            $live_chats_label,
+            'manage_options',
+            'bitbot-live-chats',
+            array( $this, 'render_live_chats_page' )
+        );
+
+        // Calendar submenu — Pro+ booking visibility surface. Lists every
+        // appointment captured by the chat agent, click-through to the
+        // matching lead detail page. Badge mirrors the existing Leads /
+        // Live Chats badges so owners read "team needs to act here" the
+        // same way across all three surfaces.
+        add_submenu_page(
+            'bitbot',
+            __( 'Calendar', 'bitbot' ),
+            $calendar_label,
+            'manage_options',
+            'bitbot-calendar',
+            array( $this, 'render_calendar_page' )
+        );
+
         // Content Generator submenu
         add_submenu_page(
             'bitbot',
@@ -322,6 +475,19 @@ class BitBot_Admin {
             'bitbot-settings',
             array($this, 'render_settings_page')
         );
+
+        // Upgrade submenu — three-card pricing page (Free / Pro / Pro+).
+        // All in-product 'Upgrade to Pro' CTAs route here so the user gets
+        // a single canonical comparison instead of jumping straight into
+        // a Stripe checkout for one tier.
+        add_submenu_page(
+            'bitbot',
+            __( 'Upgrade', 'bitbot' ),
+            __( 'Upgrade', 'bitbot' ),
+            'manage_options',
+            'bitbot-upgrade',
+            array( $this, 'render_upgrade_page' )
+        );
     }
 
     /**
@@ -339,6 +505,22 @@ class BitBot_Admin {
             'sanitize_callback' => array($this, 'sanitize_widget_position'),
             'default'           => 'bottom-right',
         ));
+        // Pixel offsets from the chosen corner. Owner can dial them in
+        // when there's a fixed-position third-party widget they don't
+        // want to overlap; the auto-flip JS also bumps the vertical
+        // offset at runtime when both corners are taken (stack on top
+        // instead of overlap). Clamped to a sane range so a typo can't
+        // hide the widget off-screen.
+        register_setting('bitbot_settings', 'bitbot_widget_offset_x', array(
+            'type'              => 'integer',
+            'sanitize_callback' => array($this, 'sanitize_widget_offset'),
+            'default'           => 20,
+        ));
+        register_setting('bitbot_settings', 'bitbot_widget_offset_y', array(
+            'type'              => 'integer',
+            'sanitize_callback' => array($this, 'sanitize_widget_offset'),
+            'default'           => 20,
+        ));
         register_setting('bitbot_settings', 'bitbot_primary_color', array(
             'type'              => 'string',
             'sanitize_callback' => 'sanitize_hex_color',
@@ -353,6 +535,32 @@ class BitBot_Admin {
             'type'              => 'string',
             'sanitize_callback' => array($this, 'sanitize_notification_email'),
             'default'           => get_option('admin_email', ''),
+        ));
+        register_setting('bitbot_settings', 'bitbot_wc_consumer_key', array(
+            'type'              => 'string',
+            'sanitize_callback' => array($this, 'sanitize_wc_credentials_key'),
+            'default'           => '',
+        ));
+        register_setting('bitbot_settings', 'bitbot_wc_consumer_secret', array(
+            'type'              => 'string',
+            'sanitize_callback' => array($this, 'sanitize_wc_credentials_secret'),
+            'default'           => '',
+        ));
+        // Appointments — one consolidated array option holds all booking
+        // config (enabled, service, duration, timezone, weekly hours, etc.).
+        // Sanitize validates + pushes to backend in one shot.
+        register_setting('bitbot_settings', 'bitbot_appointments_config', array(
+            'type'              => 'array',
+            'sanitize_callback' => array($this, 'sanitize_appointments_config'),
+            'default'           => array(),
+        ));
+
+        // Cart recovery — bundled into one setting array for the same
+        // reason (single sanitize callback pushes to backend atomically).
+        register_setting('bitbot_settings', 'bitbot_recovery_config', array(
+            'type'              => 'array',
+            'sanitize_callback' => array($this, 'sanitize_recovery_config'),
+            'default'           => array(),
         ));
 
         // Add settings sections
@@ -376,6 +584,14 @@ class BitBot_Admin {
             'bitbot_widget_position',
             __('Widget Position', 'bitbot'),
             array($this, 'render_position_field'),
+            'bitbot-settings',
+            'bitbot_chatbot_section'
+        );
+
+        add_settings_field(
+            'bitbot_widget_offset',
+            __('Widget Offset', 'bitbot'),
+            array($this, 'render_offset_field'),
             'bitbot-settings',
             'bitbot_chatbot_section'
         );
@@ -411,6 +627,69 @@ class BitBot_Admin {
             'bitbot-settings',
             'bitbot_leads_section'
         );
+
+        // Appointments section — booking in-house, no third-party integration.
+        // The field renderer shows all config inputs under a single setting.
+        add_settings_section(
+            'bitbot_appointments_section',
+            __( 'Appointments (Pro+)', 'bitbot' ),
+            array( $this, 'render_appointments_section' ),
+            'bitbot-settings'
+        );
+
+        add_settings_field(
+            'bitbot_appointments_config',
+            __( 'Booking configuration', 'bitbot' ),
+            array( $this, 'render_appointments_config_field' ),
+            'bitbot-settings',
+            'bitbot_appointments_section'
+        );
+
+        // Cart recovery — discount code the Pro+ agent can surface to
+        // hesitating buyers.
+        add_settings_section(
+            'bitbot_recovery_section',
+            __( 'Cart Recovery (Pro+)', 'bitbot' ),
+            array( $this, 'render_recovery_section' ),
+            'bitbot-settings'
+        );
+
+        add_settings_field(
+            'bitbot_recovery_config',
+            __( 'Discount offer', 'bitbot' ),
+            array( $this, 'render_recovery_config_field' ),
+            'bitbot-settings',
+            'bitbot_recovery_section'
+        );
+
+        // WooCommerce section — only shown if WooCommerce is active.
+        // These credentials let the order-enquiry skill (Pro+) look up a
+        // visitor's order via the WooCommerce REST API. The secret is sensitive;
+        // we mask it in the UI and only push to the backend on save.
+        if ( class_exists( 'WooCommerce' ) ) {
+            add_settings_section(
+                'bitbot_wc_section',
+                __( 'WooCommerce Integration', 'bitbot' ),
+                array( $this, 'render_wc_section' ),
+                'bitbot-settings'
+            );
+
+            add_settings_field(
+                'bitbot_wc_consumer_key',
+                __( 'Consumer Key', 'bitbot' ),
+                array( $this, 'render_wc_consumer_key_field' ),
+                'bitbot-settings',
+                'bitbot_wc_section'
+            );
+
+            add_settings_field(
+                'bitbot_wc_consumer_secret',
+                __( 'Consumer Secret', 'bitbot' ),
+                array( $this, 'render_wc_consumer_secret_field' ),
+                'bitbot-settings',
+                'bitbot_wc_section'
+            );
+        }
     }
 
     /**
@@ -438,6 +717,140 @@ class BitBot_Admin {
     }
 
     /**
+     * Sanitize WooCommerce consumer key. We only push to the backend if BOTH
+     * key and secret are present (checked in the secret sanitizer since it
+     * runs after the key sanitizer on form submit).
+     *
+     * @since 1.7.0
+     * @param string $value Raw input.
+     * @return string
+     */
+    public function sanitize_wc_credentials_key( $value ) {
+        $clean = preg_replace( '/[^A-Za-z0-9_]/', '', (string) $value );
+        if ( ! empty( $value ) && empty( $clean ) ) {
+            add_settings_error(
+                'bitbot_wc_consumer_key',
+                'bitbot_wc_consumer_key_invalid',
+                __( 'WooCommerce consumer key contains invalid characters — leaving unchanged.', 'bitbot' )
+            );
+            return (string) get_option( 'bitbot_wc_consumer_key', '' );
+        }
+        return $clean;
+    }
+
+    /**
+     * Sanitize WooCommerce consumer secret. After sanitizing, if both key and
+     * secret are now set we push them to the backend. Empty strings clear
+     * the credentials on our side.
+     *
+     * @since 1.7.0
+     * @param string $value Raw input.
+     * @return string
+     */
+    public function sanitize_wc_credentials_secret( $value ) {
+        // Empty input = "keep existing secret". Users don't want to re-type
+        // the secret every time they touch an unrelated setting. BUT we
+        // still need to push whatever is currently stored to the backend
+        // on every Save — otherwise a customer who reconnects (new api_key
+        // on the backend row but unchanged local secret) has WC creds
+        // wiped server-side and searchProducts / getOrder start failing
+        // until they manually paste the secret again.
+        $input_blank = '' === trim( (string) $value );
+
+        if ( $input_blank ) {
+            $stored = (string) get_option( 'bitbot_wc_consumer_secret', '' );
+            // Only push if we actually have a secret locally AND a key is
+            // staged in this submit. Otherwise Save with no WC config
+            // configured would no-op as expected.
+            $posted_key = isset( $_POST['bitbot_wc_consumer_key'] ) ? (string) wp_unslash( $_POST['bitbot_wc_consumer_key'] ) : get_option( 'bitbot_wc_consumer_key', '' );
+            $clean_key  = preg_replace( '/[^A-Za-z0-9_]/', '', $posted_key );
+            if ( $stored !== '' && $clean_key !== '' ) {
+                $this->api_client->update_wc_credentials( $clean_key, $stored );
+            }
+            return $stored;
+        }
+
+        $clean = preg_replace( '/[^A-Za-z0-9_]/', '', (string) $value );
+        if ( empty( $clean ) ) {
+            add_settings_error(
+                'bitbot_wc_consumer_secret',
+                'bitbot_wc_consumer_secret_invalid',
+                __( 'WooCommerce consumer secret contains invalid characters — leaving unchanged.', 'bitbot' )
+            );
+            return (string) get_option( 'bitbot_wc_consumer_secret', '' );
+        }
+
+        // Sanitizer callbacks fire in indeterminate order relative to each
+        // other within one form submit, so we read the key from the submitted
+        // POST rather than relying on get_option() being up to date. The
+        // options page runs this inside a nonce-checked WP action, so $_POST
+        // at this point is trusted input.
+        $posted_key = isset( $_POST['bitbot_wc_consumer_key'] ) ? (string) wp_unslash( $_POST['bitbot_wc_consumer_key'] ) : get_option( 'bitbot_wc_consumer_key', '' );
+        $clean_key  = preg_replace( '/[^A-Za-z0-9_]/', '', $posted_key );
+        $this->api_client->update_wc_credentials( $clean_key, $clean );
+
+        return $clean;
+    }
+
+    /**
+     * Sanitize + push appointment config bundle. Accepts the raw $_POST-shaped
+     * nested array, validates, stores locally, and pushes to the backend via
+     * the UpdateAvailability RPC in a single call.
+     *
+     * @since 1.7.0
+     * @param mixed $value Raw input from the settings form.
+     * @return array Normalized + stored config.
+     */
+    public function sanitize_appointments_config( $value ) {
+        if ( ! is_array( $value ) ) {
+            return (array) get_option( 'bitbot_appointments_config', array() );
+        }
+
+        $days = array( 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat' );
+        $weekly_hours = array();
+        foreach ( $days as $idx => $day_key ) {
+            $row = isset( $value['hours'][ $day_key ] ) && is_array( $value['hours'][ $day_key ] ) ? $value['hours'][ $day_key ] : array();
+            $enabled_day = ! empty( $row['enabled'] );
+            $start = isset( $row['start'] ) ? sanitize_text_field( (string) $row['start'] ) : '';
+            $end   = isset( $row['end'] ) ? sanitize_text_field( (string) $row['end'] ) : '';
+            if ( $enabled_day && preg_match( '/^\d{2}:\d{2}$/', $start ) && preg_match( '/^\d{2}:\d{2}$/', $end ) && $start < $end ) {
+                $weekly_hours[] = array(
+                    'dayOfWeek' => $idx,
+                    'startTime' => $start,
+                    'endTime'   => $end,
+                );
+            }
+        }
+
+        $config = array(
+            'enabled'          => ! empty( $value['enabled'] ),
+            'service_name'     => isset( $value['service_name'] ) ? sanitize_text_field( (string) $value['service_name'] ) : '',
+            'duration_minutes' => isset( $value['duration_minutes'] ) ? max( 5, min( 240, intval( $value['duration_minutes'] ) ) ) : 30,
+            'buffer_minutes'   => isset( $value['buffer_minutes'] ) ? max( 0, min( 120, intval( $value['buffer_minutes'] ) ) ) : 15,
+            'timezone'         => isset( $value['timezone'] ) ? sanitize_text_field( (string) $value['timezone'] ) : 'UTC',
+            'lead_time_hours'  => isset( $value['lead_time_hours'] ) ? max( 0, min( 168, intval( $value['lead_time_hours'] ) ) ) : 2,
+            'max_days_ahead'   => isset( $value['max_days_ahead'] ) ? max( 1, min( 60, intval( $value['max_days_ahead'] ) ) ) : 14,
+            'hours'            => isset( $value['hours'] ) && is_array( $value['hours'] ) ? $value['hours'] : array(),
+        );
+
+        // Push to backend. Failures are non-fatal — the local option still
+        // persists so the admin UI reflects the user's intent, and the next
+        // save will retry the push.
+        $this->api_client->update_availability( array(
+            'enabled'         => $config['enabled'],
+            'serviceName'     => $config['service_name'],
+            'durationMinutes' => $config['duration_minutes'],
+            'bufferMinutes'   => $config['buffer_minutes'],
+            'timezone'        => $config['timezone'],
+            'leadTimeHours'   => $config['lead_time_hours'],
+            'maxDaysAhead'    => $config['max_days_ahead'],
+            'weeklyHours'     => $weekly_hours,
+        ) );
+
+        return $config;
+    }
+
+    /**
      * Handle Sync Now redirect (runs on admin_init, before headers)
      */
     public function handle_sync_redirect() {
@@ -455,16 +868,200 @@ class BitBot_Admin {
     }
 
     /**
+     * Render the Upgrade page — three-card pricing layout (Free / Pro /
+     * Pro+) with a "Choose Pro" / "Choose Pro+" CTA on each upgradeable
+     * tier. The current plan's card is highlighted as "Your plan" and
+     * its CTA is replaced with a non-interactive badge.
+     *
+     * Backend wiring:
+     *   - "Choose X" buttons fire the existing `bitbot_subscribe` AJAX
+     *     handler, now with a `tier` field (pro | pro_plus). Backend
+     *     resolves the matching Stripe price and redirects to checkout.
+     *
+     * @since 1.7.x
+     */
+    public function render_upgrade_page() {
+        $status      = $this->get_plan_status();
+        $current     = $status['plan'] ?? BitBot_Plan::FREE;
+        $is_free     = ( $current === BitBot_Plan::FREE );
+        $is_pro      = ( $current === BitBot_Plan::PRO );
+        $is_pro_plus = ( $current === BitBot_Plan::PRO_PLUS );
+        ?>
+        <div class="wrap" style="max-width: 1200px;">
+            <h1 style="margin-bottom: 8px;"><?php esc_html_e( 'Choose your plan', 'bitbot' ); ?></h1>
+            <p style="color: #555; margin-top: 0; margin-bottom: 32px;">
+                <?php esc_html_e( 'Pick the tier that matches how you use BitBot. Upgrade or downgrade any time — billing prorates automatically.', 'bitbot' ); ?>
+            </p>
+
+            <div id="bitbot-pricing-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+
+                <?php // ===== FREE ===== ?>
+                <div class="bitbot-pricing-card" data-tier="free" style="background: #fff; border: 1px solid <?php echo $is_free ? '#0073aa' : '#e0e0e0'; ?>; border-radius: 8px; padding: 24px; box-shadow: <?php echo $is_free ? '0 0 0 2px #0073aa' : 'none'; ?>; display: flex; flex-direction: column;">
+                    <h2 style="margin: 0 0 4px;"><?php esc_html_e( 'Free', 'bitbot' ); ?></h2>
+                    <p style="font-size: 24px; font-weight: 600; margin: 0 0 4px;"><?php esc_html_e( 'Free', 'bitbot' ); ?> <span style="font-size: 14px; font-weight: 400; color: #666;"><?php esc_html_e( 'forever', 'bitbot' ); ?></span></p>
+                    <p style="color: #666; margin: 0 0 18px; min-height: 36px;"><?php esc_html_e( 'Try the chatbot, capture your first leads, and see how visitors engage.', 'bitbot' ); ?></p>
+                    <ul style="list-style: none; padding: 0; margin: 0 0 18px; flex: 1;">
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( '100 chat messages per month', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( '3 AI-generated posts per month', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( '1 form, up to 10 leads', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Multilingual chatbot', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0; color: #999;">✗ <?php esc_html_e( 'Lead notification emails', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0; color: #999;">✗ <?php esc_html_e( 'AI Lead Research', 'bitbot' ); ?></li>
+                    </ul>
+                    <?php if ( $is_free ) : ?>
+                        <span class="button button-disabled" disabled style="background: #f0f0f0; color: #666; border-color: #ddd; text-align: center; pointer-events: none;"><?php esc_html_e( 'Your current plan', 'bitbot' ); ?></span>
+                    <?php else : ?>
+                        <button class="button bitbot-downgrade-btn" data-tier="free" style="background: #fff; color: #555; border: 1px solid #ccc;"><?php esc_html_e( 'Downgrade to Free', 'bitbot' ); ?></button>
+                    <?php endif; ?>
+                </div>
+
+                <?php // ===== PRO ===== ?>
+                <div class="bitbot-pricing-card" data-tier="pro" style="background: #fff; border: 1px solid <?php echo $is_pro ? '#0073aa' : '#e0e0e0'; ?>; border-radius: 8px; padding: 24px; box-shadow: <?php echo $is_pro ? '0 0 0 2px #0073aa' : 'none'; ?>; display: flex; flex-direction: column;">
+                    <h2 style="margin: 0 0 4px;"><?php esc_html_e( 'Pro', 'bitbot' ); ?></h2>
+                    <p style="font-size: 24px; font-weight: 600; margin: 0 0 4px;">$20 <span style="font-size: 14px; font-weight: 400; color: #666;"><?php esc_html_e( '/ month', 'bitbot' ); ?></span></p>
+                    <p style="color: #666; margin: 0 0 18px; min-height: 36px;"><?php esc_html_e( 'Remove the caps, get email alerts, and let BitBot research every lead before you reply.', 'bitbot' ); ?></p>
+                    <ul style="list-style: none; padding: 0; margin: 0 0 18px; flex: 1;">
+                        <li style="margin: 6px 0; font-weight: 500;"><?php esc_html_e( 'Everything in Free, plus:', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Unlimited chat messages', 'bitbot' ); ?> <span style="color: #888; font-size: 12px;"><?php esc_html_e( '(fair use)', 'bitbot' ); ?></span></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Unlimited AI posts', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Unlimited forms + leads', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Lead notification emails', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'AI Lead Research + draft emails', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0; color: #999;">✗ <?php esc_html_e( 'Pro+ Agent + skills', 'bitbot' ); ?></li>
+                    </ul>
+                    <?php if ( $is_pro ) : ?>
+                        <span class="button button-disabled" disabled style="background: #f0f0f0; color: #666; border-color: #ddd; text-align: center; pointer-events: none;"><?php esc_html_e( 'Your current plan', 'bitbot' ); ?></span>
+                    <?php else : ?>
+                        <button class="button button-primary bitbot-choose-tier-btn" data-tier="pro"><?php esc_html_e( 'Choose Pro', 'bitbot' ); ?></button>
+                    <?php endif; ?>
+                </div>
+
+                <?php // ===== PRO+ ===== ?>
+                <div class="bitbot-pricing-card" data-tier="pro_plus" style="background: linear-gradient(180deg, #fff 0%, #faf6ff 100%); border: 1px solid <?php echo $is_pro_plus ? '#0073aa' : '#7c4dff'; ?>; border-radius: 8px; padding: 24px; box-shadow: <?php echo $is_pro_plus ? '0 0 0 2px #0073aa' : '0 4px 12px rgba(124, 77, 255, 0.12)'; ?>; display: flex; flex-direction: column; position: relative;">
+                    <span style="position: absolute; top: -10px; right: 16px; background: #7c4dff; color: #fff; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; letter-spacing: 0.4px;">RECOMMENDED</span>
+                    <h2 style="margin: 0 0 4px;"><?php esc_html_e( 'Pro+', 'bitbot' ); ?></h2>
+                    <p style="font-size: 24px; font-weight: 600; margin: 0 0 4px;">$49 <span style="font-size: 14px; font-weight: 400; color: #666;"><?php esc_html_e( '/ month', 'bitbot' ); ?></span></p>
+                    <p style="color: #666; margin: 0 0 18px; min-height: 36px;"><?php esc_html_e( 'BitBot becomes a real agent — books appointments, takes orders, escalates to humans, qualifies leads.', 'bitbot' ); ?></p>
+                    <ul style="list-style: none; padding: 0; margin: 0 0 18px; flex: 1;">
+                        <li style="margin: 6px 0; font-weight: 500;"><?php esc_html_e( 'Everything in Pro, plus:', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Pro+ AI agent — multi-step, tool-using', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Appointment booking', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'WooCommerce: orders, drafts, refunds', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Live chat takeover', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Lead qualification (BANT)', 'bitbot' ); ?></li>
+                        <li style="margin: 6px 0;">✓ <?php esc_html_e( 'Cart recovery', 'bitbot' ); ?></li>
+                    </ul>
+                    <?php if ( $is_pro_plus ) : ?>
+                        <span class="button button-disabled" disabled style="background: #f0f0f0; color: #666; border-color: #ddd; text-align: center; pointer-events: none;"><?php esc_html_e( 'Your current plan', 'bitbot' ); ?></span>
+                    <?php else : ?>
+                        <button class="button button-primary bitbot-choose-tier-btn" data-tier="pro_plus" style="background: #7c4dff; border-color: #7c4dff;"><?php esc_html_e( 'Choose Pro+', 'bitbot' ); ?></button>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <p style="margin-top: 32px; color: #666; font-size: 13px;">
+                <?php esc_html_e( 'Cancel any time from BitBot → Dashboard. We don\'t charge for support, setup, or onboarding. All paid plans include fair-use limits — see', 'bitbot' ); ?>
+                <a href="https://youami.ai/fair-use" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'fair-use policy', 'bitbot' ); ?></a>.
+            </p>
+        </div>
+
+        <script>
+        (function($) {
+            // Resolve config lazily inside each handler — the inline script
+            // order races wp_localize_script's `bitbotAdmin` definition; if we
+            // capture window.bitbotAdmin at IIFE time it can be undefined,
+            // which makes jQuery POST to the current page URL (HTML response,
+            // 'Unknown error' alert).
+            function getConfig() { return window.bitbotAdmin || {}; }
+            // Tier-aware checkout: clicking "Choose Pro" / "Choose Pro+" hits
+            // the existing bitbot_subscribe AJAX with the tier; backend
+            // resolves the matching Stripe price.
+            $(document).on('click', '.bitbot-choose-tier-btn', function(e) {
+                e.preventDefault();
+                var config = getConfig();
+                var $btn = $(this);
+                var tier = $btn.data('tier');
+                var originalText = $btn.text();
+                $btn.text('Please wait...').prop('disabled', true);
+                $.ajax({
+                    url: config.ajaxUrl,
+                    method: 'POST',
+                    data: { action: 'bitbot_subscribe', nonce: config.nonce, tier: tier },
+                    success: function(response) {
+                        if (response.success && response.data) {
+                            // Mid-tier swap path: existing customer just had
+                            // their subscription's price item swapped server-
+                            // side, no Stripe checkout round-trip needed.
+                            if (response.data.tierUpdated) {
+                                var dashUrl = '<?php echo esc_js( esc_url_raw( admin_url( "admin.php?page=bitbot&subscription=success&swap=1" ) ) ); ?>';
+                                window.location.href = dashUrl;
+                                return;
+                            }
+                            // Fresh checkout path
+                            if (response.data.checkoutUrl) {
+                                window.location.href = response.data.checkoutUrl;
+                                return;
+                            }
+                        }
+                        alert('Failed to start checkout: ' + ((response.data && response.data.error) || 'Unknown error'));
+                        $btn.text(originalText).prop('disabled', false);
+                    },
+                    error: function() {
+                        alert('Failed to connect to server');
+                        $btn.text(originalText).prop('disabled', false);
+                    }
+                });
+            });
+            // Free downgrade is just Cancel Subscription with a confirm.
+            $(document).on('click', '.bitbot-downgrade-btn', function(e) {
+                e.preventDefault();
+                if (!confirm('Cancel your paid subscription and downgrade to Free at the end of the current billing period?')) return;
+                var config = getConfig();
+                var $btn = $(this);
+                var originalText = $btn.text();
+                $btn.text('Cancelling...').prop('disabled', true);
+                $.ajax({
+                    url: config.ajaxUrl,
+                    method: 'POST',
+                    data: { action: 'bitbot_cancel_subscription', nonce: config.nonce },
+                    success: function(response) {
+                        if (response.success) {
+                            alert('Subscription cancelled. You\'ll keep paid access until the end of the current billing period, then drop to Free.');
+                            location.reload();
+                        } else {
+                            alert('Failed to cancel: ' + ((response.data && response.data.error) || 'Unknown error'));
+                            $btn.text(originalText).prop('disabled', false);
+                        }
+                    },
+                    error: function() {
+                        alert('Failed to connect to server');
+                        $btn.text(originalText).prop('disabled', false);
+                    }
+                });
+            });
+        })(jQuery);
+        </script>
+
+        <style>
+        @media (max-width: 1024px) {
+            #bitbot-pricing-grid { grid-template-columns: 1fr !important; }
+        }
+        </style>
+        <?php
+    }
+
+    /**
      * Render dashboard page
      */
     public function render_dashboard_page() {
         $reconnected = false;
 
-        // Returning from a successful Stripe checkout — bust cached plan so the
-        // dashboard reflects Pro immediately (webhook may have already run).
-        if ( isset( $_GET['subscription'] ) && $_GET['subscription'] === 'success' ) {
-            $this->bust_plan_status_cache();
-        }
+        // Plan status on the dashboard is the headline visible thing and the
+        // page where stale state hurts most (Plan card, Free banner, usage
+        // bars, upgrade CTAs all depend on it). Bust the cache on every
+        // render so this page always reflects the current backend state.
+        // Other admin pages keep using the throttled cache (60s) for perf.
+        $this->bust_plan_status_cache();
 
         // Check if API key is valid by testing subscription endpoint
         $subscription = $this->api_client->get_subscription();
@@ -568,8 +1165,11 @@ class BitBot_Admin {
                     <h2><?php esc_html_e('Plan', 'bitbot'); ?></h2>
                     <?php
                     $plan_status_card       = $this->get_plan_status();
-                    $plan                   = $plan_status_card['plan'] ?? 'free';
-                    $is_pro                 = $plan === 'pro';
+                    $plan                   = $plan_status_card['plan'] ?? BitBot_Plan::FREE;
+                    $is_pro                 = BitBot_Plan::is_paid( $plan );
+                    $plan_label             = BitBot_Plan::label( $plan );
+                    $plan_price             = BitBot_Plan::price( $plan );
+                    $plan_badge_color       = BitBot_Plan::badge_color( $plan );
                     $sub_data               = $subscription['success'] ? $subscription['data'] : array();
                     $sub_status             = $sub_data['subscriptionStatus'] ?? '';
                     $current_period_end     = $sub_data['currentPeriodEnd'] ?? null;
@@ -577,11 +1177,7 @@ class BitBot_Admin {
                     ?>
                         <p>
                             <strong><?php esc_html_e('Status:', 'bitbot'); ?></strong>
-                            <?php if ( $is_pro ) : ?>
-                                <span style="background: #46b450; color: white; padding: 3px 10px; border-radius: 3px; font-size: 12px;">Pro</span>
-                            <?php else : ?>
-                                <span style="background: #6b6b6b; color: white; padding: 3px 10px; border-radius: 3px; font-size: 12px;">Free</span>
-                            <?php endif; ?>
+                            <span style="background: <?php echo esc_attr( $plan_badge_color ); ?>; color: white; padding: 3px 10px; border-radius: 3px; font-size: 12px;"><?php echo esc_html( $plan_label ); ?></span>
                         </p>
 
                         <?php if ( $is_pro && $current_period_end ) : ?>
@@ -605,8 +1201,69 @@ class BitBot_Admin {
 
                         <p style="margin-top: 15px;">
                             <strong><?php esc_html_e( 'Price:', 'bitbot' ); ?></strong>
-                            <?php echo $is_pro ? '$20/month' : esc_html__( 'Free forever', 'bitbot' ); ?>
+                            <?php echo esc_html( $plan_price ); ?>
                         </p>
+                        <?php if ( $is_pro ) : ?>
+                            <p style="margin-top: -6px; font-size: 11px; color: #666;">
+                                <?php
+                                /* translators: %s: fair-use policy link */
+                                printf(
+                                    esc_html__( 'Fair use applies — %s.', 'bitbot' ),
+                                    '<a href="https://youami.ai/fair-use" target="_blank" rel="noopener noreferrer">' . esc_html__( 'see policy', 'bitbot' ) . '</a>'
+                                );
+                                ?>
+                            </p>
+
+                            <?php
+                            // Usage bars for Pro. Gives paying users visibility
+                            // into where they sit against the fair-use caps so
+                            // they can see a slowdown coming before hitting a
+                            // 429 on the agent.
+                            $pro_usage  = $plan_status_card['usage'] ?? array();
+                            $pro_limits = $plan_status_card['limits'] ?? array();
+                            $bars = array(
+                                array(
+                                    'label'   => __( 'Chat messages', 'bitbot' ),
+                                    'used'    => (int) ( $pro_usage['chatMessagesThisMonth'] ?? 0 ),
+                                    'cap'     => (int) ( $pro_limits['chatMessagesPerMonth'] ?? 0 ),
+                                ),
+                                array(
+                                    'label'   => __( 'Posts generated', 'bitbot' ),
+                                    'used'    => (int) ( $pro_usage['postsThisMonth'] ?? 0 ),
+                                    'cap'     => (int) ( $pro_limits['postsPerMonth'] ?? 0 ),
+                                ),
+                                array(
+                                    'label'   => __( 'Leads captured', 'bitbot' ),
+                                    'used'    => (int) ( $pro_usage['leadsCount'] ?? 0 ),
+                                    'cap'     => (int) ( $pro_limits['maxLeads'] ?? 0 ),
+                                ),
+                            );
+                            ?>
+                            <div style="margin-top: 14px;">
+                                <?php foreach ( $bars as $bar ) :
+                                    if ( $bar['cap'] <= 0 ) {
+                                        // Skip rows the backend doesn't cap.
+                                        continue;
+                                    }
+                                    $pct = max( 0, min( 100, (int) round( ( $bar['used'] / $bar['cap'] ) * 100 ) ) );
+                                    // Bar colour warms up as usage approaches the cap so
+                                    // heavy users get a visual heads-up before throttling.
+                                    $color = '#46b450';
+                                    if ( $pct >= 80 ) { $color = '#d63638'; }
+                                    elseif ( $pct >= 60 ) { $color = '#f0b849'; }
+                                ?>
+                                    <div style="margin: 6px 0;">
+                                        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #555; margin-bottom: 2px;">
+                                            <span><?php echo esc_html( $bar['label'] ); ?></span>
+                                            <span><?php echo (int) $bar['used']; ?> / <?php echo (int) $bar['cap']; ?></span>
+                                        </div>
+                                        <div style="height: 4px; background: #e6e6e6; border-radius: 2px; overflow: hidden;">
+                                            <div style="height: 100%; width: <?php echo (int) $pct; ?>%; background: <?php echo esc_attr( $color ); ?>; transition: width 200ms ease;"></div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
 
                         <?php if ( $is_pro && ! $is_cancelled_but_paid ) : ?>
                             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -627,9 +1284,9 @@ class BitBot_Admin {
                                 </button>
                             </div>
                         <?php else : ?>
-                            <button id="bitbot-subscribe-btn" class="button button-primary button-hero" style="margin-top: 10px;">
-                                <?php esc_html_e( 'Upgrade to Pro — $20/mo', 'bitbot' ); ?>
-                            </button>
+                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=bitbot-upgrade' ) ); ?>" class="button button-primary button-hero" style="margin-top: 10px;">
+                                <?php esc_html_e( 'Upgrade plan', 'bitbot' ); ?>
+                            </a>
                         <?php endif; ?>
                 </div>
 
@@ -825,7 +1482,27 @@ class BitBot_Admin {
             <!-- Drafts List -->
             <div class="bitbot-card">
                 <h2><?php esc_html_e('Generated Drafts', 'bitbot'); ?></h2>
-                <?php if ($drafts['success'] && !empty($drafts['data'])): ?>
+                <?php
+                $draft_rows = ( $drafts['success'] && isset( $drafts['data']['drafts'] ) )
+                    ? $drafts['data']['drafts']
+                    : array();
+                $draft_total = ( $drafts['success'] && isset( $drafts['data']['total'] ) )
+                    ? (int) $drafts['data']['total']
+                    : count( $draft_rows );
+                ?>
+                <?php if ( $drafts['success'] && ! empty( $draft_rows ) ): ?>
+                    <?php if ( $draft_total > count( $draft_rows ) ): ?>
+                        <p style="color: #666;">
+                            <?php
+                            printf(
+                                /* translators: 1: visible count, 2: total */
+                                esc_html__( 'Showing %1$d of %2$d drafts (most recent first).', 'bitbot' ),
+                                count( $draft_rows ),
+                                $draft_total
+                            );
+                            ?>
+                        </p>
+                    <?php endif; ?>
                     <table class="wp-list-table widefat fixed striped">
                         <thead>
                             <tr>
@@ -836,7 +1513,7 @@ class BitBot_Admin {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($drafts['data'] as $draft):
+                            <?php foreach ($draft_rows as $draft):
                                 $status = $draft['status'] ?? 'draft';
                                 $status_class = '';
                                 $status_label = ucfirst($status);
@@ -934,6 +1611,36 @@ class BitBot_Admin {
         <?php
     }
 
+    /**
+     * Two number inputs for vertical + horizontal pixel offset from the
+     * configured corner. Defaults to 20px each. Tweaking these lets the
+     * owner sidestep a stubborn third-party widget without us having to
+     * detect it.
+     *
+     * The auto-flip JS layers on top: if both corners are taken, it
+     * stacks BitBot on top of the corner occupant by bumping the
+     * vertical offset at runtime (without touching the saved option).
+     */
+    public function render_offset_field() {
+        $x = (int) get_option( 'bitbot_widget_offset_x', 20 );
+        $y = (int) get_option( 'bitbot_widget_offset_y', 20 );
+        ?>
+        <div style="display:flex; gap:24px; flex-wrap:wrap;">
+            <label style="display:flex; flex-direction:column; gap:4px;">
+                <span style="font-weight:500;"><?php esc_html_e( 'Horizontal (px)', 'bitbot' ); ?></span>
+                <input type="number" name="bitbot_widget_offset_x" value="<?php echo esc_attr( $x ); ?>" min="0" max="200" step="1" style="width:90px;">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:4px;">
+                <span style="font-weight:500;"><?php esc_html_e( 'Vertical (px)', 'bitbot' ); ?></span>
+                <input type="number" name="bitbot_widget_offset_y" value="<?php echo esc_attr( $y ); ?>" min="0" max="200" step="1" style="width:90px;">
+            </label>
+        </div>
+        <p class="description" style="margin-top:8px;">
+            <?php esc_html_e( 'Distance from the chosen corner. If another floating widget is already there, BitBot will automatically stack on top of it — adjust manually if you want a different gap.', 'bitbot' ); ?>
+        </p>
+        <?php
+    }
+
     public function render_color_field() {
         $color = get_option('bitbot_primary_color', '#0073aa');
         ?>
@@ -949,11 +1656,29 @@ class BitBot_Admin {
     }
 
     public function render_leads_section() {
-        echo '<p>' . esc_html__( 'Where BitBot should send an email when a new lead comes in. Leave blank to disable notifications.', 'bitbot' ) . '</p>';
+        $is_paid = $this->is_pro();
+        if ( $is_paid ) {
+            echo '<p>' . esc_html__( 'Where BitBot should send an email when a new lead comes in. Leave blank to disable notifications.', 'bitbot' ) . '</p>';
+            return;
+        }
+
+        // Free plan: lead-notification emails are gated to Pro/Pro+. Make
+        // that explicit so Free users don't expect mail that never arrives.
+        ?>
+        <div style="padding: 12px 14px; background: #fff8e5; border: 1px solid #f0c33c; border-radius: 6px; margin-bottom: 8px;">
+            <p style="margin: 0 0 6px; font-weight: 600; color: #3c2f00;">
+                <?php esc_html_e( 'Email notifications are a Pro feature.', 'bitbot' ); ?>
+            </p>
+            <p style="margin: 0; color: #5c4a00; font-size: 13px;">
+                <?php esc_html_e( 'On the Free plan, new leads are still captured and visible on your Leads dashboard — but no email is sent. Upgrade to Pro to get a real-time email every time a visitor leaves their details.', 'bitbot' ); ?>
+            </p>
+        </div>
+        <?php
     }
 
     public function render_notification_email_field() {
-        $email = get_option( 'bitbot_notification_email', get_option( 'admin_email', '' ) );
+        $email   = get_option( 'bitbot_notification_email', get_option( 'admin_email', '' ) );
+        $is_paid = $this->is_pro();
         ?>
         <input
             type="email"
@@ -961,10 +1686,326 @@ class BitBot_Admin {
             value="<?php echo esc_attr( $email ); ?>"
             class="regular-text"
             placeholder="you@example.com"
+            <?php disabled( ! $is_paid ); ?>
         >
         <p class="description">
-            <?php esc_html_e( 'Defaults to the WordPress admin email. You can change it any time.', 'bitbot' ); ?>
+            <?php
+            if ( $is_paid ) {
+                esc_html_e( 'Defaults to the WordPress admin email. You can change it any time.', 'bitbot' );
+            } else {
+                esc_html_e( 'Disabled on Free plan — emails are not sent. Upgrade to Pro to enable.', 'bitbot' );
+            }
+            ?>
         </p>
+        <?php
+    }
+
+    /**
+     * Sanitize + push cart-recovery config.
+     *
+     * @since 1.7.0
+     * @param mixed $value
+     * @return array
+     */
+    public function sanitize_recovery_config( $value ) {
+        if ( ! is_array( $value ) ) {
+            return (array) get_option( 'bitbot_recovery_config', array() );
+        }
+        $clean = array(
+            'enabled'     => ! empty( $value['enabled'] ),
+            'code'        => isset( $value['code'] ) ? sanitize_text_field( (string) $value['code'] ) : '',
+            'description' => isset( $value['description'] ) ? sanitize_text_field( (string) $value['description'] ) : '',
+        );
+
+        $this->api_client->update_recovery_config( $clean['enabled'], $clean['code'], $clean['description'] );
+
+        return $clean;
+    }
+
+    /**
+     * @since 1.7.0
+     */
+    public function render_recovery_section() {
+        if ( ! $this->is_pro_plus() ) {
+            $this->render_proplus_gate_card(
+                __( 'Cart Recovery is a Pro+ feature.', 'bitbot' ),
+                __( 'On Pro+ the agent can surface a discount code to close hesitating visitors — only after real near-buy hesitation, never on the first mention of price. The settings below stay disabled until you upgrade.', 'bitbot' )
+            );
+            return;
+        }
+        ?>
+        <p>
+            <?php esc_html_e( 'Let the agent surface a discount code to close hesitating visitors. The agent won\'t use it on the first mention of price — only when a visitor has shown real near-buy hesitation.', 'bitbot' ); ?>
+        </p>
+        <?php
+    }
+
+    /**
+     * @since 1.7.0
+     */
+    public function render_recovery_config_field() {
+        $cfg          = (array) get_option( 'bitbot_recovery_config', array() );
+        $enabled      = ! empty( $cfg['enabled'] );
+        $code         = isset( $cfg['code'] ) ? (string) $cfg['code'] : '';
+        $description  = isset( $cfg['description'] ) ? (string) $cfg['description'] : '';
+        $is_pro_plus  = $this->is_pro_plus();
+        $disabled_attr = $is_pro_plus ? '' : 'disabled';
+        ?>
+        <fieldset style="max-width: 560px; <?php echo $is_pro_plus ? '' : 'opacity: 0.55;'; ?>">
+            <label style="display: block; margin-bottom: 12px;">
+                <input type="checkbox" name="bitbot_recovery_config[enabled]" value="1" <?php checked( $enabled, true ); ?> <?php echo $disabled_attr; ?>>
+                <strong><?php esc_html_e( 'Offer a discount code via the Pro+ agent', 'bitbot' ); ?></strong>
+            </label>
+
+            <p>
+                <label style="display: block; font-weight: 600; margin-bottom: 4px;"><?php esc_html_e( 'Coupon code', 'bitbot' ); ?></label>
+                <input type="text" name="bitbot_recovery_config[code]" value="<?php echo esc_attr( $code ); ?>" class="regular-text code" placeholder="SAVE10" <?php echo $disabled_attr; ?>>
+                <span class="description" style="display: block; margin-top: 4px;">
+                    <?php esc_html_e( 'The code you have configured in WooCommerce or your checkout. The agent will mention it verbatim.', 'bitbot' ); ?>
+                </span>
+            </p>
+
+            <p>
+                <label style="display: block; font-weight: 600; margin-bottom: 4px;"><?php esc_html_e( 'Offer description', 'bitbot' ); ?></label>
+                <input type="text" name="bitbot_recovery_config[description]" value="<?php echo esc_attr( $description ); ?>" class="regular-text" placeholder="10% off your first order" <?php echo $disabled_attr; ?>>
+                <span class="description" style="display: block; margin-top: 4px;">
+                    <?php esc_html_e( 'One short phrase describing the deal. Used in the agent\'s reply.', 'bitbot' ); ?>
+                </span>
+            </p>
+        </fieldset>
+        <?php
+    }
+
+    /**
+     * @since 1.7.0
+     */
+    public function render_appointments_section() {
+        if ( ! $this->is_pro_plus() ) {
+            $this->render_proplus_gate_card(
+                __( 'Appointments are a Pro+ feature.', 'bitbot' ),
+                __( 'On Pro+ the chatbot can take real bookings from visitors — consultations, calls, sessions — straight inside the widget. The settings below stay disabled until you upgrade.', 'bitbot' )
+            );
+            return;
+        }
+        ?>
+        <p>
+            <?php esc_html_e( 'Let the chatbot book appointments for you — consultations, calls, sessions, service slots.', 'bitbot' ); ?>
+        </p>
+        <p class="description">
+            <?php esc_html_e( 'Visitors can book available slots inside the chat widget. Confirmation emails go to the visitor and to your notification email automatically.', 'bitbot' ); ?>
+        </p>
+        <?php
+    }
+
+    /**
+     * All-in-one booking config field — grid of weekly hours + service settings.
+     *
+     * @since 1.7.0
+     */
+    public function render_appointments_config_field() {
+        $cfg    = (array) get_option( 'bitbot_appointments_config', array() );
+        $enabled = ! empty( $cfg['enabled'] );
+        $name   = 'bitbot_appointments_config';
+        $tz     = isset( $cfg['timezone'] ) ? (string) $cfg['timezone'] : 'UTC';
+        $hours  = isset( $cfg['hours'] ) && is_array( $cfg['hours'] ) ? $cfg['hours'] : array();
+        $days   = array(
+            'mon' => __( 'Monday', 'bitbot' ),
+            'tue' => __( 'Tuesday', 'bitbot' ),
+            'wed' => __( 'Wednesday', 'bitbot' ),
+            'thu' => __( 'Thursday', 'bitbot' ),
+            'fri' => __( 'Friday', 'bitbot' ),
+            'sat' => __( 'Saturday', 'bitbot' ),
+            'sun' => __( 'Sunday', 'bitbot' ),
+        );
+        $is_pro_plus = $this->is_pro_plus();
+        ?>
+        <fieldset style="max-width: 640px; <?php echo $is_pro_plus ? '' : 'opacity: 0.55;'; ?>" <?php echo $is_pro_plus ? '' : 'disabled'; ?>>
+            <label style="display: block; margin-bottom: 12px;">
+                <input type="checkbox" name="<?php echo esc_attr( $name ); ?>[enabled]" value="1" <?php checked( $enabled, true ); ?>>
+                <strong><?php esc_html_e( 'Enable appointment booking', 'bitbot' ); ?></strong>
+            </label>
+
+            <table class="form-table" role="presentation">
+                <tbody>
+                    <tr>
+                        <th scope="row"><label for="bitbot_appt_service_name"><?php esc_html_e( 'Service name', 'bitbot' ); ?></label></th>
+                        <td>
+                            <input type="text" id="bitbot_appt_service_name" name="<?php echo esc_attr( $name ); ?>[service_name]"
+                                   value="<?php echo esc_attr( $cfg['service_name'] ?? '' ); ?>"
+                                   class="regular-text" placeholder="30-min consultation">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="bitbot_appt_duration"><?php esc_html_e( 'Duration (minutes)', 'bitbot' ); ?></label></th>
+                        <td>
+                            <input type="number" id="bitbot_appt_duration" name="<?php echo esc_attr( $name ); ?>[duration_minutes]"
+                                   value="<?php echo esc_attr( (string) ( $cfg['duration_minutes'] ?? 30 ) ); ?>" min="5" max="240" step="5" class="small-text">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="bitbot_appt_buffer"><?php esc_html_e( 'Buffer between slots (minutes)', 'bitbot' ); ?></label></th>
+                        <td>
+                            <input type="number" id="bitbot_appt_buffer" name="<?php echo esc_attr( $name ); ?>[buffer_minutes]"
+                                   value="<?php echo esc_attr( (string) ( $cfg['buffer_minutes'] ?? 15 ) ); ?>" min="0" max="120" step="5" class="small-text">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="bitbot_appt_tz"><?php esc_html_e( 'Timezone', 'bitbot' ); ?></label></th>
+                        <td>
+                            <input type="text" id="bitbot_appt_tz" name="<?php echo esc_attr( $name ); ?>[timezone]"
+                                   value="<?php echo esc_attr( $tz ); ?>" class="regular-text" placeholder="Australia/Sydney">
+                            <p class="description">
+                                <?php esc_html_e( 'IANA name like Australia/Sydney, Europe/London, America/New_York. See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones', 'bitbot' ); ?>
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="bitbot_appt_lead"><?php esc_html_e( 'Minimum lead time (hours)', 'bitbot' ); ?></label></th>
+                        <td>
+                            <input type="number" id="bitbot_appt_lead" name="<?php echo esc_attr( $name ); ?>[lead_time_hours]"
+                                   value="<?php echo esc_attr( (string) ( $cfg['lead_time_hours'] ?? 2 ) ); ?>" min="0" max="168" class="small-text">
+                            <p class="description"><?php esc_html_e( 'Slots start at least this many hours from now.', 'bitbot' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="bitbot_appt_ahead"><?php esc_html_e( 'Max days ahead', 'bitbot' ); ?></label></th>
+                        <td>
+                            <input type="number" id="bitbot_appt_ahead" name="<?php echo esc_attr( $name ); ?>[max_days_ahead]"
+                                   value="<?php echo esc_attr( (string) ( $cfg['max_days_ahead'] ?? 14 ) ); ?>" min="1" max="60" class="small-text">
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4 style="margin-top: 24px;"><?php esc_html_e( 'Weekly hours', 'bitbot' ); ?></h4>
+            <p class="description">
+                <?php esc_html_e( 'Check days you\'re available, then set the start and end time. Times are in the timezone you chose above.', 'bitbot' ); ?>
+            </p>
+
+            <table class="form-table" role="presentation" style="max-width: 480px;">
+                <tbody>
+                <?php foreach ( $days as $day_key => $day_label ) :
+                    $row          = isset( $hours[ $day_key ] ) && is_array( $hours[ $day_key ] ) ? $hours[ $day_key ] : array();
+                    $day_enabled  = ! empty( $row['enabled'] );
+                    $start        = isset( $row['start'] ) ? (string) $row['start'] : '09:00';
+                    $end          = isset( $row['end'] ) ? (string) $row['end'] : '17:00';
+                ?>
+                    <tr>
+                        <th scope="row" style="width: 120px;">
+                            <label>
+                                <input type="checkbox" name="<?php echo esc_attr( $name ); ?>[hours][<?php echo esc_attr( $day_key ); ?>][enabled]" value="1" <?php checked( $day_enabled, true ); ?>>
+                                <?php echo esc_html( $day_label ); ?>
+                            </label>
+                        </th>
+                        <td>
+                            <input type="time" name="<?php echo esc_attr( $name ); ?>[hours][<?php echo esc_attr( $day_key ); ?>][start]"
+                                   value="<?php echo esc_attr( $start ); ?>" <?php echo $day_enabled ? '' : 'disabled'; ?>>
+                            <span style="margin: 0 8px;">→</span>
+                            <input type="time" name="<?php echo esc_attr( $name ); ?>[hours][<?php echo esc_attr( $day_key ); ?>][end]"
+                                   value="<?php echo esc_attr( $end ); ?>" <?php echo $day_enabled ? '' : 'disabled'; ?>>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </fieldset>
+        <script>
+        // Enable time inputs when the day checkbox flips on.
+        document.addEventListener('change', function (e) {
+            if (!e.target.matches('input[name^="<?php echo esc_js( $name ); ?>[hours]"][type="checkbox"]')) return;
+            var inputs = e.target.closest('tr').querySelectorAll('input[type="time"]');
+            inputs.forEach(function (i) { i.disabled = !e.target.checked; });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * WooCommerce section description — shown only when WooCommerce is active
+     * (gated in register_settings).
+     *
+     * @since 1.7.0
+     */
+    public function render_wc_section() {
+        if ( ! $this->is_pro_plus() ) {
+            $this->render_proplus_gate_card(
+                __( 'WooCommerce Integration is a Pro+ feature.', 'bitbot' ),
+                __( 'On Pro+ the agent can look up a verified customer\'s order, create draft orders for in-chat checkout, and file refund / return tickets — straight from WooCommerce. The fields below stay disabled until you upgrade.', 'bitbot' )
+            );
+            return;
+        }
+        ?>
+        <p>
+            <?php esc_html_e( 'Connect BitBot to WooCommerce so the agent can answer order enquiries ("where is my order?") for verified customers.', 'bitbot' ); ?>
+        </p>
+        <p class="description">
+            <?php
+            printf(
+                wp_kses(
+                    /* translators: %s: admin URL to WooCommerce REST keys page */
+                    __( 'Create a read-only REST API key in <a href="%s">WooCommerce → Settings → Advanced → REST API</a>, then paste it below.', 'bitbot' ),
+                    array( 'a' => array( 'href' => array() ) )
+                ),
+                esc_url( admin_url( 'admin.php?page=wc-settings&tab=advanced&section=keys' ) )
+            );
+            ?>
+        </p>
+        <?php
+    }
+
+    /**
+     * @since 1.7.0
+     */
+    public function render_wc_consumer_key_field() {
+        $value = get_option( 'bitbot_wc_consumer_key', '' );
+        $is_pro_plus = $this->is_pro_plus();
+        ?>
+        <input
+            type="text"
+            name="bitbot_wc_consumer_key"
+            value="<?php echo esc_attr( $value ); ?>"
+            class="regular-text code"
+            placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            autocomplete="off"
+            <?php disabled( ! $is_pro_plus ); ?>
+            style="<?php echo $is_pro_plus ? '' : 'opacity: 0.55;'; ?>"
+        >
+        <?php
+    }
+
+    /**
+     * Masked display of the consumer secret. On save the new value is pushed
+     * to the backend; the stored value remains available in WP options for
+     * re-push if credentials are rotated.
+     *
+     * @since 1.7.0
+     */
+    public function render_wc_consumer_secret_field() {
+        $stored = (string) get_option( 'bitbot_wc_consumer_secret', '' );
+        $masked = $stored ? str_repeat( '•', 8 ) . substr( $stored, -4 ) : '';
+        $is_pro_plus = $this->is_pro_plus();
+        ?>
+        <input
+            type="password"
+            name="bitbot_wc_consumer_secret"
+            value=""
+            class="regular-text code"
+            placeholder="<?php echo $stored ? esc_attr__( 'Leave blank to keep existing secret', 'bitbot' ) : esc_attr( 'cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' ); ?>"
+            autocomplete="off"
+            <?php disabled( ! $is_pro_plus ); ?>
+            style="<?php echo $is_pro_plus ? '' : 'opacity: 0.55;'; ?>"
+        >
+        <?php if ( $masked ) : ?>
+            <p class="description">
+                <?php
+                printf(
+                    /* translators: %s: last 4 chars of stored secret */
+                    esc_html__( 'Currently stored: %s. Type a new secret to replace, or leave blank to keep.', 'bitbot' ),
+                    esc_html( $masked )
+                );
+                ?>
+            </p>
+        <?php endif; ?>
         <?php
     }
 
@@ -978,6 +2019,26 @@ class BitBot_Admin {
         $allowed_positions = array( 'bottom-right', 'bottom-left' );
         $value = sanitize_text_field( $value );
         return in_array( $value, $allowed_positions, true ) ? $value : 'bottom-right';
+    }
+
+    /**
+     * Clamp widget offset to a sane range. Negative values would push
+     * the widget off-screen; very large values too. 200px is the upper
+     * bound -- past that the owner has bigger problems than collision
+     * avoidance.
+     *
+     * @param mixed $value
+     * @return int
+     */
+    public function sanitize_widget_offset( $value ) {
+        $n = (int) $value;
+        if ( $n < 0 ) {
+            return 0;
+        }
+        if ( $n > 200 ) {
+            return 200;
+        }
+        return $n;
     }
 
     /**
@@ -1260,12 +2321,35 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $result = $this->api_client->create_checkout();
+        // Tier comes from the new Upgrade page's per-card CTA. Legacy
+        // 'Upgrade to Pro' buttons (top banner, Plan card hero) don't pass
+        // it, so we default to 'pro' which preserves existing behaviour.
+        $tier = isset( $_POST['tier'] ) ? sanitize_text_field( wp_unslash( $_POST['tier'] ) ) : 'pro';
+        if ( $tier !== 'pro' && $tier !== 'pro_plus' ) {
+            $tier = 'pro';
+        }
+
+        $result = $this->api_client->create_checkout( $tier );
 
         if ($result['success']) {
-            wp_send_json_success(array(
-                'checkoutUrl' => $result['data']['checkoutUrl'],
-            ));
+            // Two response shapes from the backend:
+            //   1. { checkoutUrl } — new subscription path. Plugin redirects.
+            //   2. { tierUpdated: true, tier } — existing subscription was
+            //      swapped to the new tier. Plugin shows success + bounces
+            //      to the dashboard. The DB has already been updated server-
+            //      side so we bust the local cache here too.
+            $data = $result['data'];
+            if ( ! empty( $data['tierUpdated'] ) ) {
+                $this->bust_plan_status_cache();
+                wp_send_json_success( array(
+                    'tierUpdated' => true,
+                    'tier'        => $data['tier'] ?? $tier,
+                ) );
+            } else {
+                wp_send_json_success(array(
+                    'checkoutUrl' => $data['checkoutUrl'],
+                ));
+            }
         } else {
             wp_send_json_error(array('error' => $result['error']));
         }
@@ -1340,7 +2424,10 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $result = $this->api_client->get_conversations();
+        $page      = isset($_POST['page']) ? max(1, absint($_POST['page'])) : 1;
+        $page_size = isset($_POST['pageSize']) ? max(1, min(200, absint($_POST['pageSize']))) : 50;
+
+        $result = $this->api_client->get_conversations($page, $page_size);
 
         if ($result['success']) {
             wp_send_json_success($result['data']);
@@ -1667,18 +2754,36 @@ class BitBot_Admin {
             var config = window.bitbotAdmin || {};
 
             function createForm(name, description, fields) {
+                function escHtmlLocal(s) { return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+                function renderFormError(errMsg) {
+                    // Free-plan form cap: render an upgrade card so the
+                    // owner knows exactly why save was blocked + how to lift.
+                    if (/Free plan includes \d+ form/i.test(errMsg)) {
+                        var dashUrl = '<?php echo esc_url( admin_url( "admin.php?page=bitbot-upgrade" ) ); ?>';
+                        $('#bitbot-create-status').html(
+                            '<div style="padding:14px 16px;background:#fff8e5;border:1px solid #f0c33c;border-radius:6px;">' +
+                            '<p style="margin:0 0 8px;font-weight:600;color:#3c2f00;">You\'ve reached the Free plan form limit.</p>' +
+                            '<p style="margin:0 0 12px;color:#5c4a00;font-size:13px;">Free includes 1 form. Upgrade to Pro for unlimited forms — plus email lead notifications and AI lead research.</p>' +
+                            '<a href="' + dashUrl + '" class="button button-primary">Upgrade to Pro — $20/mo</a>' +
+                            '</div>'
+                        ).show();
+                        return;
+                    }
+                    $('#bitbot-create-status').html('<p class="error">' + escHtmlLocal(errMsg || 'Failed to create form.') + '</p>').show();
+                }
                 $.ajax({
                     url: config.ajaxUrl, method: 'POST',
                     data: { action: 'bitbot_create_form', nonce: config.nonce, name: name, description: description, fields: JSON.stringify(fields) },
                     success: function(response) {
-                        if (response.success && response.data.id) {
+                        if (response.success && response.data && response.data.id) {
                             window.location.href = '<?php echo esc_url(admin_url('admin.php?page=bitbot-forms')); ?>&form_id=' + response.data.id;
                         } else {
-                            $('#bitbot-create-status').html('<p class="error">Failed to create form.</p>').show();
+                            var errMsg = (response.data && response.data.error) || (response.data && typeof response.data === 'string' ? response.data : '') || 'Failed to create form.';
+                            renderFormError(errMsg);
                         }
                     },
                     error: function() {
-                        $('#bitbot-create-status').html('<p class="error">Failed to create form.</p>').show();
+                        renderFormError('Failed to create form.');
                     }
                 });
             }
@@ -2013,6 +3118,8 @@ class BitBot_Admin {
             var config = window.bitbotAdmin || {};
             var stageFilter = '<?php echo esc_js($stage_filter); ?>';
             var searchQuery = '<?php echo esc_js($search); ?>';
+            var currentPage = 1;
+            var PAGE_SIZE = 50;
 
             function loadLeads() {
                 $.ajax({
@@ -2022,7 +3129,9 @@ class BitBot_Admin {
                         action: 'bitbot_get_leads',
                         nonce: config.nonce,
                         stage: stageFilter,
-                        search: searchQuery
+                        search: searchQuery,
+                        page: currentPage,
+                        pageSize: PAGE_SIZE
                     },
                     success: function(response) {
                         if (!response.success) {
@@ -2031,18 +3140,42 @@ class BitBot_Admin {
                         }
                         var leads = response.data.leads || [];
                         var total = response.data.total || 0;
+                        var page = response.data.page || 1;
+                        var pageSize = response.data.pageSize || PAGE_SIZE;
+                        var totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-                        if (leads.length === 0) {
-                            $('#bitbot-leads-container').html(
-                                '<div class="bitbot-card" style="text-align: center; padding: 40px;">' +
-                                '<h3>No leads yet</h3>' +
-                                '<p>Leads will appear here when visitors submit forms or share contact info in chat.</p>' +
-                                '</div>'
-                            );
+                        if (leads.length === 0 && page === 1) {
+                            // Distinguish "you have no leads at all" from
+                            // "your stage/search filter excluded everything."
+                            // The first message is reassuring during onboarding;
+                            // the second would be alarming and wrong if the
+                            // owner has 60 leads but the filter narrows to 0.
+                            var hasFilters = !!stageFilter || !!searchQuery;
+                            if (hasFilters) {
+                                var resetUrl = '<?php echo esc_url(admin_url('admin.php?page=bitbot-leads')); ?>';
+                                $('#bitbot-leads-container').html(
+                                    '<div class="bitbot-card" style="text-align: center; padding: 40px;">' +
+                                    '<h3>No leads match this filter</h3>' +
+                                    '<p>Try a different stage or search term — or <a href="' + resetUrl + '">clear filters</a> to see all leads.</p>' +
+                                    '</div>'
+                                );
+                            } else {
+                                $('#bitbot-leads-container').html(
+                                    '<div class="bitbot-card" style="text-align: center; padding: 40px;">' +
+                                    '<h3>No leads yet</h3>' +
+                                    '<p>Leads will appear here when visitors submit forms or share contact info in chat.</p>' +
+                                    '</div>'
+                                );
+                            }
                             return;
                         }
 
-                        var html = '<p>' + total + ' lead' + (total !== 1 ? 's' : '') + '</p>';
+                        // Header line: total + current window. Helps the
+                        // owner immediately see whether they're looking at
+                        // a slice or the whole list.
+                        var firstIdx = (page - 1) * pageSize + 1;
+                        var lastIdx  = Math.min(total, firstIdx + leads.length - 1);
+                        var html = '<p>Showing <strong>' + firstIdx + '–' + lastIdx + '</strong> of ' + total + ' lead' + (total !== 1 ? 's' : '') + '</p>';
                         html += '<table class="wp-list-table widefat fixed striped">';
                         html += '<thead><tr>';
                         html += '<th style="width: 18%;">Name</th>';
@@ -2066,9 +3199,20 @@ class BitBot_Admin {
                             var detailUrl = '<?php echo esc_url(admin_url('admin.php?page=bitbot-leads')); ?>&lead_id=' + lead.id;
                             var color = stageColors[lead.stage] || '#666';
                             var date = new Date(lead.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            // Un-viewed leads are exactly the rows
+                            // counted by the Leads menu badge. Visual
+                            // treatment: tinted background row + an
+                            // amber "NEW" pill before the name. Clears
+                            // when the owner opens the lead detail
+                            // page (server stamps viewed_at there).
+                            var unviewed = !lead.viewedAt;
+                            var rowStyle = unviewed ? ' style="background: #fff8e5;"' : '';
+                            var newPill = unviewed
+                                ? '<span style="display:inline-block;background:#f0c33c;color:#3c2f00;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;margin-right:6px;letter-spacing:0.5px;">NEW</span>'
+                                : '';
 
-                            html += '<tr>';
-                            html += '<td><a href="' + detailUrl + '" style="font-weight: 600;">' + escHtml(lead.name) + '</a></td>';
+                            html += '<tr' + rowStyle + '>';
+                            html += '<td>' + newPill + '<a href="' + detailUrl + '" style="font-weight: 600;">' + escHtml(lead.name) + '</a></td>';
                             html += '<td>' + escHtml(lead.email) + '</td>';
                             html += '<td><span class="bitbot-status" style="background: #f0f0f1; color: #50575e;">' + escHtml(lead.source) + '</span></td>';
                             var location = lead.city && lead.country ? lead.city + ', ' + lead.country : (lead.country || '—');
@@ -2080,6 +3224,19 @@ class BitBot_Admin {
                         });
 
                         html += '</tbody></table>';
+
+                        // Prev/Next pager. Only render the container when
+                        // we have more than one page so single-page sites
+                        // don't get extra chrome.
+                        if (totalPages > 1) {
+                            html += '<div class="tablenav" style="margin-top: 12px;">';
+                            html += '<div class="tablenav-pages" style="float: none; text-align: center;">';
+                            html += '<button type="button" class="button bitbot-leads-prev" ' + (page <= 1 ? 'disabled' : '') + '>&laquo; Previous</button> ';
+                            html += '<span style="margin: 0 12px; line-height: 28px;">Page ' + page + ' of ' + totalPages + '</span>';
+                            html += '<button type="button" class="button bitbot-leads-next" ' + (page >= totalPages ? 'disabled' : '') + '>Next &raquo;</button>';
+                            html += '</div></div>';
+                        }
+
                         $('#bitbot-leads-container').html(html);
                     },
                     error: function() {
@@ -2087,6 +3244,15 @@ class BitBot_Admin {
                     }
                 });
             }
+
+            // Delegated click — survives every re-render of the table.
+            $(document).on('click', '.bitbot-leads-prev', function() {
+                if (currentPage > 1) { currentPage -= 1; loadLeads(); }
+            });
+            $(document).on('click', '.bitbot-leads-next', function() {
+                currentPage += 1;
+                loadLeads();
+            });
 
             function escHtml(str) {
                 if (!str) return '';
@@ -2236,6 +3402,7 @@ class BitBot_Admin {
                         if (activity.type === 'email_sent') icon = '✉️';
                         if (activity.type === 'stage_change') icon = '🔄';
                         if (activity.type === 'auto_research') icon = '🔍';
+                        if (activity.type === 'calendar_booked') icon = '📅';
 
                         html += '<div style="padding: 10px 0; border-bottom: 1px solid #eee;">';
                         html += '<span>' + icon + '</span> ';
@@ -2338,7 +3505,22 @@ class BitBot_Admin {
                                 loadLead(); // Reload the whole page to show updated data
                             } else {
                                 $btn.prop('disabled', false).text('Run AI Research');
-                                $('#bitbot-research-content').html('<p class="error">Research failed: ' + escHtml((r.data && r.data.error) || 'Unknown error') + '</p>');
+                                var errMsg = (r.data && r.data.error) || 'Unknown error';
+                                // Detect the Pro-feature gate error and render
+                                // a proper upgrade card instead of leaking the
+                                // raw API string at the user.
+                                if (/Pro feature/i.test(errMsg)) {
+                                    var dashUrl = '<?php echo esc_url( admin_url( "admin.php?page=bitbot-upgrade" ) ); ?>';
+                                    $('#bitbot-research-content').html(
+                                        '<div style="padding:18px;background:#fff8e5;border:1px solid #f0c33c;border-radius:6px;">' +
+                                        '<p style="margin:0 0 10px;font-weight:600;color:#3c2f00;">AI Lead Research is a Pro feature.</p>' +
+                                        '<p style="margin:0 0 14px;color:#5c4a00;font-size:13px;">Auto-scrape the lead\'s website + LinkedIn, surface intent signals, and draft personalized outreach in one click.</p>' +
+                                        '<a href="' + dashUrl + '" class="button button-primary">Upgrade to Pro — $20/mo</a>' +
+                                        '</div>'
+                                    );
+                                } else {
+                                    $('#bitbot-research-content').html('<p class="error">Research failed: ' + escHtml(errMsg) + '</p>');
+                                }
                             }
                         },
                         error: function() {
@@ -2457,9 +3639,12 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $stage = isset($_POST['stage']) ? sanitize_text_field($_POST['stage']) : '';
-        $search = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
-        $result = $this->api_client->get_leads($stage, $search);
+        $stage     = isset($_POST['stage']) ? sanitize_text_field($_POST['stage']) : '';
+        $search    = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+        $page      = isset($_POST['page']) ? max(1, absint($_POST['page'])) : 1;
+        $page_size = isset($_POST['pageSize']) ? max(1, min(200, absint($_POST['pageSize']))) : 50;
+
+        $result = $this->api_client->get_leads($stage, $search, $page, $page_size);
 
         if ($result['success']) {
             wp_send_json_success($result['data']);
@@ -2481,8 +3666,14 @@ class BitBot_Admin {
 
         $result = $this->api_client->get_lead($lead_id);
         if ($result['success']) {
-            // Opening a lead marks it viewed upstream — refresh the badge count.
+            // Opening a lead marks it AND every tied appointment viewed
+            // upstream (Lead.getLead does both). Bust both badge caches
+            // so the counts reflect reality on the very next admin page
+            // load — otherwise the 60s TTL leaves the badges stale and
+            // the user sees "Calendar 2" while the underlying data
+            // already says 1.
             $this->bust_new_leads_count_cache();
+            delete_transient( self::UPCOMING_APTS_COUNT_TRANSIENT );
             wp_send_json_success($result['data']);
         } else {
             wp_send_json_error(array('error' => $result['error']));
@@ -2605,5 +3796,638 @@ class BitBot_Admin {
         $description = isset($_POST['description']) ? sanitize_text_field($_POST['description']) : '';
         $result = $this->api_client->generate_form($description);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    // ================================================================
+    // Live Chats (Pro+ live-handover)
+    // ================================================================
+
+    /**
+     * Presence heartbeat. Tiny AJAX handler so the backend knows the admin
+     * is active; the Pro+ agent reads this to decide whether to offer live
+     * handover to visitors.
+     *
+     * @since 1.7.0
+     */
+    public function ajax_heartbeat() {
+        check_ajax_referer( 'bitbot_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'error' => 'Permission denied' ) );
+        }
+        $result = $this->api_client->admin_heartbeat();
+        if ( $result['success'] ) {
+            wp_send_json_success( $result['data'] );
+        } else {
+            wp_send_json_error( array( 'error' => $result['error'] ?? 'Heartbeat failed' ) );
+        }
+    }
+
+    /**
+     * Fetch a single live thread's messages for the polling admin UI.
+     *
+     * @since 1.7.0
+     */
+    public function ajax_live_chats_thread() {
+        check_ajax_referer( 'bitbot_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'error' => 'Permission denied' ) );
+        }
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        if ( ! $conversation_id ) {
+            wp_send_json_error( array( 'error' => 'conversation_id is required' ) );
+        }
+        $result = $this->api_client->get_live_chat_messages( $conversation_id );
+        $result['success'] ? wp_send_json_success( $result['data'] ) : wp_send_json_error( array( 'error' => $result['error'] ) );
+    }
+
+    /**
+     * Admin reply → backend AdminReplyLive RPC. Server-side form POST
+     * (not AJAX) to keep the flow robust even without JS.
+     *
+     * @since 1.7.0
+     */
+    public function handle_live_chats_reply() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Permission denied' );
+        }
+        check_admin_referer( 'bitbot_live_chats_reply' );
+
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        $message         = isset( $_POST['message'] ) ? wp_kses_post( wp_unslash( (string) $_POST['message'] ) ) : '';
+
+        if ( $conversation_id && trim( $message ) !== '' ) {
+            $this->api_client->admin_reply_live( $conversation_id, $message );
+        }
+
+        wp_safe_redirect( add_query_arg(
+            array( 'page' => 'bitbot-live-chats', 'thread' => $conversation_id ),
+            admin_url( 'admin.php' )
+        ) );
+        exit;
+    }
+
+    /**
+     * Close a live thread → agent resumes on next visitor message.
+     *
+     * @since 1.7.0
+     */
+    public function handle_live_chats_close() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Permission denied' );
+        }
+        check_admin_referer( 'bitbot_live_chats_close' );
+
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        if ( $conversation_id ) {
+            $this->api_client->close_live_thread( $conversation_id );
+        }
+
+        // Drop the menu badge immediately on close instead of waiting for
+        // the 30s transient to expire.
+        delete_transient( self::LIVE_CHATS_COUNT_TRANSIENT );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=bitbot-live-chats&closed=1' ) );
+        exit;
+    }
+
+    /**
+     * Admin-initiated takeover: flips the conversation into live_mode
+     * server-side so the agent steps aside. The visitor's widget picks
+     * this up on its next heartbeat (≤30s) or on their next message,
+     * whichever comes first.
+     *
+     * @since 1.7.0
+     */
+    public function handle_live_chats_takeover() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Permission denied' );
+        }
+        check_admin_referer( 'bitbot_live_chats_takeover' );
+
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        $opener          = isset( $_POST['opener'] ) ? wp_kses_post( wp_unslash( (string) $_POST['opener'] ) ) : '';
+
+        if ( $conversation_id ) {
+            $this->api_client->admin_take_over_chat( $conversation_id, $opener );
+            // Badge should reflect the new live thread straight away,
+            // not on the next transient expiry.
+            delete_transient( self::LIVE_CHATS_COUNT_TRANSIENT );
+        }
+
+        // Land the admin on the thread view of the conversation they
+        // just took over so they can start replying immediately.
+        $args = array( 'page' => 'bitbot-live-chats', 'takeover' => 1 );
+        if ( $conversation_id ) {
+            $args['thread'] = $conversation_id;
+        }
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    /**
+     * Render the Live Chats admin page. Two-pane layout: list of threads
+     * on the left, selected thread on the right. Server-rendered on load;
+     * JS polls every 5s for new messages on the active thread.
+     *
+     * @since 1.7.0
+     */
+    public function render_live_chats_page() {
+        $active_id = isset( $_GET['thread'] ) ? sanitize_text_field( (string) $_GET['thread'] ) : '';
+
+        $list_response = $this->api_client->get_live_chats();
+        $chats = array();
+        if ( ! empty( $list_response['success'] ) && isset( $list_response['data']['chats'] ) ) {
+            $chats = $list_response['data']['chats'];
+        }
+
+        $thread_messages = array();
+        if ( $active_id ) {
+            $thread_response = $this->api_client->get_live_chat_messages( $active_id );
+            if ( ! empty( $thread_response['success'] ) && isset( $thread_response['data']['messages'] ) ) {
+                $thread_messages = $thread_response['data']['messages'];
+            }
+        }
+
+        $active_chat = null;
+        foreach ( $chats as $c ) {
+            if ( isset( $c['id'] ) && $c['id'] === $active_id ) {
+                $active_chat = $c;
+                break;
+            }
+        }
+        ?>
+        <div class="wrap bitbot-live-chats">
+            <h1><?php esc_html_e( 'Live Chats', 'bitbot' ); ?></h1>
+
+            <?php if ( isset( $_GET['closed'] ) ) : ?>
+                <div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Live thread closed. The agent will resume on the visitor\'s next message.', 'bitbot' ); ?></p></div>
+            <?php endif; ?>
+            <?php if ( isset( $_GET['takeover'] ) ) : ?>
+                <div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Thread taken over. The visitor\'s widget will switch to live mode on its next heartbeat (≤30s) or on their next message.', 'bitbot' ); ?></p></div>
+            <?php endif; ?>
+
+            <p class="description" style="margin-bottom: 16px;">
+                <?php esc_html_e( 'Active chats and hand-over requests across your site. Threads in Needs human are waiting on a reply from you. Chatting shows visitors currently talking to the agent — jump in if you want.', 'bitbot' ); ?>
+            </p>
+
+            <?php
+            // Split threads into two buckets. Needs-human pinned at top
+            // with red accent, then Chatting below. Idle/left threads
+            // still appear under Chatting with a subdued pill so the
+            // admin can see recent history at a glance.
+            $needs_human = array();
+            $chatting    = array();
+            foreach ( $chats as $c ) {
+                if ( ! empty( $c['liveMode'] ) ) {
+                    $needs_human[] = $c;
+                } else {
+                    $chatting[] = $c;
+                }
+            }
+            $render_list = function ( $rows, $active_id, $empty_msg, $accent_color, $show_takeover = false ) {
+                if ( empty( $rows ) ) {
+                    echo '<p style="padding: 12px; color: #888; font-size: 12px;">' . esc_html( $empty_msg ) . '</p>';
+                    return;
+                }
+                echo '<ul style="list-style: none; padding: 0; margin: 0;">';
+                foreach ( $rows as $c ) {
+                    $is_active     = isset( $c['id'] ) && $c['id'] === $active_id;
+                    $unread        = (int) ( $c['unreadAdminCount'] ?? 0 );
+                    // Backend (since GetLiveChats was extended) computes a
+                    // glanceable cascade label: lead name → email → "Visitor
+                    // from City, Country" → "Visitor #abc1234". Old plugin
+                    // versions hitting a fresh backend get the new field;
+                    // new plugin against an older backend falls back to the
+                    // pre-cascade behavior so the inbox keeps rendering.
+                    if ( ! empty( $c['displayLabel'] ) ) {
+                        $visitor_label = (string) $c['displayLabel'];
+                    } elseif ( ! empty( $c['visitorEmail'] ) ) {
+                        $visitor_label = (string) $c['visitorEmail'];
+                    } else {
+                        $visitor_label = $c['visitorIp'] ?? __( 'visitor', 'bitbot' );
+                    }
+                    $presence      = (string) ( $c['presence'] ?? 'idle' );
+                    $last_msg_at   = (string) ( $c['lastMessageAt'] ?? '' );
+                    $ago           = $last_msg_at ? human_time_diff( strtotime( $last_msg_at ), current_time( 'timestamp', true ) ) : '';
+
+                    $pill_bg   = '#888';
+                    $pill_text = strtoupper( $presence );
+                    if ( $presence === 'present' ) { $pill_bg = '#46b450'; }
+                    elseif ( $presence === 'idle' ) { $pill_bg = '#f0b849'; }
+                    elseif ( $presence === 'left' ) { $pill_bg = '#a0a0a5'; }
+                    ?>
+                    <li style="padding: 10px 12px; border-bottom: 1px solid #eee; border-left: 3px solid <?php echo esc_attr( $accent_color ); ?>; background: <?php echo $is_active ? '#f0f6fc' : 'transparent'; ?>;">
+                        <a href="<?php echo esc_url( add_query_arg( array( 'page' => 'bitbot-live-chats', 'thread' => $c['id'] ), admin_url( 'admin.php' ) ) ); ?>" style="text-decoration: none; color: inherit; display: block;">
+                            <div>
+                                <strong><?php echo esc_html( $visitor_label ); ?></strong>
+                                <span style="display: inline-block; background: <?php echo esc_attr( $pill_bg ); ?>; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; margin-left: 4px;"><?php echo esc_html( $pill_text ); ?></span>
+                                <?php if ( $unread > 0 ) : ?>
+                                    <span style="display: inline-block; background: #d63638; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; margin-left: 4px;"><?php echo (int) $unread; ?></span>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ( $ago ) : ?>
+                                <div style="font-size: 11px; color: #666; margin-top: 2px;">
+                                    <?php /* translators: %s: time duration */ printf( esc_html__( 'last msg %s ago', 'bitbot' ), esc_html( $ago ) ); ?>
+                                </div>
+                            <?php endif; ?>
+                        </a>
+                        <?php if ( $show_takeover && $presence !== 'left' ) : ?>
+                            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top: 6px;" onsubmit="return confirm('Take over this chat? The agent will step aside and you\'ll start replying as a human.');">
+                                <input type="hidden" name="action" value="bitbot_live_chats_takeover">
+                                <input type="hidden" name="conversation_id" value="<?php echo esc_attr( $c['id'] ?? '' ); ?>">
+                                <?php wp_nonce_field( 'bitbot_live_chats_takeover' ); ?>
+                                <button type="submit" class="button button-small" style="font-size: 11px; padding: 0 8px; height: 22px; line-height: 20px;">
+                                    <?php esc_html_e( 'Take over', 'bitbot' ); ?>
+                                </button>
+                            </form>
+                        <?php endif; ?>
+                    </li>
+                    <?php
+                }
+                echo '</ul>';
+            };
+            ?>
+
+            <div style="display: grid; grid-template-columns: 320px 1fr; gap: 20px; align-items: start;">
+                <div>
+                    <div class="card" style="margin-bottom: 14px;">
+                        <h2 class="title" style="display: flex; align-items: center; gap: 8px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #d63638;"></span>
+                            <?php esc_html_e( 'Needs human', 'bitbot' ); ?>
+                            <?php if ( ! empty( $needs_human ) ) : ?>
+                                <span style="font-size: 12px; color: #666; font-weight: normal;">(<?php echo count( $needs_human ); ?>)</span>
+                            <?php endif; ?>
+                        </h2>
+                        <?php $render_list( $needs_human, $active_id, __( 'No handover requests right now.', 'bitbot' ), '#d63638' ); ?>
+                    </div>
+                    <div class="card">
+                        <h2 class="title" style="display: flex; align-items: center; gap: 8px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #2271b1;"></span>
+                            <?php esc_html_e( 'Chatting', 'bitbot' ); ?>
+                            <?php if ( ! empty( $chatting ) ) : ?>
+                                <span style="font-size: 12px; color: #666; font-weight: normal;">(<?php echo count( $chatting ); ?>)</span>
+                            <?php endif; ?>
+                        </h2>
+                        <?php $render_list( $chatting, $active_id, __( 'No active chats in the last 30 minutes.', 'bitbot' ), '#2271b1', /* show_takeover */ true ); ?>
+                    </div>
+                </div>
+
+                <div class="card" style="min-height: 420px;">
+                    <?php if ( ! $active_id ) : ?>
+                        <p style="padding: 30px; text-align: center; color: #666;">
+                            <?php esc_html_e( 'Pick a thread on the left to view and reply.', 'bitbot' ); ?>
+                        </p>
+                    <?php else :
+                        $is_live = $active_chat && ! empty( $active_chat['liveMode'] );
+                    ?>
+                        <div id="bitbot-live-thread" data-conversation-id="<?php echo esc_attr( $active_id ); ?>" data-is-live="<?php echo $is_live ? '1' : '0'; ?>">
+                            <div id="bitbot-live-messages" style="max-height: 420px; overflow-y: auto; padding: 12px; background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 16px;">
+                                <?php foreach ( $thread_messages as $m ) :
+                                    $role    = $m['role'] ?? '';
+                                    $content = (string) ( $m['content'] ?? '' );
+                                    if ( $role === 'admin' ) {
+                                        $align = 'right';
+                                        $bg    = '#d1e7fd';
+                                        $label = __( 'You', 'bitbot' );
+                                    } elseif ( $role === 'assistant' ) {
+                                        $align = 'left';
+                                        $bg    = '#fff3cd';
+                                        $label = __( 'Agent', 'bitbot' );
+                                    } else {
+                                        $align = 'left';
+                                        $bg    = '#fff';
+                                        $label = __( 'Visitor', 'bitbot' );
+                                    }
+                                ?>
+                                    <div style="margin: 8px 0; text-align: <?php echo esc_attr( $align ); ?>;">
+                                        <div style="display: inline-block; max-width: 70%; background: <?php echo esc_attr( $bg ); ?>; padding: 8px 12px; border-radius: 10px; text-align: left;">
+                                            <div style="font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 2px;"><?php echo esc_html( $label ); ?></div>
+                                            <div><?php echo nl2br( esc_html( $content ) ); ?></div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <?php if ( $is_live ) : ?>
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display: flex; gap: 8px; align-items: flex-end;">
+                                    <input type="hidden" name="action" value="bitbot_live_chats_reply">
+                                    <input type="hidden" name="conversation_id" value="<?php echo esc_attr( $active_id ); ?>">
+                                    <?php wp_nonce_field( 'bitbot_live_chats_reply' ); ?>
+                                    <textarea name="message" rows="3" style="flex: 1;" placeholder="<?php esc_attr_e( 'Type your reply…', 'bitbot' ); ?>" required></textarea>
+                                    <button type="submit" class="button button-primary"><?php esc_html_e( 'Send', 'bitbot' ); ?></button>
+                                </form>
+
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top: 12px;">
+                                    <input type="hidden" name="action" value="bitbot_live_chats_close">
+                                    <input type="hidden" name="conversation_id" value="<?php echo esc_attr( $active_id ); ?>">
+                                    <?php wp_nonce_field( 'bitbot_live_chats_close' ); ?>
+                                    <button type="submit" class="button" onclick="return confirm('<?php echo esc_js( __( 'Close this live thread? The agent will resume on the next visitor message.', 'bitbot' ) ); ?>');">
+                                        <?php esc_html_e( 'Close thread', 'bitbot' ); ?>
+                                    </button>
+                                </form>
+                            <?php else : ?>
+                                <p style="color: #666; padding: 12px; background: #f4f4f5; border-radius: 6px;">
+                                    <?php esc_html_e( 'This thread has ended. Messages are read-only.', 'bitbot' ); ?>
+                                </p>
+                            <?php endif; ?>
+                        </div>
+
+                        <script>
+                        // Pin the messages pane to the bottom on every render so
+                        // the admin actually sees the most recent turn instead
+                        // of having to scroll past older history. Runs once on
+                        // load; incremental appends below also re-scroll.
+                        (function () {
+                            var box = document.getElementById('bitbot-live-messages');
+                            if (box) box.scrollTop = box.scrollHeight;
+                        })();
+                        </script>
+
+                        <?php if ( $is_live ) : ?>
+                            <script>
+                            // Poll the thread every 5s for new visitor messages and
+                            // append them in place. Previously this did a full
+                            // location.reload() which wiped the inner scroll state
+                            // (and the admin's draft reply), so the conversation
+                            // appeared to "scroll up" every 5s.
+                            (function () {
+                                var CONV_ID = <?php echo wp_json_encode( $active_id ); ?>;
+                                var NONCE   = <?php echo wp_json_encode( wp_create_nonce( 'bitbot_admin_nonce' ) ); ?>;
+                                var AJAX    = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+                                var seenIds = new Set(
+                                    <?php
+                                        $ids = array();
+                                        foreach ( $thread_messages as $m ) {
+                                            if ( isset( $m['id'] ) ) {
+                                                $ids[] = (string) $m['id'];
+                                            }
+                                        }
+                                        echo wp_json_encode( $ids );
+                                    ?>
+                                );
+
+                                function escapeHtml(s) {
+                                    return String(s || '')
+                                        .replace(/&/g, '&amp;')
+                                        .replace(/</g, '&lt;')
+                                        .replace(/>/g, '&gt;')
+                                        .replace(/\n/g, '<br>');
+                                }
+
+                                function renderMessage(msg) {
+                                    var role = msg.role || '';
+                                    var align = 'left', bg = '#fff', label = 'Visitor';
+                                    if (role === 'admin')     { align = 'right'; bg = '#d1e7fd'; label = 'You'; }
+                                    else if (role === 'assistant') {                  bg = '#fff3cd'; label = 'Agent'; }
+                                    var wrap = document.createElement('div');
+                                    wrap.style.cssText = 'margin: 8px 0; text-align: ' + align + ';';
+                                    wrap.innerHTML =
+                                        '<div style="display: inline-block; max-width: 70%; background: ' + bg + '; padding: 8px 12px; border-radius: 10px; text-align: left;">' +
+                                            '<div style="font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 2px;">' + escapeHtml(label) + '</div>' +
+                                            '<div>' + escapeHtml(msg.content) + '</div>' +
+                                        '</div>';
+                                    return wrap;
+                                }
+
+                                setInterval(function () {
+                                    var data = new FormData();
+                                    data.append('action', 'bitbot_live_chats_thread');
+                                    data.append('nonce', NONCE);
+                                    data.append('conversation_id', CONV_ID);
+                                    fetch(AJAX, { method: 'POST', body: data, credentials: 'same-origin' })
+                                        .then(function (r) { return r.json(); })
+                                        .then(function (json) {
+                                            if (!json || !json.success || !json.data || !Array.isArray(json.data.messages)) return;
+                                            var box = document.getElementById('bitbot-live-messages');
+                                            if (!box) return;
+                                            // Preserve "user is at bottom" semantics — only autoscroll if
+                                            // the admin was already at the bottom. Otherwise they're
+                                            // probably scrolling back through history and we shouldn't
+                                            // yank them forward.
+                                            var wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+                                            var appended = 0;
+                                            json.data.messages.forEach(function (m) {
+                                                var id = m && m.id ? String(m.id) : null;
+                                                if (!id || seenIds.has(id)) return;
+                                                seenIds.add(id);
+                                                box.appendChild(renderMessage(m));
+                                                appended++;
+                                            });
+                                            if (appended > 0 && wasAtBottom) {
+                                                box.scrollTop = box.scrollHeight;
+                                            }
+                                        })
+                                        .catch(function () { /* swallow */ });
+                                }, 5000);
+                            })();
+                            </script>
+                        <?php endif; ?>
+
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <script>
+            // List-pane auto-refresh so the admin sees new "chatting"
+            // threads appear (and presence pills update) without having to
+            // hit reload. Only runs when the admin is on the list view with
+            // NO active thread selected — we used to reload unconditionally
+            // every 20s, which blew away the inner messages scroll (and any
+            // draft reply) while the admin was mid-conversation. Also held
+            // off while typing so we don't clobber a reply draft.
+            (function () {
+                var hasActiveThread = <?php echo ! empty( $active_id ) ? 'true' : 'false'; ?>;
+                if (hasActiveThread) return;
+                setInterval(function () {
+                    var ta = document.getElementById('bitbot-live-reply');
+                    var typing = ta && (document.activeElement === ta || (ta.value && ta.value.trim().length > 0));
+                    if (typing) return;
+                    location.reload();
+                }, 20000);
+            })();
+            </script>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render the BitBot Calendar admin surface.
+     *
+     * Pure visibility — no Accept/Decline/Send-Email buttons. Lists every
+     * appointment captured by the chat agent in a FullCalendar.js view.
+     * Clicking an entry navigates to the matching lead detail page so
+     * the owner gets full context (conversation transcript, AI research,
+     * activity feed). Communication and meeting setup live entirely in
+     * the owner's own tools.
+     *
+     * FullCalendar.js v6 (MIT, ~70KB gzipped) loaded via CDN as a single
+     * standalone bundle — no CommonJS plumbing, no build step, no
+     * unpkg.com lookups blocked by site CSP. Falls back to a tabular
+     * list if the script fails to load.
+     *
+     * @since 1.7.0
+     */
+    public function render_calendar_page() {
+        $response = $this->api_client->get_appointments();
+
+        $appointments  = array();
+        $site_timezone = 'UTC';
+        $api_error     = '';
+        if ( ! empty( $response['success'] ) && isset( $response['data']['appointments'] ) ) {
+            $appointments  = $response['data']['appointments'];
+            $site_timezone = isset( $response['data']['siteTimezone'] ) ? (string) $response['data']['siteTimezone'] : 'UTC';
+        } elseif ( isset( $response['error'] ) ) {
+            $api_error = (string) $response['error'];
+        }
+
+        // Pre-shape rows as FullCalendar event objects. Each entry's
+        // `url` field is the lead detail page so a click navigates the
+        // browser without us needing to wire eventClick handlers.
+        //
+        // Title is the visitor's full email (or name if shared). It
+        // can overflow the cell on dense days — FullCalendar truncates
+        // with the standard ellipsis and the full string stays
+        // visible in the hover tooltip + the cell expands when you
+        // switch to week / day view.
+        $events = array();
+        foreach ( $appointments as $a ) {
+            if ( empty( $a['startsAt'] ) || empty( $a['endsAt'] ) ) {
+                continue;
+            }
+            if ( ! empty( $a['visitorName'] ) ) {
+                $title = (string) $a['visitorName'];
+            } elseif ( ! empty( $a['visitorEmail'] ) ) {
+                $title = (string) $a['visitorEmail'];
+            } else {
+                $title = 'Appointment';
+            }
+
+            $url = ! empty( $a['leadId'] )
+                ? admin_url( 'admin.php?page=bitbot-leads&lead_id=' . urlencode( $a['leadId'] ) )
+                : '';
+
+            // Two-state model: un-viewed = green (highlighted, draws
+            // the eye -- this matches the menu badge count), viewed =
+            // muted grey. No cancelled treatment because there is no
+            // cancel UI in BitBot today; if we ever add one, paint it
+            // strikethrough or hide it rather than surface a third
+            // legend entry.
+            $unviewed = empty( $a['viewedAt'] );
+            if ( $unviewed ) {
+                $bg     = '#46b450';
+                $border = '#3a9241';
+            } else {
+                $bg     = '#c7cdd3';
+                $border = '#a8b0b8';
+            }
+
+            $events[] = array(
+                'id'              => isset( $a['id'] ) ? $a['id'] : '',
+                'title'           => $title,
+                'start'           => $a['startsAt'],
+                'end'             => $a['endsAt'],
+                'url'             => $url,
+                'backgroundColor' => $bg,
+                'borderColor'     => $border,
+                'extendedProps'   => array(
+                    'topic'        => isset( $a['topic'] ) ? $a['topic'] : '',
+                    'visitorEmail' => isset( $a['visitorEmail'] ) ? $a['visitorEmail'] : '',
+                    'serviceName'  => isset( $a['serviceName'] ) ? $a['serviceName'] : '',
+                    'status'       => isset( $a['status'] ) ? $a['status'] : '',
+                    'unviewed'     => $unviewed,
+                ),
+            );
+        }
+        ?>
+        <div class="wrap bitbot-calendar">
+            <h1><?php esc_html_e( 'Calendar', 'bitbot' ); ?></h1>
+            <p class="description" style="margin-bottom: 12px;">
+                <?php esc_html_e( 'Every appointment your chatbot has booked. Click any entry to open the matching lead — full conversation, AI research, and notes are there. Use your own email and calendar tools to confirm and share meeting links with the visitor.', 'bitbot' ); ?>
+            </p>
+            <p class="description" style="margin-bottom: 16px; font-size: 12px; color: #666;">
+                <span style="display:inline-block;width:10px;height:10px;background:#46b450;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><?php esc_html_e( 'New', 'bitbot' ); ?>
+            </p>
+
+            <?php if ( $api_error ) : ?>
+                <div class="notice notice-error"><p><?php echo esc_html( $api_error ); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ( empty( $events ) ) : ?>
+                <div style="padding: 40px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; text-align: center;">
+                    <p style="font-size: 16px; color: #555; margin: 0;">
+                        <?php esc_html_e( 'No appointments yet — the calendar fills up as visitors book sessions through your chatbot.', 'bitbot' ); ?>
+                    </p>
+                </div>
+            <?php else : ?>
+                <!--
+                    FullCalendar v6 standalone build. CDN URLs intentionally
+                    pinned to a specific version so a future breaking
+                    upstream release can't yank our admin UI.
+                -->
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css">
+                <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+
+                <div id="bitbot-calendar-app" style="background: #fff; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px;"></div>
+                <noscript>
+                    <p style="padding: 12px; background: #fff8e5; border: 1px solid #f0c33c; border-radius: 4px;">
+                        <?php esc_html_e( 'JavaScript is required to render the calendar view. The bookings are still all in the Leads list.', 'bitbot' ); ?>
+                    </p>
+                </noscript>
+
+                <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var el = document.getElementById('bitbot-calendar-app');
+                    if (!el || typeof FullCalendar === 'undefined') return;
+                    var events = <?php echo wp_json_encode( $events ); ?>;
+                    var calendar = new FullCalendar.Calendar(el, {
+                        initialView: 'dayGridMonth',
+                        // 'local' = the owner's browser timezone. Using
+                        // the site's configured appointments_timezone
+                        // (e.g. "Australia/Sydney") would require the
+                        // FullCalendar Luxon / moment-timezone plugin
+                        // -- without it, FullCalendar silently falls
+                        // back to UTC for any named tz, which is why
+                        // a Sydney-tz site was rendering bookings on
+                        // the day-before cell. The browser tz is the
+                        // right answer for the owner ~95% of the time
+                        // (they're using their own machine in their
+                        // own location); revisit if traveling-owner
+                        // complaints come in.
+                        timeZone: 'local',
+                        height: 'auto',
+                        nowIndicator: true,
+                        // Force every event to render as a coloured block.
+                        // FullCalendar's default "auto" mode renders short
+                        // timed events as a dot + text (no background fill)
+                        // when multiple events stack on the same day —
+                        // which kills our amber-vs-green un-viewed/viewed
+                        // visual cue. Block mode keeps the colour cue
+                        // consistent across views and stack positions.
+                        eventDisplay: 'block',
+                        headerToolbar: {
+                            left: 'prev,next today',
+                            center: 'title',
+                            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                        },
+                        events: events,
+                        // Tooltip shown on hover — full visitor email,
+                        // service, and topic (the visible cell only
+                        // shows the visitor's name / handle, so the
+                        // hover is where the rest lives).
+                        eventDidMount: function (info) {
+                            var props = info.event.extendedProps || {};
+                            var bits = [];
+                            if (props.serviceName) bits.push(props.serviceName);
+                            if (props.visitorEmail) bits.push(props.visitorEmail);
+                            if (props.topic) bits.push(props.topic);
+                            if (bits.length > 0) info.el.title = bits.join(' · ');
+                        },
+                    });
+                    calendar.render();
+                });
+                </script>
+            <?php endif; ?>
+        </div>
+        <?php
     }
 }

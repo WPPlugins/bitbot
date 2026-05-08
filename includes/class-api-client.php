@@ -56,7 +56,7 @@ class BitBot_API_Client {
      * @param int    $timeout     Request timeout in seconds (default 60, max 900 for sync).
      * @return array Response with 'success' and 'data' or 'error' keys.
      */
-    private function rpc( $request_tag, $payload = array(), $timeout = 60 ) {
+    private function rpc( $request_tag, $payload = array(), $timeout = 60, $blocking = true ) {
         // Add API key to all payloads
         $payload['apiKey'] = $this->api_key;
 
@@ -67,15 +67,28 @@ class BitBot_API_Client {
         );
 
         $args = array(
-            'method'  => 'POST',
-            'timeout' => $timeout,
-            'headers' => array(
+            'method'    => 'POST',
+            'timeout'   => $timeout,
+            'blocking'  => (bool) $blocking,
+            'headers'   => array(
                 'Content-Type' => 'application/json',
             ),
-            'body'    => wp_json_encode( $body ),
+            'body'      => wp_json_encode( $body ),
         );
 
         $response = wp_remote_request( $this->api_url, $args );
+
+        // Non-blocking: wp_remote_request returns immediately with an empty
+        // response. The backend still receives and processes the POST — we
+        // just don't wait around for the result. Used for background sync
+        // from wp-cron, where a 15s-per-batch blocking POST would routinely
+        // get killed by tight cron execution budgets on shared hosts.
+        if ( ! $blocking ) {
+            return array(
+                'success' => true,
+                'data'    => array( 'async' => true ),
+            );
+        }
 
         if ( is_wp_error( $response ) ) {
             return array(
@@ -178,6 +191,182 @@ class BitBot_API_Client {
     }
 
     /**
+     * Push WooCommerce REST API credentials to the backend for order-enquiry skill.
+     *
+     * @since 1.7.0
+     * @param string $consumer_key    WooCommerce REST consumer key.
+     * @param string $consumer_secret WooCommerce REST consumer secret.
+     * @return array API response.
+     */
+    public function update_wc_credentials( $consumer_key, $consumer_secret ) {
+        return $this->rpc( 'UpdateWcCredentials', array(
+            'consumerKey'    => (string) $consumer_key,
+            'consumerSecret' => (string) $consumer_secret,
+        ) );
+    }
+
+    /**
+     * Push appointment availability config + weekly hours to backend.
+     *
+     * @since 1.7.0
+     * @param array $config Keys: enabled (bool), serviceName (string),
+     *        durationMinutes (int), bufferMinutes (int), timezone (string),
+     *        leadTimeHours (int), maxDaysAhead (int), weeklyHours (array of
+     *        { dayOfWeek:int, startTime:string, endTime:string }).
+     * @return array API response.
+     */
+    public function update_availability( $config ) {
+        return $this->rpc( 'UpdateAvailability', $config );
+    }
+
+    /**
+     * Push cart-recovery discount config to backend.
+     *
+     * @since 1.7.0
+     * @param bool   $enabled
+     * @param string $code
+     * @param string $description
+     * @return array
+     */
+    public function update_recovery_config( $enabled, $code, $description ) {
+        return $this->rpc( 'UpdateRecoveryConfig', array(
+            'enabled'     => (bool) $enabled,
+            'code'        => (string) $code,
+            'description' => (string) $description,
+        ) );
+    }
+
+    /**
+     * Admin presence heartbeat. Kept short-timeout since latency matters
+     * here — the agent uses this to decide whether to offer live handover.
+     *
+     * @since 1.7.0
+     * @return array
+     */
+    public function admin_heartbeat() {
+        return $this->rpc( 'AdminHeartbeat', array(), 10 );
+    }
+
+    /**
+     * @since 1.7.0
+     * @return array { chats: [...] }
+     */
+    public function get_live_chats() {
+        return $this->rpc( 'GetLiveChats' );
+    }
+
+    /**
+     * @since 1.7.0
+     * @param string $conversation_id
+     * @return array { messages: [...] }
+     */
+    public function get_live_chat_messages( $conversation_id ) {
+        return $this->rpc( 'GetLiveChatMessages', array(
+            'conversationId' => (string) $conversation_id,
+        ) );
+    }
+
+    /**
+     * @since 1.7.0
+     * @param string $conversation_id
+     * @param string $message
+     * @return array
+     */
+    public function admin_reply_live( $conversation_id, $message ) {
+        return $this->rpc( 'AdminReplyLive', array(
+            'conversationId' => (string) $conversation_id,
+            'message'        => (string) $message,
+        ) );
+    }
+
+    /**
+     * @since 1.7.0
+     * @param string $conversation_id
+     * @return array
+     */
+    public function close_live_thread( $conversation_id ) {
+        return $this->rpc( 'CloseLiveThread', array(
+            'conversationId' => (string) $conversation_id,
+        ) );
+    }
+
+    /**
+     * Count of live-and-fresh threads for the WP admin submenu badge.
+     * Cheap — single COUNT query after lazy stale-thread expiry.
+     *
+     * @since 1.7.0
+     * @return array { count: int }
+     */
+    public function get_live_badge_count() {
+        return $this->rpc( 'GetLiveBadgeCount', array(), 5 );
+    }
+
+    /**
+     * Widget poll endpoint — gets new admin messages + current live_mode
+     * state. No API key exposed to the browser; called from the plugin's
+     * REST bridge.
+     *
+     * @since 1.7.0
+     * @param string $session_id
+     * @param string $since_message_id
+     * @return array
+     */
+    public function get_live_chat_updates( $session_id, $since_message_id = '' ) {
+        return $this->rpc( 'GetLiveChatUpdates', array(
+            'sessionId'      => (string) $session_id,
+            'sinceMessageId' => (string) $since_message_id,
+        ), 10 );
+    }
+
+    /**
+     * Heartbeat — called every 30s by the widget while it's open and
+     * the page is visible. Stamps visitor_last_seen_at so the admin
+     * dashboard can render presence.
+     *
+     * @since 1.7.0
+     * @param string $session_id
+     * @return array
+     */
+    public function visitor_heartbeat( $session_id ) {
+        return $this->rpc( 'VisitorHeartbeat', array(
+            'sessionId' => (string) $session_id,
+        ), 5 );
+    }
+
+    /**
+     * Visitor-left — fired from beforeunload via sendBeacon. Stamps
+     * visitor_left_at so the admin sees "left" immediately.
+     *
+     * @since 1.7.0
+     * @param string $session_id
+     * @return array
+     */
+    public function visitor_left( $session_id ) {
+        return $this->rpc( 'VisitorLeft', array(
+            'sessionId' => (string) $session_id,
+        ), 5 );
+    }
+
+    /**
+     * Admin-initiated takeover. Flips the conversation into live_mode
+     * server-side so the agent stops replying and the widget switches
+     * to poll-for-admin-replies mode on its next heartbeat (or on the
+     * visitor's next message, whichever fires first).
+     *
+     * @since 1.7.0
+     * @param string $conversation_id
+     * @param string $opener Optional first admin message so the visitor
+     *                      sees "A teammate just joined" instantly.
+     * @return array
+     */
+    public function admin_take_over_chat( $conversation_id, $opener = '' ) {
+        return $this->rpc( 'AdminTakeOverChat', array(
+            'conversationId' => (string) $conversation_id,
+            'opener'         => (string) $opener,
+        ), 10 );
+    }
+
+    /**
      * Regenerate API key and re-register site
      *
      * @since 1.0.0
@@ -236,12 +425,19 @@ class BitBot_API_Client {
     }
 
     /**
-     * Trigger content sync by gathering local content and sending to API
+     * Trigger content sync by gathering local content and sending to API.
      *
      * @since 1.0.0
-     * @return array API response with sync results.
+     * @param bool $async When true, fire each batch POST non-blocking
+     *                    (fire-and-forget). Used by wp-cron-driven first/
+     *                    retry syncs where tight execution budgets kill
+     *                    blocking POSTs mid-flight. Backend still receives
+     *                    and processes the payload; we just don't wait for
+     *                    pagesSaved/chunksEmbedded totals to come back.
+     * @return array API response with sync results (blocking) or
+     *               { success: true, data: { async: true } } (async).
      */
-    public function trigger_sync() {
+    public function trigger_sync( $async = false ) {
         // Gather all content locally
         $all_pages = $this->gather_content();
 
@@ -283,7 +479,14 @@ class BitBot_API_Client {
                 $payload['allUrls'] = $all_urls;
             }
 
-            $result = $this->rpc( 'SyncContent', $payload, 300 ); // 5 min timeout per batch
+            $result = $this->rpc( 'SyncContent', $payload, 300, ! $async );
+
+            if ( $async ) {
+                // Non-blocking: no per-batch totals to aggregate. Backend
+                // still embeds + sets last_sync_at when the final batch
+                // arrives. Move to the next batch immediately.
+                continue;
+            }
 
             if ( ! $result['success'] ) {
                 return $result;
@@ -296,6 +499,17 @@ class BitBot_API_Client {
             if ( isset( $result['data']['chunksEmbedded'] ) ) {
                 $chunks_embedded = $result['data']['chunksEmbedded'];
             }
+        }
+
+        if ( $async ) {
+            return array(
+                'success' => true,
+                'data'    => array(
+                    'message'      => sprintf( '%d pages queued for sync', count( $all_pages ) ),
+                    'async'        => true,
+                    'totalBatches' => $total_batches,
+                ),
+            );
         }
 
         // Build message
@@ -342,18 +556,20 @@ class BitBot_API_Client {
      * @param string $visitor_ip Visitor IP address.
      * @return array API response.
      */
-    public function chat( $message, $history = array(), $session_id = '', $visitor_ip = '', $site_language = 'en' ) {
+    public function chat( $message, $history = array(), $session_id = '', $visitor_ip = '', $site_language = 'en', $visitor_id = '', $visitor_timezone = '' ) {
         return $this->rpc( 'Chat', array(
-            'message'      => sanitize_text_field( $message ),
-            'history'      => array_map( function( $msg ) {
+            'message'         => sanitize_text_field( $message ),
+            'history'         => array_map( function( $msg ) {
                 return array(
                     'role'    => sanitize_text_field( $msg['role'] ),
                     'content' => sanitize_text_field( $msg['content'] ),
                 );
             }, $history ),
-            'sessionId'    => sanitize_text_field( $session_id ),
-            'visitorIp'    => sanitize_text_field( $visitor_ip ),
-            'siteLanguage' => sanitize_text_field( $site_language ),
+            'sessionId'       => sanitize_text_field( $session_id ),
+            'visitorIp'       => sanitize_text_field( $visitor_ip ),
+            'siteLanguage'    => sanitize_text_field( $site_language ),
+            'visitorId'       => sanitize_text_field( $visitor_id ),
+            'visitorTimezone' => sanitize_text_field( $visitor_timezone ),
         ) );
     }
 
@@ -640,11 +856,13 @@ class BitBot_API_Client {
      * @since 1.0.0
      * @return array API response with checkoutUrl.
      */
-    public function create_checkout() {
+    public function create_checkout( $tier = 'pro' ) {
         $admin_url = admin_url( 'admin.php?page=bitbot' );
+        $tier      = ( $tier === 'pro_plus' ) ? 'pro_plus' : 'pro';
         return $this->rpc( 'CreateCheckout', array(
             'successUrl' => esc_url_raw( $admin_url . '&subscription=success' ),
             'cancelUrl'  => esc_url_raw( $admin_url . '&subscription=cancelled' ),
+            'tier'       => $tier,
         ) );
     }
 
@@ -688,10 +906,12 @@ class BitBot_API_Client {
      * @param int|null $limit Maximum number of conversations.
      * @return array API response.
      */
-    public function get_conversations( $limit = null ) {
-        $payload = array();
-        if ( $limit !== null ) {
-            $payload['limit'] = absint( $limit );
+    public function get_conversations( $page = 1, $page_size = null ) {
+        $payload = array(
+            'page' => max( 1, absint( $page ) ),
+        );
+        if ( $page_size !== null ) {
+            $payload['pageSize'] = absint( $page_size );
         }
         return $this->rpc( 'GetConversations', $payload );
     }
@@ -879,8 +1099,11 @@ class BitBot_API_Client {
         return $this->rpc( 'GetPlanStatus' );
     }
 
-    public function get_leads( $stage = '', $search = '' ) {
-        $payload = array();
+    public function get_leads( $stage = '', $search = '', $page = 1, $page_size = 50 ) {
+        $payload = array(
+            'page'     => max( 1, absint( $page ) ),
+            'pageSize' => max( 1, min( 200, absint( $page_size ) ) ),
+        );
         if ( ! empty( $stage ) ) {
             $payload['stage'] = sanitize_text_field( $stage );
         }
@@ -991,6 +1214,32 @@ class BitBot_API_Client {
     }
 
     /**
+     * Fetch every appointment for the site for the calendar admin view.
+     *
+     * Returns up to 500 rows, newest first. The caller is expected to
+     * cache the result on the page for FullCalendar to render across
+     * month / week / day views without re-hitting the API.
+     *
+     * @since 1.7.0
+     * @return array { appointments: array<object>, siteTimezone: string } | error envelope
+     */
+    public function get_appointments() {
+        return $this->rpc( 'GetAppointments' );
+    }
+
+    /**
+     * Lightweight count of future-dated, non-cancelled appointments.
+     * Used to drive the Calendar menu badge — never the calendar UI
+     * itself (that one needs the full payload).
+     *
+     * @since 1.7.0
+     * @return array { count: int } | error envelope
+     */
+    public function get_upcoming_appointments_count() {
+        return $this->rpc( 'GetUpcomingAppointmentsCount' );
+    }
+
+    /**
      * Create WordPress post from draft
      *
      * @since 1.0.0
@@ -1008,11 +1257,11 @@ class BitBot_API_Client {
         $seo   = $draft['seoMeta'] ?? array();
 
         // Free plan: append a subtle "Draft by BitBot →" footer to the post body.
-        // Pro plan leaves the content untouched.
-        $content = $draft['content'];
+        // Any paying tier (Pro or Pro+) leaves the content untouched.
+        $content     = $draft['content'];
         $plan_status = $this->get_plan_status();
-        $is_pro = ! empty( $plan_status['success'] )
-            && ( $plan_status['data']['plan'] ?? 'free' ) === 'pro';
+        $plan        = ! empty( $plan_status['success'] ) ? ( $plan_status['data']['plan'] ?? null ) : null;
+        $is_pro      = BitBot_Plan::is_paid( $plan );
 
         if ( ! $is_pro ) {
             $content .= "\n\n<!-- bitbot-draft-footer -->\n";

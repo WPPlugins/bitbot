@@ -25,11 +25,9 @@
      */
     function bindReconnectButton() {
         const $reconnectBtn = $('#bitbot-reconnect-btn');
-        console.log('[BitBot] Binding reconnect button, found:', $reconnectBtn.length);
 
         $reconnectBtn.on('click', function(e) {
             e.preventDefault();
-            console.log('[BitBot] Reconnect clicked');
 
             const $btn = $(this);
             const originalText = $btn.text();
@@ -121,6 +119,47 @@
             e.preventDefault();
             runSync();
         });
+    }
+
+    /**
+     * Render a Generation error inline as a WP admin notice instead of
+     * an alert() dialog. Keeps cap/upsell messages friendly: a yellow
+     * notice with an inline "Upgrade to Pro" button when the backend
+     * returned a Free-plan cap message, otherwise a red error notice.
+     * Re-rendering replaces the previous notice so we don't stack them.
+     */
+    function showGenerationNotice(errorMessage) {
+        var msg = String(errorMessage || 'Generation failed.');
+        var isCap = /Free plan limit|Free plan allows|Pro feature|Upgrade to Pro/i.test(msg);
+        var $existing = $('.bitbot-generate-notice');
+        if ($existing.length) $existing.remove();
+
+        var upgradeUrl = (window.bitbotAdmin && window.bitbotAdmin.upgradeUrl) || 'admin.php?page=bitbot-upgrade';
+        var noticeClass = isCap ? 'notice-warning' : 'notice-error';
+        var ctaHtml = isCap
+            ? ' <a href="' + upgradeUrl + '" class="button button-primary" style="margin-left:8px;vertical-align:middle;">Upgrade to Pro</a>'
+            : '';
+        var $notice = $(
+            '<div class="notice ' + noticeClass + ' is-dismissible bitbot-generate-notice" style="margin: 12px 0;">' +
+                '<p style="margin: 8px 0;"><strong>' + escapeHtml(msg) + '</strong>' + ctaHtml + '</p>' +
+                '<button type="button" class="notice-dismiss" aria-label="Dismiss"></button>' +
+            '</div>'
+        );
+        $notice.find('.notice-dismiss').on('click', function() { $notice.remove(); });
+
+        var $form = $('#bitbot-generate-form').closest('.bitbot-card');
+        if ($form.length) {
+            $form.before($notice);
+        } else {
+            $('.wrap > h1').first().after($notice);
+        }
+        $('html, body').animate({ scrollTop: $notice.offset().top - 80 }, 200);
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(String(str)));
+        return div.innerHTML;
     }
 
     /**
@@ -232,7 +271,7 @@
                     throw new Error(generateResponse.data?.error || 'Generation failed');
                 }
             } catch (error) {
-                alert('Generation failed: ' + error.message);
+                showGenerationNotice(error.message);
             } finally {
                 $spinner.removeClass('is-active');
                 $submit.prop('disabled', false);
@@ -270,7 +309,7 @@
                     throw new Error(response.data?.error || 'Generation failed');
                 }
             } catch (error) {
-                alert('Generation failed: ' + error.message);
+                showGenerationNotice(error.message);
             } finally {
                 $spinner.removeClass('is-active');
                 $submit.prop('disabled', false);
@@ -296,11 +335,11 @@
                         alert('Post generated successfully!');
                         location.reload();
                     } else {
-                        alert('Generation failed: ' + (response.data?.error || 'Unknown error'));
+                        showGenerationNotice(response.data?.error || 'Unknown error');
                     }
                 },
                 error: function() {
-                    alert('Failed to connect to server');
+                    showGenerationNotice('Failed to connect to server. Please try again.');
                 },
                 complete: function() {
                     $spinner.removeClass('is-active');
@@ -626,8 +665,10 @@
      * Subscription button actions
      */
     function bindSubscriptionActions() {
-        // Subscribe button - redirect to Stripe checkout
-        $('#bitbot-subscribe-btn').on('click', function(e) {
+        // Subscribe button - redirect to Stripe checkout. Multiple instances
+        // can render on the same page (top banner + Plan card hero), so bind
+        // by class — duplicate IDs broke the second click silently.
+        $(document).on('click', '.bitbot-subscribe-btn', function(e) {
             e.preventDefault();
 
             const $btn = $(this);
@@ -796,7 +837,11 @@
                 $container.find('.bitbot-loading').remove();
 
                 if (response.success) {
-                    allConversations = response.data || [];
+                    // Server now returns { conversations, total, page, pageSize }.
+                    // Fall back to the legacy array shape so older API
+                    // builds keep working during the rollout window.
+                    var data = response.data || {};
+                    allConversations = Array.isArray(data) ? data : (data.conversations || []);
                     conversationsPage = 1;
                     renderConversationsPage();
                     $list.show();

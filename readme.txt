@@ -1,284 +1,263 @@
 === BitBot - AI Chatbot, Content Generator, Forms & Leads ===
 Contributors: youamibot
 Donate link: https://youami.ai
-Tags: chatbot, ai, chatgpt, live chat, content generator
+Tags: chatbot, ai, live chat, contact form, lead generation
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.6.2
+Stable tag: 1.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-4 AI-powered tools for WordPress — chatbot, content generator, forms, and leads pipeline.
+Free AI chatbot, content generator, forms, and a leads inbox for WordPress. No API keys, no per-token billing. Install and go in two minutes.
 
 == Description ==
 
-**Turn your WordPress site into a lead-generating machine.**
+**One install, four AI tools.** Your WordPress site writes content, answers visitor questions, captures leads, and — on Pro+ — takes orders and books appointments. All from one plugin.
 
-Install BitBot and get four tools working in under 2 minutes — no API keys, no training, no configuration:
+BitBot indexes every page and post on your site. Visitors ask questions in 100+ languages and get accurate answers with clickable citations back to the source page. Form submissions and chat emails land in a single leads inbox. The content generator turns a topic, URL, or uploaded document into an SEO-optimised draft you can preview and publish in one click.
 
-**AI Content Generator** — Discover trending topics in your niche. Generate SEO-optimized blog posts from a topic, a URL, or an uploaded document. Preview, edit, and publish to WordPress with one click. SEO metadata included.
-
-**AI Chatbot** — Reads every page on your site and answers visitor questions accurately in 100+ languages — with clickable citations linking back to the source page. Works 24/7 without staff.
-
-**Form Builder** — Describe your form in plain English and BitBot builds it. Or start from basics. Embed anywhere with `[bitbot_form]`. Spam protection built in.
-
-**Leads Pipeline** — Every form submission and chat email captured as a lead. Track through stages (New, Contacted, Qualified, Won, Lost). One-click AI research on any lead. AI-drafted follow-up emails. Geolocation included.
-
-All four work together: content brings traffic, the chatbot answers questions and captures leads, forms capture the rest, and the pipeline helps you close them.
-
-**Free forever (with sensible limits). Upgrade to Pro for $20/month when you outgrow the free tier. No API keys. No per-token billing. Just install and go.**
+No API keys to manage. No per-token billing. The Free tier covers small sites; Pro removes the caps; Pro+ turns the chatbot into a real agent that talks to your WooCommerce catalogue, takes orders, and books appointments on your calendar.
 
 [See it live on PolishingRocks.com](https://polishingrocks.com) — ask the chatbot anything about rock tumbling.
 
-= Content Generator =
-
-* Discover trending topics in your niche with one click
-* Generate posts that complement your existing content — no duplicates
-* Create from a prompt, a URL, or an uploaded document
-* Full editorial control — preview, edit, approve before publishing
-* SEO metadata generated automatically (title, description, focus keywords)
-
 = AI Chatbot =
 
-* Reads and indexes every page and post on your site automatically
-* Answers from your content — not generic AI, not hallucinations
-* Every answer includes citations linking back to the source page and section
-* 100+ languages — visitor asks in Hindi, bot answers in Hindi, even if your site is in English
-* Remembers conversation context — follow-up questions just work
-* When the bot can't fully answer, it naturally suggests sharing an email — lead created automatically
-* Auto-syncs when you publish, update, or delete content
-* Mobile-responsive, customizable colors, loads async (zero speed impact)
+* Indexes every page and post automatically — auto-syncs on publish, update, or delete
+* Answers from your content with citations linking back to the source page and section
+* 100+ languages with automatic detection — visitor asks in Hindi, bot answers in Hindi, even if your site is in English
+* Detects emails in conversation and creates a lead with the full chat transcript attached
+* Mobile-responsive widget, customisable colours and corner offset
+* Loads asynchronously — zero impact on page speed
+* Auto-stacks gracefully when other floating widgets (WhatsApp, accessibility menus) are present
+
+= AI Content Generator =
+
+* Discover Topics — surfaces gaps in what you've already published, suggests SEO-shaped angles to fill them
+* Generate from a prompt, a URL, or an uploaded PDF / image
+* Knows your existing content and avoids duplicates
+* SEO metadata generated automatically (title, description, focus keywords)
+* Preview and edit before publishing — drafts open in the WordPress block editor
 
 = Form Builder =
 
-* Create unlimited lead capture forms
-* Describe what you need in plain English — BitBot generates the fields
-* Or start with basic fields and customize manually
-* Embed on any page with `[bitbot_form]` shortcode
-* Rate limiting and spam protection built in
+* Describe a form in plain English — BitBot generates fields, types, and validation
+* Or start with basic fields and customise manually
+* Drag-to-reorder fields
+* Embed anywhere with `[bitbot_form id="…"]` — works inside Gutenberg, Classic, page builders
+* Rate limiting and spam protection built in (per-IP burst guard, per-email cooldown)
 
-= Leads Pipeline =
+= Leads Inbox =
 
 * Every form submission and chat email becomes a lead
-* Track leads through stages: New, Contacted, Qualified, Won, Lost
-* AI lead research — scrapes their company website, searches the web, reads the full chat conversation, tells you who they are and what they need
-* AI-drafted personalized follow-up emails
-* View the full chat conversation for any lead that came from the chatbot
-* Geolocation — see where leads are coming from (country and city)
-* Activity timeline with notes, stage changes, and research history
+* Stage tracking: New → Contacted → Qualified → Won / Lost
+* Geolocation — country and city for every lead
+* Activity timeline — notes, stage changes, AI research, sent emails
+* Unread badge on the BitBot menu drops as you open each lead
+* Search and filter by stage, name, or email — paginated cleanly past 1,000 leads
 
-One plugin handles it all — generate content for your niche, answer customer queries 24/7, capture genuine leads through forms and chat, and reach out with AI-drafted emails.
+= Pro: Lead Research & Follow-up =
+
+* AI Lead Research — scrapes the lead's domain, searches the web, reads the full chat conversation, returns a who-they-are / what-they-need summary with a suggested next step
+* AI-drafted follow-up emails — copy to clipboard, paste into your mail client
+* Email notifications — get pinged the moment a visitor turns into a lead
+* Removes "Powered by BitBot" footer link from the widget
+* Topic Discovery and Style Analysis on the Content Generator
+* AI form-field generation in the Form Builder
+
+= Pro+: The Agent =
+
+Pro+ upgrades the chatbot from a Q&A assistant into a real agent. Skills are modular capabilities the agent activates when a visitor's intent matches — running on real tools, not scripts:
+
+* **Product recommendations** — searches your WooCommerce catalogue live and renders visual product cards in chat (image, price, sale strikethrough, stock)
+* **Add to cart / draft order** — agent confirms the exact item and quantity with the visitor, OTP-verifies their email, creates a real pending WooCommerce order, hands them a one-click checkout link
+* **Order enquiries** — OTP-verifies the visitor owns the order, then looks up status, tracking, delivery ETA. Never exposes another customer's order
+* **Refund / return / complaint tickets** — files a support ticket against the right order with full context, emails your team
+* **Appointment booking** — surfaces available slots from your Settings → Appointments config (no Calendly account needed), confirms in the visitor's local timezone, emails both sides with an `.ics` invite
+* **Lead qualification (BANT)** — conversationally captures budget, authority, need, timeline; scores the lead; flags high-intent ones
+* **Cart-recovery discount** — offers a configured coupon when a hesitating visitor is near-buy (never on the first mention of price — no training visitors to fish for codes)
+* **Live handover** — if you're online (heartbeat seen in the last 5 minutes), the chat flips to you directly in the Live Chats dashboard. If not, a handover email goes out and a lead is created
+
+The Live Chats dashboard shows every active conversation in real time with PRESENT / IDLE / LEFT presence pills, so you can jump into any thread the moment you want to take over.
 
 = Pricing =
 
-**Free forever** — 100 chat messages/month, 3 AI blog posts/month (24h cooldown), 1 contact form, up to 10 stored leads, multilingual chatbot, full content indexing. Shows a small "Powered by BitBot" link in the widget.
+**Free** — 100 chat messages/month, 3 AI blog posts/month (24h cooldown), 1 contact form, up to 10 stored leads, multilingual chatbot, full content indexing. Free forever, no credit card.
 
-**Pro — $20/month** unlocks everything: unlimited chat, unlimited posts (from prompts, URLs, or PDF uploads), unlimited forms, unlimited leads, AI lead research + drafted follow-up emails, email notifications on new leads, Topic Discovery, Style Analysis, AI form generation, and removes all branding. Cancel anytime.
+**Pro — $20/month** — Unlimited chat, unlimited posts (prompt / URL / PDF), unlimited forms, unlimited leads, AI Lead Research, drafted follow-up emails, email notifications, Topic Discovery, Style Analysis, AI form generation. Removes BitBot branding. Fair-use applies. Cancel anytime.
 
-= External Services =
-
-**IMPORTANT: This plugin connects to external services operated by youami.ai**
-
-This plugin requires an active internet connection and communicates with the following external services:
-
-1. **youami.ai API** (https://youami.ai/api)
-   * Purpose: Process chat messages, generate content, sync website data
-   * Data transmitted: Website URL, sitemap, page content, chat messages, visitor IP addresses (for conversation tracking)
-   * When: On plugin activation, content sync, chat messages, content generation
-   * [Terms of Service](https://youami.ai/terms)
-   * [Privacy Policy](https://youami.ai/privacy)
-
-2. **Claude AI by Anthropic** (via youami.ai servers)
-   * Purpose: Generate chat responses and blog post content
-   * Data transmitted: Your website content and user queries (processed through youami.ai)
-   * Your content is NOT used to train AI models
-
-3. **OpenAI Embeddings API** (via youami.ai servers)
-   * Purpose: Create semantic search embeddings for content retrieval
-   * Data transmitted: Website page content (processed through youami.ai)
-
-4. **Stripe** (https://stripe.com)
-   * Purpose: Subscription payment processing
-   * Data transmitted: Email address for billing
-   * When: During subscription checkout
-   * [Stripe Privacy Policy](https://stripe.com/privacy)
-
-By using this plugin, you agree to the terms of service and privacy policies of these external services.
+**Pro+ — $49/month** — Everything in Pro, plus all eight agent skills above. Built for WooCommerce stores and service businesses where conversations should turn into orders and meetings, not just leads in a list. Cancel anytime.
 
 == Installation ==
 
-1. Upload the `bitbot` folder to `/wp-content/plugins/`
-2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Go to BitBot in the admin menu — your site automatically registers and starts syncing
-4. Wait for content sync to complete (usually under 2 minutes)
-5. The chat widget appears on your site immediately — that's it
+1. Install BitBot from Plugins → Add New, or upload the `bitbot.zip`.
+2. Activate the plugin.
+3. Open the **BitBot** menu in your WordPress sidebar — your site auto-registers and starts indexing.
+4. Wait ~2 minutes for the first content sync to complete.
+5. The chat widget appears on your site automatically.
+
+That's it. No API keys, no SaaS dashboard to log into.
 
 == Frequently Asked Questions ==
 
-= What do I get out of the box? =
+= Do I need an OpenAI or Anthropic API key? =
 
-Four tools, all working in under 2 minutes after install: AI Content Generator, AI Chatbot, Form Builder, and Leads Pipeline. No API keys, no configuration, no training data to upload.
+No. BitBot includes the AI service — chat, content generation, embeddings, lead research, and the Pro+ agent all run on infrastructure we operate. No API keys to manage, no per-token billing surprises.
 
-= How does the AI chatbot work? =
+= How long does the chatbot take to learn my site? =
 
-On activation, BitBot indexes all your published pages and posts. When a visitor asks a question, it finds the most relevant content and generates an accurate answer with citations linking back to the source page. It auto-syncs when you publish, update, or delete content.
-
-= Can the chatbot answer in multiple languages? =
-
-Yes. BitBot supports 100+ languages automatically. If a visitor asks in Hindi, the chatbot answers in Hindi — even if your site is in English. No language configuration needed.
-
-= How does the AI content generator work? =
-
-Enter a topic, paste a URL, or upload a document. BitBot generates an SEO-optimized blog post with title, meta description, and focus keywords. It knows your existing content and avoids duplicates. You preview, edit, and publish with one click.
-
-= How does lead capture work? =
-
-Two ways. First, you can create lead capture forms with the form builder and embed them anywhere with `[bitbot_form]`. Second, when the chatbot can't fully answer a visitor's question, it naturally suggests they share their email — and a lead is created automatically with the full conversation, their location, and AI research attached.
-
-= What can I do with captured leads? =
-
-Track them through stages (New, Contacted, Qualified, Won, Lost). Run AI research to learn who they are and what they need. Draft personalized follow-up emails with one click. View the full chat conversation for leads that came through the chatbot.
-
-= Do I need API keys or a ChatGPT account? =
-
-No. BitBot handles all AI infrastructure. No API keys, no per-token billing, no configuration. Everything is included.
+The first sync usually completes in under 2 minutes for a typical site (under 200 pages). Larger sites may take a few minutes. Once it's done, BitBot re-indexes automatically when you publish, update, or delete content.
 
 = Will the chatbot make things up? =
 
-No. BitBot only answers based on your actual website content. Every answer includes citations linking to the source page. If it can't find the answer in your content, it says so and offers to connect the visitor with you.
+No. BitBot answers only from your indexed content and includes a citation linking back to the source page and section for every answer. If it can't find the answer in your content it says so and offers to capture the visitor's email so you can follow up.
+
+= Does it work in languages other than English? =
+
+Yes. The chatbot detects the visitor's language and answers in the same language — including the product cards on Pro+. We've tested English, Hindi, Spanish, Arabic, French, German, Portuguese, Chinese, Japanese, Korean, and Russian; the underlying model handles 100+ more.
+
+= Will it work with WooCommerce? =
+
+Yes. The chatbot indexes your product pages on the Free and Pro tiers. On Pro+, the dedicated WooCommerce skill goes further: live catalogue search, visual product cards in chat, draft-order creation with checkout links, and OTP-verified order enquiries. Configure WooCommerce REST API keys in BitBot → Settings → WooCommerce Integration.
 
 = Does it slow down my site? =
 
-No. The chat widget loads asynchronously with zero impact on page speed. Works with all caching plugins and page builders.
+No. The widget loads asynchronously after the page renders. Works with caching plugins, page builders, and CDNs. The widget detects other floating buttons (WhatsApp, accessibility menus) and auto-stacks above them so it never overlaps.
 
-= Is there a free plan? =
+= How does lead capture work? =
 
-Yes — Free forever, no credit card required. 100 chat messages/month, 3 AI blog posts/month, 1 contact form, up to 10 stored leads. Upgrade to Pro ($20/month) for unlimited everything + AI lead research and email notifications. Cancel anytime.
+Two paths. Drop `[bitbot_form id="…"]` on any page for a traditional form, or let the chatbot capture leads conversationally — when the bot can't fully answer a question or the visitor mentions wanting to be contacted, it asks for an email and creates a lead with the full conversation transcript attached.
 
-= What happens to my data? =
+= What happens when I hit the Free tier limits? =
 
-Your content is stored securely and used only to answer your visitors' questions. It is not shared with third parties or used to train AI models. Contact support@youami.ai to request deletion at any time.
+The chatbot shows the visitor a friendly cap message in their language ("we're at capacity for new contact requests right now — please email us directly"). The admin sees a banner on the Leads page with an Upgrade button. Nothing breaks; nothing is lost. Existing chats and leads remain readable.
+
+= Can I export my leads? =
+
+Leads are stored in your dashboard. Bulk CSV export is on the roadmap. In the meantime each lead has a stable URL you can bookmark or share with your team.
+
+= How is my data handled? =
+
+Your content is stored on infrastructure operated by youami.ai (US-based, encrypted at rest). It is used only to answer your visitors' questions and is never used to train AI models. Email support@youami.ai to request deletion at any time.
+
+= What's the difference between Pro and Pro+? =
+
+Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up emails, and email notifications. Pro+ adds the **agent** — eight skills (product recommendations, draft orders, order enquiries, refunds, appointments, BANT qualification, cart-recovery coupons, live handover) that take real actions on behalf of your visitors. If you sell on WooCommerce or run a service business with bookings, Pro+ is what you want.
 
 == Screenshots ==
 
-1. AI Chatbot answering a visitor question with detailed response and clickable citations to source pages
-2. Content Generator with topic discovery, prompt-based generation, and a table of generated drafts ready for review
-3. Admin Dashboard showing content sync status, usage statistics, subscription info, and indexed pages
-4. Multilingual support — chatbot automatically responds in Arabic when a visitor asks in Arabic
-5. Mobile-responsive chat widget that works perfectly on phones and tablets
-6. Leads Pipeline with stage tracking, AI-suggested next steps, location detection, and source tracking from forms and chat
-7. Lead Detail with AI Research summary, Draft Email button, activity timeline with notes and stage changes
-8. Form Builder showing all created forms with shortcodes, field counts, and status
-9. Create New Form with AI-powered field generation or start with basic fields
+1. Visitors browse your WooCommerce catalogue inside the chat — image, price, sale strikethrough, stock — without leaving the page.
+2. Every form submission and chat email lands in a single inbox. Stage tracking, location, source, and an unread badge on the BitBot menu.
+3. One-click AI research on any lead — pulls from the chatbot's full conversation and the open web, returns a who-they-are summary with a suggested next step.
+4. Discover Topics surfaces gaps in what you've already published, suggests SEO-shaped angles, and generates the draft for any one of them in a couple of clicks.
+5. Describe a form in plain English — BitBot generates the fields, gives you a live preview, and a shortcode you can drop on any page.
+6. Appointments booked through chat appear on the admin Calendar. Click an entry to see the lead, the conversation, and any AI research already attached.
+7. When the chatbot hands off to a human, the visitor sees a clear "Live: you're now chatting with someone from the team" banner. Their next message lands directly in your Live Chats dashboard.
+8. The visitor asks in Hindi, the bot answers in Hindi — same product cards, same flow. Tested across English, Hindi, Spanish, Arabic, French, German and more.
 
 == Changelog ==
 
+= 1.8.1 =
+*Release Date - 8 May 2026*
+
+* Add: Inline post-cap notice — Free-tier post limit now surfaces as a yellow WordPress admin notice with an inline Upgrade button, replacing the previous browser alert dialog.
+* Add: Lead-capture honesty — when a Free-tier site is at the 10-lead cap, the chatbot now tells the visitor "we're at capacity, please email us directly" instead of falsely confirming capture.
+* Add: Reactivate Subscription button on the dashboard for cancelled plans inside the billing period.
+* Fix: Widget now surfaces the backend's specific error message (cap reached, plan required, etc.) instead of a generic "I encountered an error" toast.
+* Fix: Leads / Drafts / Conversations admin pages were silently capped at 1,000 rows — now properly paginated with Prev / Next controls. Older records are no longer hidden.
+* Fix: Pro → Pro+ subscription swap occasionally reverted to Pro because the Stripe webhook read tier from lagging metadata. Now resolves tier from the active price ID — swap completes immediately.
+* Fix: Product-card rendering — `searchProducts` honours the `onSale`, `minPrice`, `maxPrice`, and `orderBy` filters that were previously declared but ignored. "What's on sale?" now returns every on-sale product, not a text-match clip.
+* Fix: Multilingual chat no longer appends an English meta-narration after a localised reply. Hindi visitor → Hindi reply, full stop.
+* Fix: Agent re-fetches product results on every product-asking turn, even if it called the same tool last turn — cards stay attached to the message that triggered them, not orphaned above on a previous turn.
+* Fix: OTP retry behaviour — typing the wrong code no longer auto-resends a fresh OTP. The original code stays valid; the visitor just retypes.
+* Fix: Filtered Leads inbox no longer shows "No leads yet" when the filter excludes everything — now says "No leads match this filter" with a clear-filters link.
+* Fix: Admin assets (`admin.js`, `admin.css`) now include a filemtime cache-bust so in-place plugin updates reach the admin's browser without manual hard-reload.
+* Update: `searchProducts` payload is slimmed via WC `_fields` — page-load on a 7-product sale sweep dropped from ~100 KB to ~3.5 KB on the wire.
+
+= 1.8.0 =
+* Add: Calendar-style admin view for appointments booked via chat (Pro+).
+* Add: Widget collision auto-stack — detects WhatsApp, accessibility menus and other floating buttons, lifts above them so the chat icon is always tappable.
+* Add: Live Chats inbox now uses a 4-step display label (lead name → verified email → "Visitor from City, Country" → anonymous handle) instead of raw IPv6 addresses.
+* Update: Multi-tool turns now run in parallel — chat responses for product browse + RAG fan out together instead of serially.
+* Update: WooCommerce skill teaches the agent to tree-walk product categories when a plural noun ("hoodies") doesn't text-match a single SKU.
+
+= 1.7.0 =
+* Add: Pro+ tier ($49/mo) — the chatbot becomes an agent. Eight skills: product recommendations, draft orders, order enquiries, refunds, appointment booking, BANT qualification, cart-recovery coupons, live handover.
+* Add: Live Chats admin dashboard with PRESENT / IDLE / LEFT presence pills and a Take Over button.
+* Add: Visual product cards in chat (image, price, sale strikethrough, View → CTA).
+* Add: Cross-turn memory — tool results persist across turns; agent never asks "which product did you mean?" twice.
+* Update: Activation defers outbound API calls to background cron so slow hosts can never brick mid-activation.
+* Update: First-sync safety net — hourly retry until content lands.
+* Add: Fair-use bars on the Pro / Pro+ Dashboard for chat / posts / leads.
+
 = 1.6.2 =
-* **SEO fix:** the "Powered by BitBot" widget footer and "Draft by BitBot" post footer are now regular dofollow links (was `nofollow` by mistake in 1.6.0–1.6.1). Free-tier installs now contribute proper backlinks.
+* Fix: "Powered by BitBot" widget footer and "Draft by BitBot" post footer are now dofollow links (were nofollow by mistake in 1.6.0–1.6.1).
 
 = 1.6.1 =
-* **Fixed: BitBot Dashboard Subscription card still said "$10/month"** — now correctly shows Free / Pro plan + $20/mo pricing.
-* **Fixed: Plugin description and FAQ** — removed the old "$10/month, first month free trial" wording now that Free is forever.
+* Fix: Dashboard subscription card showed "$10/month" — corrected to Free / Pro at $20/mo.
+* Fix: Removed stale "first month free trial" wording.
 
 = 1.6.0 =
-* **Free plan is now free forever** — no more trials that expire. Upgrade to Pro ($20/mo) whenever you're ready.
-* **Free plan includes:** 100 chat messages/month, 3 AI-generated blog posts/month (24h cooldown), 1 contact form, up to 10 stored leads, multilingual chatbot, full content indexing.
-* **Pro plan ($20/mo) unlocks:** unlimited chat, unlimited posts from any source (prompt, URL, PDF upload), unlimited forms, unlimited leads, AI lead research + drafted follow-up emails, email notifications on new leads, Topic Discovery, Style Analysis, AI form generation, and removes the "Powered by BitBot" branding.
-* **Usage banner** — see your current-period usage on the BitBot Dashboard at a glance.
-* **Fixed: "Settings saved" notice now appears** when saving BitBot settings.
-* **Fixed: Chat no longer resets** when visitors navigate between pages in the same tab.
-* **Fixed: Existing installs get their notification email auto-configured** on upgrade (no need to open Settings).
+* Update: Free plan is now free forever — no expiring trial.
+* Add: Free includes 100 chat messages/month, 3 AI posts/month, 1 form, 10 stored leads, multilingual chatbot, full content indexing.
+* Add: Pro at $20/mo unlocks unlimited chat / posts / forms / leads, AI Lead Research, drafted follow-up emails, email notifications, Topic Discovery, Style Analysis, AI form generation, removes branding.
+* Add: Usage banner on the Dashboard.
+* Fix: "Settings saved" notice now appears.
+* Fix: Chat no longer resets on cross-page navigation in the same tab.
 
 = 1.5.2 =
-* **New lead email notifications** — get an email the moment a visitor turns into a lead, with their details and a link to the dashboard
-* **Notification email setting** — customise the recipient in BitBot → Settings; defaults to the WordPress admin email
-* **Menu badge for unviewed leads** — red pill on the BitBot menu shows how many leads you haven't opened yet (drops as soon as you open each one)
-* **Fixed: 500 error when saving posts in the block editor** — REST save no longer blocks on BitBot's background sync; saves return immediately
-* **Faster editor saves** — content re-indexing now happens ~10s after save in the background, and rapid saves coalesce into a single sync
-
-= 1.5.1 =
-* **Drag-to-reorder fields** — form builder fields can now be reordered by dragging the grab handle
+* Add: Lead notification emails — get pinged the moment a visitor turns into a lead.
+* Add: Notification email setting in BitBot → Settings.
+* Add: Menu badge for unviewed leads (drops as you open each lead).
+* Fix: 500 error when saving posts in the block editor — REST save no longer blocks on background sync.
 
 = 1.5.0 =
-* **Chat-to-Lead Capture** — chatbot detects emails in conversation and creates leads automatically
-* **View Conversation** — see the full chat history for any lead that came from the chatbot
-* **AI Research with chat context** — lead research now includes the full conversation for better insights
-* **Auto-sync on activation** — content indexed immediately after plugin install
-* **Incremental sync** — new posts and pages indexed automatically on publish or update
-* **Delete detection** — trashed content removed from chatbot knowledge automatically
-* **Sync Now menu item** — quick access to trigger content sync from the sidebar
-* **Dashboard sync improvements** — warning banner and highlighted card when content needs syncing
+* Add: Chat-to-Lead capture — chatbot detects emails in conversation and creates leads automatically.
+* Add: View Conversation on lead detail.
+* Add: AI Research now includes the full chat transcript.
+* Add: Auto-sync on activation; incremental sync on publish / update / delete.
+* Add: Sync Now menu item.
 
 = 1.4.0 =
-* **Leads Pipeline** — capture and manage leads with stage tracking (New, Contacted, Qualified, Won, Lost)
-* **Form Builder** — create unlimited lead capture forms, with AI-generated fields or start from basics
-* **AI Lead Research** — one-click research on any lead to understand who they are and what they need
-* **Draft Email** — AI writes personalized follow-up emails you can copy and send
-* **Geolocation** — see where your leads are coming from (country/city)
-* **Shortcode embed** — drop `[bitbot_form]` on any page to start capturing leads
-* Spam protection with rate limiting on form submissions
-* Activity timeline with notes, stage changes, and research history
-
-= 1.3.1 =
-* Fixed null page title handling in chat contact page lookup
-* Fixed API endpoint configuration
+* Add: Leads Pipeline with stage tracking (New, Contacted, Qualified, Won, Lost).
+* Add: Form Builder with AI-generated fields or basic mode.
+* Add: AI Lead Research and Draft Email.
+* Add: Geolocation on every lead.
+* Add: `[bitbot_form]` shortcode.
 
 = 1.3.0 =
-* **URL-based content generation** — Generate blog posts from any web URL
-* Simplified source type dropdown — removed redundant options
-* Improved error handling with user-friendly messages
-* Bug fixes and performance improvements
+* Add: URL-based content generation — generate posts from any web URL.
 
 = 1.2.0 =
-* Page management — add, remove, toggle and resync individual pages
-* Conversation history viewer in admin dashboard
-* Reconnect functionality for API key refresh
-* Improved sync reliability
+* Add: Page management — add, remove, toggle, resync individual pages.
+* Add: Conversation history viewer in admin.
+* Add: Reconnect functionality for API key refresh.
 
 = 1.1.0 =
-* **Multilingual support** — 100+ languages with automatic detection
-* Cross-language search — query in any language, find content in site's language
-* Responds in visitor's language automatically
+* Add: Multilingual support — 100+ languages with automatic detection.
 
 = 1.0.0 =
-* Initial release
-* Chat widget with customizable appearance
-* Content sync from sitemap
-* AI content generator with SEO optimization
-* Topic discovery and content gap analysis
-* Usage tracking dashboard
-* Subscription management with Stripe integration
-* Conversation history viewing
+* Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
 
+= 1.8.1 =
+Big stability + UX pass. Cap messages now surface inline; the chatbot no longer falsely confirms a lead capture when at the Free cap; multilingual replies stay in one language; product-card filters (on sale, price range) work correctly; the Pro→Pro+ swap webhook race is fixed; admin pages past 1,000 rows paginate properly. Recommended for all users.
+
+= 1.7.0 =
+Pro+ tier launches — the chatbot becomes an agent that recommends products, takes draft orders with checkout links, looks up orders, files tickets, books appointments, and hands off to humans. Live Chats admin dashboard with real-time presence and one-click takeover.
+
+= 1.6.0 =
+Free plan is now free forever. Pro at $20/mo for unlimited chat, posts, forms, and leads, plus AI Lead Research and drafted follow-up emails.
+
 = 1.5.0 =
-Chat-to-lead capture is here! The chatbot now detects emails in conversation and creates leads automatically. Plus auto-sync on install, incremental sync on publish/update, and full conversation history in lead details.
+Chat-to-lead capture and incremental sync on publish.
 
 = 1.4.0 =
-New leads pipeline! Capture leads with custom forms, track them through stages, and let AI research and draft follow-up emails for you.
-
-= 1.3.1 =
-Bug fix for sites with pages that have no title set. Recommended update for all users.
-
-= 1.3.0 =
-Generate blog posts directly from any URL! Simply paste a link and BitBot extracts the content to create SEO-optimized posts.
+New leads pipeline. Capture leads with custom forms, track them through stages, let AI research and draft follow-up emails.
 
 = 1.1.0 =
-Major update! BitBot now supports 100+ languages. Visitors can ask questions in their native language and get answers in the same language.
+100+ languages with automatic detection.
 
 = 1.0.0 =
-Initial release of BitBot - AI Chatbot & Content Generator.
-
-== Privacy Policy ==
-
-BitBot collects and processes data as described in the External Services section. For complete details, please review our [Privacy Policy](https://youami.ai/privacy).
-
-Data collected:
-* Website content (pages, posts) for AI indexing
-* Chat messages between visitors and the bot
-* Visitor IP addresses for conversation tracking
-* Usage statistics (chat count, posts generated)
-
-This data is processed on youami.ai servers and may be transmitted to third-party AI services (Anthropic, OpenAI) for processing. Your content is never used to train AI models.
+Initial release.
