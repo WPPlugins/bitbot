@@ -15,7 +15,12 @@
     const config = window.bitbotConfig || {};
 
     // DOM Elements
-    let widget, toggle, chat, messages, form, input;
+    // `widget` is the light-DOM host (#bitbot-widget) — holds the position
+    // class, CSS variables, and data-* attributes read by auto-flip.
+    // `widgetRoot` is the shadow root attached to the host on init — every
+    // bitbot-internal element lives inside it, so all queries for them
+    // scope through widgetRoot.getElementById(...) instead of document.
+    let widget, widgetRoot, toggle, chat, messages, form, input;
     let chatHistory = [];
     let isOpen = false;
     let isLoading = false;
@@ -363,13 +368,52 @@
      */
     function init() {
         widget = document.getElementById('bitbot-widget');
-        toggle = document.getElementById('bitbot-toggle');
-        chat = document.getElementById('bitbot-chat');
-        messages = document.getElementById('bitbot-messages');
-        form = document.getElementById('bitbot-form');
-        input = document.getElementById('bitbot-input');
+        if (!widget) {
+            return;
+        }
 
-        if (!widget || !toggle || !chat) {
+        // Attach a shadow root on the host and mount the template into it.
+        // Theme CSS rules on bare `button`, `svg`, `input`, etc. cannot
+        // cross the shadow boundary, so the widget renders exactly as
+        // designed regardless of which theme the site uses.
+        if (widget.shadowRoot) {
+            widgetRoot = widget.shadowRoot;
+        } else if (typeof widget.attachShadow === 'function') {
+            widgetRoot = widget.attachShadow({ mode: 'open' });
+
+            // First child: the stylesheet. Browsers block style application
+            // on its descendants until this link resolves, which prevents a
+            // flash of unstyled widget on first paint.
+            if (config.cssUrl) {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = config.cssUrl;
+                widgetRoot.appendChild(link);
+            }
+
+            // Clone the template content into the shadow root.
+            const tpl = document.getElementById('bitbot-widget-template');
+            if (tpl && 'content' in tpl) {
+                widgetRoot.appendChild(tpl.content.cloneNode(true));
+            }
+        } else {
+            // Shadow DOM unsupported (very old browser): fall back to
+            // mounting the template directly in the host. The widget will
+            // be vulnerable to theme CSS bleed but at least functional.
+            const tpl = document.getElementById('bitbot-widget-template');
+            if (tpl && 'content' in tpl) {
+                widget.appendChild(tpl.content.cloneNode(true));
+            }
+            widgetRoot = widget;
+        }
+
+        toggle = widgetRoot.getElementById('bitbot-toggle');
+        chat = widgetRoot.getElementById('bitbot-chat');
+        messages = widgetRoot.getElementById('bitbot-messages');
+        form = widgetRoot.getElementById('bitbot-form');
+        input = widgetRoot.getElementById('bitbot-input');
+
+        if (!toggle || !chat) {
             return;
         }
 
@@ -383,7 +427,7 @@
         // Event listeners
         toggle.addEventListener('click', toggleChat);
 
-        const minimize = document.getElementById('bitbot-minimize');
+        const minimize = widgetRoot.getElementById('bitbot-minimize');
         if (minimize) {
             minimize.addEventListener('click', toggleChat);
         }
@@ -854,7 +898,7 @@
      * Hide typing indicator
      */
     function hideTypingIndicator() {
-        const typing = document.getElementById('bitbot-typing-indicator');
+        const typing = widgetRoot.getElementById('bitbot-typing-indicator');
         if (typing) {
             typing.remove();
         }

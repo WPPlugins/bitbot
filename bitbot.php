@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           1.8.1
+ * Version:           1.8.2
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '1.8.1' );
+define( 'BITBOT_VERSION', '1.8.2' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BITBOT_API_URL', 'https://youami.ai/api' );
@@ -506,12 +506,12 @@ class BitBot {
         $css_ver = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/css/widget.css' );
         $js_ver  = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/js/widget.js' );
 
-        wp_enqueue_style(
-            'bitbot-widget',
-            BITBOT_PLUGIN_URL . 'assets/css/widget.css',
-            array(),
-            $css_ver
-        );
+        // 1.8.2: widget.css is loaded INSIDE the shadow root via JS (not globally enqueued).
+        // Theme CSS targeting bare button/svg/input selectors can no longer reach the widget,
+        // and our rules cannot leak out onto the host page. The URL is registered as a
+        // (non-enqueued) handle so wp_styles()->registered keeps the cache-bust version and
+        // we can ship it to JS via wp_localize_script.
+        $widget_css_url = BITBOT_PLUGIN_URL . 'assets/css/widget.css?ver=' . rawurlencode( $css_ver );
 
         wp_enqueue_script(
             'bitbot-widget',
@@ -532,6 +532,7 @@ class BitBot {
             'primaryColor'   => sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) ),
             'welcomeMessage' => wp_kses_post( get_option( 'bitbot_welcome_message', __( 'Hi! How can I help you?', 'bitbot' ) ) ),
             'languageCode'   => sanitize_text_field( $language_code ),
+            'cssUrl'         => esc_url_raw( $widget_css_url ),
         ) );
     }
 

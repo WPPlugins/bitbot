@@ -97,11 +97,15 @@ class BitBot_Widget {
         $welcome_message = ! empty( $custom_message ) ? wp_kses_post( $custom_message ) : $this->get_localized_greeting();
         ?>
         <?php
-        // The class on the root is what visually places the widget; the
-        // data-preferred attribute records what the OWNER configured so
-        // the auto-flip JS can always reason from the original
-        // preference even after it's mutated the class once. Strips the
-        // 'bottom-' prefix so JS gets a clean 'left' / 'right'.
+        // 1.8.2: widget is mounted in a shadow root so theme CSS targeting
+        // bare button/svg/input selectors cannot reach inside. The HOST
+        // (`#bitbot-widget`) carries:
+        //   - position class (drives `:host()` selectors for left/right)
+        //   - CSS custom properties (inherited into shadow root)
+        //   - data-* attributes (read by auto-flip JS, e.g. data-preferred)
+        // The widget markup lives in a `<template>` that JS clones into
+        // the host's shadow root on init. Light DOM stays empty after that
+        // — nothing for a theme to override.
         $preferred_corner = ( strpos( $position, 'left' ) !== false ) ? 'left' : 'right';
         $widget_style     = sprintf(
             '--bitbot-primary: %s; --bitbot-offset-x: %dpx; --bitbot-offset-y: %dpx;',
@@ -110,70 +114,73 @@ class BitBot_Widget {
             $offset_y
         );
         ?>
-        <div id="bitbot-widget" class="bitbot-widget bitbot-<?php echo esc_attr( $position ); ?>" data-preferred="<?php echo esc_attr( $preferred_corner ); ?>" data-base-offset-y="<?php echo esc_attr( $offset_y ); ?>" style="<?php echo esc_attr( $widget_style ); ?>">
-            <!-- Chat Toggle Button -->
-            <button id="bitbot-toggle" class="bitbot-toggle" aria-label="<?php esc_attr_e( 'Open chat', 'bitbot' ); ?>">
-                <svg class="bitbot-icon-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <svg class="bitbot-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-            </button>
+        <div id="bitbot-widget" class="bitbot-<?php echo esc_attr( $position ); ?>" data-preferred="<?php echo esc_attr( $preferred_corner ); ?>" data-base-offset-y="<?php echo esc_attr( $offset_y ); ?>" style="<?php echo esc_attr( $widget_style ); ?>"></div>
+        <template id="bitbot-widget-template">
+            <div class="bitbot-widget">
+                <!-- Chat Toggle Button -->
+                <button id="bitbot-toggle" class="bitbot-toggle" aria-label="<?php esc_attr_e( 'Open chat', 'bitbot' ); ?>">
+                    <svg class="bitbot-icon-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <svg class="bitbot-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
 
-            <!-- Chat Window -->
-            <div id="bitbot-chat" class="bitbot-chat" style="display:none;">
-                <!-- Header -->
-                <div class="bitbot-header">
-                    <span class="bitbot-title"><?php esc_html_e( 'Chat with us', 'bitbot' ); ?></span>
-                    <button id="bitbot-minimize" class="bitbot-minimize" aria-label="<?php esc_attr_e( 'Minimize chat', 'bitbot' ); ?>">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                    </button>
-                </div>
+                <!-- Chat Window -->
+                <div id="bitbot-chat" class="bitbot-chat" style="display:none;">
+                    <!-- Header -->
+                    <div class="bitbot-header">
+                        <span class="bitbot-title"><?php esc_html_e( 'Chat with us', 'bitbot' ); ?></span>
+                        <button id="bitbot-minimize" class="bitbot-minimize" aria-label="<?php esc_attr_e( 'Minimize chat', 'bitbot' ); ?>">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                        </button>
+                    </div>
 
-                <!-- Messages Container -->
-                <div id="bitbot-messages" class="bitbot-messages">
-                    <!-- Welcome message -->
-                    <div class="bitbot-message bitbot-bot">
-                        <div class="bitbot-message-content">
-                            <?php echo esc_html( $welcome_message ); ?>
+                    <!-- Messages Container -->
+                    <div id="bitbot-messages" class="bitbot-messages">
+                        <!-- Welcome message -->
+                        <div class="bitbot-message bitbot-bot">
+                            <div class="bitbot-message-content">
+                                <?php echo esc_html( $welcome_message ); ?>
+                            </div>
                         </div>
                     </div>
+
+                    <!-- Input Area -->
+                    <form id="bitbot-form" class="bitbot-input-area">
+                        <input
+                            type="text"
+                            id="bitbot-input"
+                            class="bitbot-input"
+                            placeholder="<?php esc_attr_e( 'Type your message...', 'bitbot' ); ?>"
+                            autocomplete="off"
+                        >
+                        <button type="submit" class="bitbot-send" aria-label="<?php esc_attr_e( 'Send message', 'bitbot' ); ?>">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </form>
+
+                    <?php if ( ! $this->is_pro() ) : ?>
+                        <div class="bitbot-branding">
+                            <?php esc_html_e( 'Powered by', 'bitbot' ); ?>
+                            <a href="https://youami.ai/?utm_source=widget&utm_medium=branding&utm_campaign=free_tier"
+                               target="_blank"
+                               rel="noopener">
+                               BitBot
+                            </a>
+                        </div>
+                    <?php endif; ?>
+
                 </div>
-
-                <!-- Input Area -->
-                <form id="bitbot-form" class="bitbot-input-area">
-                    <input
-                        type="text"
-                        id="bitbot-input"
-                        class="bitbot-input"
-                        placeholder="<?php esc_attr_e( 'Type your message...', 'bitbot' ); ?>"
-                        autocomplete="off"
-                    >
-                    <button type="submit" class="bitbot-send" aria-label="<?php esc_attr_e( 'Send message', 'bitbot' ); ?>">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="22" y1="2" x2="11" y2="13"></line>
-                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                        </svg>
-                    </button>
-                </form>
-
-                <?php if ( ! $this->is_pro() ) : ?>
-                    <div class="bitbot-branding">
-                        <?php esc_html_e( 'Powered by', 'bitbot' ); ?>
-                        <a href="https://youami.ai/?utm_source=widget&utm_medium=branding&utm_campaign=free_tier"
-                           target="_blank"
-                           rel="noopener">
-                           BitBot
-                        </a>
-                    </div>
-                <?php endif; ?>
-
             </div>
-        </div>
+        </template>
         <?php
     }
 

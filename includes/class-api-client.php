@@ -393,8 +393,23 @@ class BitBot_API_Client {
     private function gather_content() {
         $pages = array();
 
-        // Get all published posts and pages
-        $post_types = array( 'post', 'page' );
+        // Every publicly-visible post type the site declares — covers core
+        // post/page, WooCommerce 'product', LearnDash courses, Tribe Events,
+        // Jetpack Portfolio, BetterDocs, and any CPT a theme/plugin registers
+        // with public => true. Without this, WooCommerce shops sync zero
+        // products and the chatbot has nothing real to suggest.
+        $post_types = array_keys(
+            get_post_types(
+                array(
+                    'public'             => true,
+                    'publicly_queryable' => true,
+                ),
+                'names'
+            )
+        );
+        // Media has no narrative content; never index attachments.
+        $post_types = array_values( array_diff( $post_types, array( 'attachment' ) ) );
+
         $args = array(
             'post_type'      => $post_types,
             'post_status'    => 'publish',

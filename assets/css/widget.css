@@ -1,7 +1,29 @@
 /* BitBot Chat Widget Styles - by youami.ai */
 
+/* 1.8.2: widget mounts in a shadow root, so positioning lives on `:host`.
+   Offsets come from CSS custom properties set on the host element by PHP
+   from the bitbot_widget_offset_x / _y options (defaults to 20px each).
+   The auto-flip JS can override --bitbot-offset-y on the host at runtime
+   to stack the widget on top of a colliding third-party widget. */
+:host {
+    position: fixed;
+    z-index: 999999;
+    bottom: var(--bitbot-offset-y, 20px);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #333;
+}
+
+:host(.bitbot-bottom-right) {
+    right: var(--bitbot-offset-x, 20px);
+}
+
+:host(.bitbot-bottom-left) {
+    left: var(--bitbot-offset-x, 20px);
+}
+
 .bitbot-widget {
-    --bitbot-primary: #0073aa;
     --bitbot-text: #333;
     --bitbot-bg: #fff;
     --bitbot-border: #e0e0e0;
@@ -9,30 +31,15 @@
     --bitbot-user-text: #fff;
     --bitbot-bot-bg: #f5f5f5;
     --bitbot-bot-text: #333;
-
-    position: fixed;
-    z-index: 999999;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-    font-size: 14px;
-    line-height: 1.5;
+    /* The widget root anchors the absolutely-positioned chat panel. The
+       host's :host{} rule already pins us to a viewport corner; we just
+       need to be a positioning context so .bitbot-chat (position:absolute)
+       resolves against this element rather than the viewport. */
+    position: relative;
 }
 
 .bitbot-widget * {
     box-sizing: border-box;
-}
-
-/* Positioning. Offsets come from CSS custom properties set by PHP from
-   the bitbot_widget_offset_x / _y options (defaults to 20px each). The
-   auto-flip JS can override --bitbot-offset-y at runtime to stack the
-   widget on top of a colliding third-party widget. */
-.bitbot-bottom-right {
-    bottom: var(--bitbot-offset-y, 20px);
-    right: var(--bitbot-offset-x, 20px);
-}
-
-.bitbot-bottom-left {
-    bottom: var(--bitbot-offset-y, 20px);
-    left: var(--bitbot-offset-x, 20px);
 }
 
 /* Toggle Button */
@@ -77,11 +84,15 @@
     overflow: hidden;
 }
 
-.bitbot-bottom-right .bitbot-chat {
+/* Chat panel anchors to the same edge as the host. Selectors use `:host()`
+   because the position class now lives on the shadow host (light DOM) and
+   the chat panel lives inside the shadow root — a descendant selector
+   cannot cross the boundary. */
+:host(.bitbot-bottom-right) .bitbot-chat {
     right: 0;
 }
 
-.bitbot-bottom-left .bitbot-chat {
+:host(.bitbot-bottom-left) .bitbot-chat {
     left: 0;
 }
 
@@ -310,14 +321,14 @@
         bottom: 70px;
     }
 
-    .bitbot-bottom-right,
-    .bitbot-bottom-left {
+    :host(.bitbot-bottom-right),
+    :host(.bitbot-bottom-left) {
         right: 10px;
         left: auto;
     }
 
-    .bitbot-bottom-right .bitbot-chat,
-    .bitbot-bottom-left .bitbot-chat {
+    :host(.bitbot-bottom-right) .bitbot-chat,
+    :host(.bitbot-bottom-left) .bitbot-chat {
         right: -10px;
         left: auto;
     }

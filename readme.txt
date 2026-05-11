@@ -5,7 +5,7 @@ Tags: chatbot, ai, live chat, contact form, lead generation
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.8.1
+Stable tag: 1.8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -156,6 +156,12 @@ Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up e
 8. The visitor asks in Hindi, the bot answers in Hindi — same product cards, same flow. Tested across English, Hindi, Spanish, Arabic, French, German and more.
 
 == Changelog ==
+
+= 1.8.2 =
+*Release Date - 12 May 2026*
+
+* Fix: WooCommerce products and other custom post types now sync into the chatbot index.
+* Fix: Chat widget mounts inside a Shadow DOM so theme button/SVG styles no longer distort it.
 
 = 1.8.1 =
 *Release Date - 8 May 2026*
