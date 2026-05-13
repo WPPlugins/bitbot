@@ -398,17 +398,37 @@ class BitBot_API_Client {
         // Jetpack Portfolio, BetterDocs, and any CPT a theme/plugin registers
         // with public => true. Without this, WooCommerce shops sync zero
         // products and the chatbot has nothing real to suggest.
+        //
+        // NOTE: do NOT add 'publicly_queryable' => true to the filter — core's
+        // 'page' CPT is registered without that flag explicitly set to true,
+        // so it gets silently filtered out and every site loses page content.
         $post_types = array_keys(
             get_post_types(
-                array(
-                    'public'             => true,
-                    'publicly_queryable' => true,
-                ),
+                array( 'public' => true ),
                 'names'
             )
         );
-        // Media has no narrative content; never index attachments.
-        $post_types = array_values( array_diff( $post_types, array( 'attachment' ) ) );
+
+        // Drop post types that are template/internal fragments, never visitor
+        // narrative content. 'attachment' = media files. The rest are page-
+        // builder libraries and block-theme internals that public=true accepts
+        // but shouldn't be in chat context.
+        $exclude = array(
+            'attachment',
+            'elementor_library',
+            'e-floating-buttons',
+            'ae_global_templates',
+            'oxy_template',
+            'bricks_template',
+            'et_pb_layout',
+            'et_template',
+            'wp_block',
+            'wp_template',
+            'wp_template_part',
+            'wp_global_styles',
+            'wp_navigation',
+        );
+        $post_types = array_values( array_diff( $post_types, $exclude ) );
 
         $args = array(
             'post_type'      => $post_types,

@@ -5,7 +5,7 @@ Tags: chatbot, ai, live chat, contact form, lead generation
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.8.2
+Stable tag: 1.8.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -157,6 +157,12 @@ Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up e
 
 == Changelog ==
 
+= 1.8.3 =
+*Release Date - 14 May 2026*
+
+* Fix: Content indexing edge case handled — more of your site's pages now make it into the chatbot index.
+* Fix: Mobile view improved.
+
 = 1.8.2 =
 *Release Date - 12 May 2026*
 
@@ -246,6 +252,9 @@ Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up e
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 1.8.3 =
+Content indexing edge case handled and mobile view improved. Recommended for all users.
 
 = 1.8.1 =
 Big stability + UX pass. Cap messages now surface inline; the chatbot no longer falsely confirms a lead capture when at the Free cap; multilingual replies stay in one language; product-card filters (on sale, price range) work correctly; the Pro→Pro+ swap webhook race is fixed; admin pages past 1,000 rows paginate properly. Recommended for all users.

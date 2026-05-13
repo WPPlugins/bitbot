@@ -317,20 +317,41 @@
 @media (max-width: 480px) {
     .bitbot-chat {
         width: calc(100vw - 40px);
+        /* On iOS Safari and Chrome mobile, `100vh` is the LAYOUT viewport
+           (URL bar ignored), so `100vh - 100px` leaves only ~10px at the
+           top — the chat header sits behind the URL bar / notch. `100dvh`
+           is the DYNAMIC viewport that shrinks while the URL bar is
+           visible. Combine with `env(safe-area-inset-top)` so iPhones
+           with a notch / Dynamic Island still get clearance. The `100vh`
+           line stays as the fallback for old browsers that ignore `dvh`. */
         height: calc(100vh - 100px);
+        height: calc(100dvh - 90px - env(safe-area-inset-top, 0px));
         bottom: 70px;
     }
 
-    :host(.bitbot-bottom-right),
-    :host(.bitbot-bottom-left) {
+    /* Tighter edge offset on mobile, but each corner class must respect
+       its own side. Pre-1.8.2 this forced BOTH classes to `right: 10px`,
+       which silently broke the auto-flip — when JS flipped the class to
+       bottom-left to escape a colliding widget in the right corner, the
+       widget stayed pinned right and overlapped the occupant anyway. */
+    :host(.bitbot-bottom-right) {
         right: 10px;
         left: auto;
     }
 
-    :host(.bitbot-bottom-right) .bitbot-chat,
-    :host(.bitbot-bottom-left) .bitbot-chat {
+    :host(.bitbot-bottom-left) {
+        left: 10px;
+        right: auto;
+    }
+
+    :host(.bitbot-bottom-right) .bitbot-chat {
         right: -10px;
         left: auto;
+    }
+
+    :host(.bitbot-bottom-left) .bitbot-chat {
+        left: -10px;
+        right: auto;
     }
 }
 
