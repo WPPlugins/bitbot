@@ -53,11 +53,26 @@ class BitBot_API_Client {
      * @since 1.0.0
      * @param string $request_tag The RPC request tag.
      * @param array  $payload     Request payload data.
-     * @param int    $timeout     Request timeout in seconds (default 60, max 900 for sync).
+     * @param int    $timeout     Request timeout in seconds (default 90, max 900 for sync).
+     *                            Default bumped from 60 to 90 to accommodate the
+     *                            BAML retry + 3-tier fallback chain (Haiku → Sonnet →
+     *                            GPT-4o-mini). Worst case across 3 providers with 2
+     *                            retries each is ~21s of retry overhead plus call time;
+     *                            90s gives comfortable margin.
      * @return array Response with 'success' and 'data' or 'error' keys.
      */
-    private function rpc( $request_tag, $payload = array(), $timeout = 60, $blocking = true ) {
-        // Add API key to all payloads
+    private function rpc( $request_tag, $payload = array(), $timeout = 90, $blocking = true ) {
+        // Add API key to all payloads. Re-read from options when the cached
+        // value is empty: the API client is built once per request and
+        // captures bitbot_api_key at construction. On a fresh install the
+        // option is written DURING activation — after this object exists —
+        // so $this->api_key stays empty for the rest of that request. A
+        // RegisterSite POST with an empty key made the backend persist a
+        // sites row with no api_key, and every authenticated RPC then 400s
+        // ("Invalid API key") forever, leaving the admin SPA blank.
+        if ( empty( $this->api_key ) ) {
+            $this->api_key = get_option( 'bitbot_api_key', '' );
+        }
         $payload['apiKey'] = $this->api_key;
 
         // Merge _tag with payload (flat structure)
@@ -109,9 +124,25 @@ class BitBot_API_Client {
         }
 
         if ( $status_code >= 400 ) {
+            $error_msg = $result['error'] ?? __( 'Request failed', 'bitbot' );
+
+            // Self-heal: a 400 "Invalid API key" means the backend has no
+            // sites row matching our key (registration never persisted it —
+            // e.g. the empty-key poison-row bug). Clear the registered flag
+            // and retry throttle so Bitbot::maybe_register_site re-registers
+            // on the next admin_init, this time with a populated key. Skip
+            // RegisterSite itself so we never clobber its own flow.
+            if ( 400 === $status_code
+                && 'RegisterSite' !== $request_tag
+                && is_string( $error_msg )
+                && false !== stripos( $error_msg, 'Invalid API key' ) ) {
+                delete_option( 'bitbot_registered' );
+                delete_transient( 'bitbot_register_retry' );
+            }
+
             return array(
                 'success' => false,
-                'error'   => $result['error'] ?? __( 'Request failed', 'bitbot' ),
+                'error'   => $error_msg,
                 'status'  => $status_code,
             );
         }
@@ -166,15 +197,76 @@ class BitBot_API_Client {
     public function register_site() {
         $admin_email = sanitize_email( get_option( 'admin_email', '' ) );
 
+        // Lead notifications are opt-in: we do NOT send the WP admin email as a
+        // notification seed. The owner enables them explicitly in the Leads tab.
         $payload = array(
             'domain'     => $this->get_site_domain(),
             'sitemapUrl' => $this->get_sitemap_url(),
         );
-        if ( ! empty( $admin_email ) ) {
-            $payload['notificationEmail'] = $admin_email;
+
+        $result = $this->rpc( 'RegisterSite', $payload );
+
+        // 2.0.0: stash the PostHog telemetry config when the backend
+        // returns it (env-sourced so the key isn't shipped in the
+        // public plugin source). Idempotent — only writes when present
+        // and non-empty so a missing env var doesn't blank-out a
+        // previously-stored key.
+        if ( $result['success'] && isset( $result['data'] ) && is_array( $result['data'] ) ) {
+            $this->maybe_store_telemetry_config( $result['data'] );
         }
 
-        return $this->rpc( 'RegisterSite', $payload );
+        // Lead notifications are opt-in — we no longer auto-mirror admin_email
+        // into bitbot_notification_email. The option stays empty until the owner
+        // sets it in the Leads tab, so "Off" in the UI means genuinely off (the
+        // backend reads the same value). No surprise emails to the admin.
+
+        // 2.0.181: record that registration actually reached the backend.
+        // The activation-time register_site() can be killed (TasteWP,
+        // multisite network-activate, hosting timeouts), leaving a local
+        // api key the backend never received — no sites row, no signup
+        // notification, every RPC failing. This flag lets the admin_init
+        // self-heal (Bitbot::maybe_register_site) stop retrying once it
+        // genuinely succeeds.
+        if ( $result['success'] ) {
+            update_option( 'bitbot_registered', BITBOT_VERSION );
+        }
+
+        return $result;
+    }
+
+    /**
+     * Fetch + persist the PostHog telemetry config from the backend.
+     * Used as a backfill for installs that registered BEFORE RegisterSite
+     * started returning posthogKey, so they still get telemetry on next
+     * admin load.
+     *
+     * @since 2.0.0
+     * @return array Telemetry config { posthogKey, posthogHost } or empty on failure.
+     */
+    public function fetch_telemetry_config() {
+        $result = $this->rpc( 'GetTelemetryConfig', array() );
+        if ( $result['success'] && isset( $result['data'] ) && is_array( $result['data'] ) ) {
+            $this->maybe_store_telemetry_config( $result['data'] );
+            return $result['data'];
+        }
+        return array();
+    }
+
+    /**
+     * Store posthogKey + posthogHost in wp_options when present in a
+     * backend response. Non-empty values only — don't overwrite an
+     * existing stored value with an empty one (defends against an env
+     * var being unset mid-rollout).
+     *
+     * @param array $data Response data from RegisterSite or GetTelemetryConfig.
+     */
+    private function maybe_store_telemetry_config( $data ) {
+        if ( ! empty( $data['posthogKey'] ) ) {
+            update_option( 'bitbot_posthog_key', sanitize_text_field( $data['posthogKey'] ) );
+        }
+        if ( ! empty( $data['posthogHost'] ) ) {
+            update_option( 'bitbot_posthog_host', esc_url_raw( $data['posthogHost'] ) );
+        }
     }
 
     /**
@@ -185,9 +277,62 @@ class BitBot_API_Client {
      * @return array API response.
      */
     public function update_notification_email( $email ) {
-        return $this->rpc( 'UpdateNotificationEmail', array(
-            'notificationEmail' => sanitize_email( $email ),
-        ) );
+        // 2.0.2: non-blocking — admin types the email char-by-char in
+        // the new React SPA, and a blocking RPC per keystroke froze the
+        // input. Fire-and-forget; backend picks up the latest on its
+        // next read.
+        return $this->rpc(
+            'UpdateNotificationEmail',
+            array( 'notificationEmail' => sanitize_email( $email ) ),
+            5,
+            false
+        );
+    }
+
+    /**
+     * Push the admin's site-specific custom instructions to the backend.
+     * Backend caps to the site's tier (Free 200 / Pro 1000 / Pro+ 4000)
+     * and stores in sites.custom_instructions. The Chat agent reads it
+     * on every chat call and injects into the system prompt.
+     *
+     * @since 1.9.0 Feature 8b
+     * @param string $instructions Free-text site instructions.
+     * @return array API response.
+     */
+    public function update_instructions( $instructions ) {
+        // 2.0.2: non-blocking. Fires from sanitize_custom_instructions on
+        // every save (which itself fires on every React-side keystroke
+        // because the new admin SPA saves as-you-type). A blocking
+        // round-trip per character froze typing on the admin form; now
+        // we dispatch fire-and-forget. Backend still picks up the value
+        // because update_option also writes the local row, and the
+        // backend reads the canonical source on its next chat turn.
+        return $this->rpc(
+            'UpdateInstructions',
+            array( 'instructions' => (string) $instructions ),
+            5,     // short timeout
+            false  // blocking=false (fire-and-forget)
+        );
+    }
+
+    /**
+     * Push the admin's off-topic guardrails to the backend (Pro / Pro+).
+     * For Free sites the backend returns success:false silently —
+     * sanitize_off_topic_guardrails already zeroes the value on Free
+     * so this should rarely fire on Free.
+     *
+     * @since 1.9.0 Feature 8l
+     * @param string $guardrails Newline-separated topics to refuse.
+     * @return array API response.
+     */
+    public function update_guardrails( $guardrails ) {
+        // 2.0.2: non-blocking — same rationale as update_instructions.
+        return $this->rpc(
+            'UpdateGuardrails',
+            array( 'guardrails' => (string) $guardrails ),
+            5,     // short timeout
+            false  // blocking=false (fire-and-forget)
+        );
     }
 
     /**
@@ -344,6 +489,19 @@ class BitBot_API_Client {
     public function visitor_left( $session_id ) {
         return $this->rpc( 'VisitorLeft', array(
             'sessionId' => (string) $session_id,
+        ), 5 );
+    }
+
+    /**
+     * Beacon: visitor clicked a cited page link in a bot reply.
+     * Drives the Overview Top Cited Pages CTR. Fire-and-forget timing
+     * — we use a short RPC timeout because the widget doesn't wait.
+     */
+    public function record_citation_click( $session_id, $url, $title = '' ) {
+        return $this->rpc( 'RecordCitationClick', array(
+            'sessionId' => (string) $session_id,
+            'url'       => (string) $url,
+            'title'     => (string) $title,
         ), 5 );
     }
 
@@ -1087,7 +1245,7 @@ class BitBot_API_Client {
      * @param string $message Lead message (optional).
      * @return array API response.
      */
-    public function submit_form( $form_id, $name, $email, $phone = '', $message = '', $ip_address = '' ) {
+    public function submit_form( $form_id, $name, $email, $phone = '', $message = '', $ip_address = '', $session_id = '', $answers = array() ) {
         $payload = array(
             'formId' => sanitize_text_field( $form_id ),
             'name'   => sanitize_text_field( $name ),
@@ -1101,6 +1259,14 @@ class BitBot_API_Client {
         }
         if ( ! empty( $ip_address ) ) {
             $payload['ipAddress'] = sanitize_text_field( $ip_address );
+        }
+        if ( ! empty( $session_id ) ) {
+            $payload['sessionId'] = sanitize_text_field( $session_id );
+        }
+        // Custom-field answers, keyed by field name. Already sanitized by the
+        // REST handler; pass through as an object so the RPC stores them.
+        if ( ! empty( $answers ) && is_array( $answers ) ) {
+            $payload['answers'] = $answers;
         }
         return $this->rpc( 'SubmitForm', $payload );
     }
@@ -1121,6 +1287,18 @@ class BitBot_API_Client {
      */
     public function get_unviewed_leads_count() {
         return $this->rpc( 'GetUnviewedLeadsCount' );
+    }
+
+    /**
+     * One aggregate for the top-level menu badge: unviewed leads + form
+     * responses + conversations + upcoming appointments in a single
+     * round-trip. Replaces three separate count calls per admin page load.
+     *
+     * @return array API response with { leads, forms, conversations,
+     *               appointments, total }.
+     */
+    public function get_menu_badge_counts() {
+        return $this->rpc( 'GetMenuBadgeCounts' );
     }
 
     /**
@@ -1240,6 +1418,14 @@ class BitBot_API_Client {
         return $this->rpc( 'UpdateForm', $payload );
     }
 
+    /**
+     * Toggle the chat-gate on the default pre-chat form for this site.
+     * Lazily provisions the default form server-side if missing.
+     */
+    public function set_chat_gate( $enabled ) {
+        return $this->rpc( 'SetChatGate', array( 'enabled' => (bool) $enabled ) );
+    }
+
     public function delete_form( $form_id ) {
         return $this->rpc( 'DeleteForm', array( 'formId' => sanitize_text_field( $form_id ) ) );
     }
@@ -1275,11 +1461,18 @@ class BitBot_API_Client {
     }
 
     /**
-     * Create WordPress post from draft
+     * Create a WordPress draft post from a BitBot-generated draft.
+     *
+     * Pushes the draft into wp_posts via wp_insert_post() with
+     * post_status='draft' — publish/schedule lifecycle then lives in
+     * WordPress itself. On success the caller is expected to
+     * round-trip the wp_post_id to the BitBot backend via
+     * link_draft_to_wp() so the dashboard can deep-link to the WP
+     * edit screen on subsequent loads.
      *
      * @since 1.0.0
      * @param string $draft_id Draft ID.
-     * @return array Response with post_id or error.
+     * @return array Response with post_id/edit_url/view_url or error.
      */
     public function create_wp_post_from_draft( $draft_id ) {
         $result = $this->get_draft( $draft_id );
@@ -1306,7 +1499,6 @@ class BitBot_API_Client {
             $content .= 'target="_blank" rel="noopener">BitBot</a> →</em></p>';
         }
 
-        // Create WordPress post
         $post_data = array(
             'post_title'   => sanitize_text_field( $draft['title'] ),
             'post_content' => wp_kses_post( $content ),
@@ -1315,7 +1507,7 @@ class BitBot_API_Client {
             'post_name'    => sanitize_title( $draft['slug'] ?? $draft['title'] ),
         );
 
-        $post_id = wp_insert_post( $post_data );
+        $post_id = wp_insert_post( $post_data, true );
 
         if ( is_wp_error( $post_id ) ) {
             return array(
@@ -1335,18 +1527,59 @@ class BitBot_API_Client {
             update_post_meta( $post_id, '_yoast_wpseo_focuskw', sanitize_text_field( $seo['focusKeyphrase'] ) );
         }
 
-        // Store keywords as custom field
         if ( ! empty( $seo['keywords'] ) && is_array( $seo['keywords'] ) ) {
             $keywords = array_map( 'sanitize_text_field', $seo['keywords'] );
             update_post_meta( $post_id, '_bitbot_keywords', implode( ', ', $keywords ) );
         }
 
+        // Store the BitBot draft ID on the WP post so the save_post
+        // hook can later round-trip status changes (publish, schedule,
+        // trash) back to the dashboard without polling.
+        update_post_meta( $post_id, '_bitbot_draft_id', sanitize_text_field( $draft_id ) );
+
         return array(
             'success' => true,
             'data'    => array(
-                'post_id'  => $post_id,
+                'post_id'  => (int) $post_id,
+                'status'   => 'draft',
                 'edit_url' => get_edit_post_link( $post_id, 'raw' ),
+                'view_url' => get_permalink( $post_id ),
             ),
         );
+    }
+
+    /**
+     * Round-trip the wp_post_id back to the BitBot backend so the
+     * dashboard's Drafts list can deep-link to the WP edit screen on
+     * subsequent loads.
+     *
+     * @since 2.0.0
+     * @param string $draft_id   Draft ID.
+     * @param int    $wp_post_id The WP_Post ID returned by wp_insert_post.
+     * @param string $status     Dashboard-side status; currently always 'draft'.
+     * @return array API response.
+     */
+    public function link_draft_to_wp( $draft_id, $wp_post_id, $status ) {
+        return $this->rpc( 'LinkDraftToWp', array(
+            'draftId'  => sanitize_text_field( $draft_id ),
+            'wpPostId' => (int) $wp_post_id,
+            'status'   => sanitize_text_field( $status ),
+        ) );
+    }
+
+    /**
+     * Tell the backend to forget the WP_Post association for a draft.
+     * Called by the deleted_post hook after the WP post is permanently
+     * removed so the dashboard reverts to the "create new WP post"
+     * action on the next Edit-in-WordPress click.
+     *
+     * @since 2.0.0
+     * @param string $draft_id Draft ID.
+     * @return array API response.
+     */
+    public function unlink_draft_from_wp( $draft_id ) {
+        return $this->rpc( 'UnlinkDraftFromWp', array(
+            'draftId' => sanitize_text_field( $draft_id ),
+        ) );
     }
 }

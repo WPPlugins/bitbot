@@ -46,16 +46,40 @@
 .bitbot-toggle {
     width: 56px;
     height: 56px;
-    border-radius: 50%;
+    /* 2.0.2: default 'rounded' shape now reads the corner-radius slider
+       (0 = sharp square, 16 = soft, 32 ≈ fully circular) so the slider
+       actually does something visible on the FAB. The shape presets
+       below (:host([data-shape="..."])) override with their own fixed
+       radius / clip-path when the admin picks a non-rounded shape. */
+    border-radius: var(--bitbot-radius, 28px);
     background: var(--bitbot-primary);
     color: #fff;
     border: none;
+    /* Zero padding so a custom-avatar <img> styled width:100%; height:100%;
+       fills the entire 56×56 disc. The browser-default button padding
+       (~1px 6px) was leaving a visible ring of primary colour around
+       any avatar that had no transparent margin baked in. */
+    padding: 0;
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
     transition: transform 0.2s, box-shadow 0.2s;
+}
+
+/* When a custom avatar is set, the <img> is sized to fill the FAB
+   exactly. The brand-colour background stays so a PNG with transparent
+   edges still has a visible launcher — otherwise the FAB would vanish
+   into the page. If the admin wants the image to be the only thing
+   visible, they should upload an opaque, edge-cropped image. */
+.bitbot-avatar-img {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+    border-radius: inherit;
 }
 
 .bitbot-toggle:hover {
@@ -77,6 +101,10 @@
     height: 500px;
     max-height: calc(100vh - 100px);
     background: var(--bitbot-bg);
+    /* 2.0.4: panel radius decoupled from the admin's corner-radius slider —
+       that slider was intended for the FAB only. Panel keeps a fixed soft
+       12px edge. The `data-shape="square"` preset still overrides to 0
+       below for admins who want a sharp panel. */
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
     display: flex;
@@ -103,12 +131,41 @@
     padding: 16px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
+    gap: 10px;
+}
+
+/* 2.0.2: small circular avatar slot before the title. Always rendered
+   by the PHP template; stays empty (zero-width thanks to :empty) when
+   no avatar is configured, so existing no-avatar layouts are unchanged.
+   Visitors get a face when there is one. */
+.bitbot-header-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.18);
+    display: inline-block;
+}
+.bitbot-header-avatar:empty {
+    display: none;
+}
+.bitbot-header-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transform-origin: center;
 }
 
 .bitbot-title {
     font-weight: 600;
     font-size: 16px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .bitbot-minimize {
@@ -157,6 +214,8 @@
 
 .bitbot-message-content {
     padding: 10px 14px;
+    /* 2.0.4: bubbles decoupled from the FAB slider — fixed soft 16px so
+       the corner-radius admin slider only changes the FAB shape. */
     border-radius: 16px;
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -252,6 +311,223 @@
     40% {
         transform: scale(1);
     }
+}
+
+/* 1.9.0: text-variant typing indicator. Shown when admin has set a custom
+   typing string in Settings → Custom Copy. Same container as dots so
+   surrounding layout (left-aligned bot message bubble) doesn't shift. */
+.bitbot-typing.bitbot-typing-text {
+    color: #888;
+    font-style: italic;
+    font-size: 13px;
+    padding: 10px 14px;
+}
+
+/* 1.9.0 Feature 8f: proactive nudge bubble. Lives in light DOM (host
+   element) since it anchors off the FAB visually but needs to be
+   inspectable for accessibility. Uses inherited CSS variables. */
+.bitbot-nudge-bubble {
+    position: fixed;
+    bottom: 90px;
+    right: 20px;
+    max-width: 260px;
+    background: #fff;
+    color: #222;
+    border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    padding: 12px 36px 12px 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    cursor: pointer;
+    z-index: 999998; /* one below the widget host */
+    animation: bitbot-nudge-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+/* When the host is anchored bottom-left, flip the bubble's anchor too.
+   2.0.2: the bubble now lives inside the shadow root (was wrongly in
+   light DOM before — see widget.js attachNudge comment), so the
+   light-DOM sibling/descendant selectors don't apply. Use :host()
+   against the host's positioning class instead. The legacy
+   `.bitbot-bottom-left ~ ...` rule is kept above for any forks still
+   appending into light DOM, but the canonical path is :host(). */
+:host(.bitbot-bottom-left) .bitbot-nudge-bubble {
+    right: auto;
+    left: 20px;
+}
+.bitbot-nudge-close {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: #999;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+.bitbot-nudge-close:hover {
+    color: #444;
+}
+@keyframes bitbot-nudge-in {
+    0%   { opacity: 0; transform: translateY(8px) scale(0.96); }
+    100% { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* 1.9.0 Feature 8h: pinned "Get started" banner. Sits between header
+   and messages, persistent across the session. */
+.bitbot-pinned-banner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 36px 10px 14px;
+    background: #f6f8ff;
+    border-bottom: 1px solid #e3e8f7;
+    font-size: 13px;
+    color: #1f2a44;
+}
+.bitbot-pinned-text {
+    flex: 1;
+    line-height: 1.35;
+}
+.bitbot-pinned-cta {
+    flex-shrink: 0;
+    background: var(--bitbot-primary, #0073aa);
+    color: #fff !important;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+}
+.bitbot-pinned-cta:hover {
+    opacity: 0.92;
+}
+.bitbot-pinned-close {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #888;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+/* 2.1.x chat-gate. Multi-field form rendered as a special message in
+   the messages list when the visitor sends their first message and
+   the admin has enabled the gate. Replaces the old pre-chat email
+   prompt entirely. */
+.bitbot-chat-gate {
+    align-self: center;
+    width: calc(100% - 24px);
+    max-width: 320px;
+    margin: 8px 12px;
+    padding: 14px;
+    background: #fff;
+    border: 1px solid #dde3ee;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.bitbot-chat-gate-head {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2a44;
+    margin-bottom: 10px;
+}
+.bitbot-chat-gate-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.bitbot-chat-gate-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.bitbot-chat-gate-row > span {
+    font-size: 12px;
+    color: #6b7488;
+}
+.bitbot-chat-gate-row > input {
+    padding: 8px 10px;
+    border: 1px solid #cdd5e3;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+}
+/* 2.0.20 error state. Red border on the input + small inline message
+   under it. Cleared on next input event so the visitor sees their fix
+   land before they re-submit. */
+.bitbot-chat-gate-row-error > input {
+    border-color: #c43d3d;
+    box-shadow: 0 0 0 2px rgba(196, 61, 61, 0.10);
+}
+.bitbot-chat-gate-row-error > span {
+    color: #c43d3d;
+}
+.bitbot-chat-gate-row-msg {
+    font-size: 12px;
+    color: #c43d3d;
+    margin-top: 2px;
+    line-height: 1.3;
+}
+.bitbot-chat-gate-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+.bitbot-chat-gate-submit {
+    background: var(--bitbot-primary, #0073aa);
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.bitbot-chat-gate-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.bitbot-chat-gate-cancel {
+    background: none;
+    border: none;
+    color: #6b7488;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+}
+
+/* 1.9.0 Feature 8e: suggested-question chips. Rendered below the welcome
+   message, hidden after the visitor's first turn. */
+.bitbot-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 14px 12px 14px;
+    margin: 0;
+}
+.bitbot-chip {
+    background: #fff;
+    color: var(--bitbot-primary, #0073aa);
+    border: 1px solid var(--bitbot-primary, #0073aa);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 120ms ease, color 120ms ease;
+}
+.bitbot-chip:hover {
+    background: var(--bitbot-primary, #0073aa);
+    color: #fff;
 }
 
 /* Input Area */
@@ -352,6 +628,30 @@
     :host(.bitbot-bottom-left) .bitbot-chat {
         left: -10px;
         right: auto;
+    }
+
+    /* 1.9.0 mobile-behaviour overrides (8k). data attribute is stamped on
+       the host by widget.js when admin chose a non-default. CSS does the
+       enforcement so even a JS failure can't leave the widget visible if
+       admin chose 'hide'. */
+    :host([data-mobile-behaviour="hide"]) {
+        display: none !important;
+    }
+    :host([data-mobile-behaviour="bottom-right"]) {
+        right: 10px !important;
+        left: auto !important;
+    }
+    :host([data-mobile-behaviour="bottom-right"]) .bitbot-chat {
+        right: -10px !important;
+        left: auto !important;
+    }
+    :host([data-mobile-behaviour="bottom-left"]) {
+        left: 10px !important;
+        right: auto !important;
+    }
+    :host([data-mobile-behaviour="bottom-left"]) .bitbot-chat {
+        left: -10px !important;
+        right: auto !important;
     }
 }
 
@@ -497,4 +797,55 @@
 .bitbot-product-oos {
     color: #b42323;
     font-weight: 600;
+}
+
+/* ============================================================
+   1.9.0 Shape presets (Pro and above)
+   ============================================================
+
+   Driven by data-shape attribute on the host. 'rounded' is the
+   default and respects the --bitbot-radius slider (handled above).
+   Other presets use clip-path so they work regardless of slider
+   value; the FAB and panel keep their box-shadow when supported.
+   Free tier is locked to 'rounded' server-side (see
+   sanitize_widget_shape).
+*/
+
+:host([data-shape="circle"]) .bitbot-toggle {
+    border-radius: 50%;
+}
+
+:host([data-shape="square"]) .bitbot-toggle {
+    border-radius: 0;
+}
+:host([data-shape="square"]) .bitbot-chat {
+    border-radius: 0;
+}
+
+:host([data-shape="pill"]) .bitbot-toggle {
+    /* 2.0.2: pill is now 112×28 — half the height and double the
+       width of the default rounded 56×56 launcher. Reads the
+       corner-radius slider so the admin can dial from sharp rectangle
+       (slider 0) through softly-rounded to a full pill with rounded
+       ends. Cap the rendered radius at half the height so it can't
+       exceed full-pill. */
+    width: 112px;
+    height: 28px;
+    border-radius: min(var(--bitbot-radius, 14px), 14px);
+}
+
+/* 2.0.2 (reverted): pill now lets the avatar fill the full 96×56
+   container (object-fit: cover). Earlier we locked the img to 56×56
+   centered inside the pill to "preserve cropper framing", but that
+   defeated the point of picking Pill — the launcher looked like a
+   small circle with brand-colour wings, not a pill. The saved crop
+   transform still applies; on a wider container `object-fit: cover`
+   shows more of the source horizontally, which is the right visual
+   for an elongated shape. */
+
+:host([data-shape="hexagon"]) .bitbot-toggle {
+    /* Six-sided polygon. Browsers without clip-path fall back to the
+       default 50% border-radius circle, which is graceful. */
+    clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+    border-radius: 0;
 }

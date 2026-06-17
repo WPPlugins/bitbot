@@ -5,7 +5,7 @@ Tags: chatbot, ai, live chat, contact form, lead generation
 Requires at least: 5.8
 Tested up to: 6.9.4
 Requires PHP: 7.4
-Stable tag: 1.8.3
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -13,11 +13,11 @@ Free AI chatbot, content generator, forms, and a leads inbox for WordPress. No A
 
 == Description ==
 
-**One install, four AI tools.** Your WordPress site writes content, answers visitor questions, captures leads, and — on Pro+ — takes orders and books appointments. All from one plugin.
+**One install, four AI tools.** Your WordPress site writes content, answers visitor questions, captures leads, and on Pro+ becomes a real agent that talks to your store and your CRM. All from one plugin.
 
 BitBot indexes every page and post on your site. Visitors ask questions in 100+ languages and get accurate answers with clickable citations back to the source page. Form submissions and chat emails land in a single leads inbox. The content generator turns a topic, URL, or uploaded document into an SEO-optimised draft you can preview and publish in one click.
 
-No API keys to manage. No per-token billing. The Free tier covers small sites; Pro removes the caps; Pro+ turns the chatbot into a real agent that talks to your WooCommerce catalogue, takes orders, and books appointments on your calendar.
+No API keys to manage. No per-token billing. The Free tier covers small sites; Pro removes the caps; Pro+ turns the chatbot into a real agent that searches your WooCommerce catalogue, creates draft orders with a one-click checkout link, looks up order status, and connects your CRM.
 
 [See it live on PolishingRocks.com](https://polishingrocks.com) — ask the chatbot anything about rock tumbling.
 
@@ -72,10 +72,6 @@ Pro+ upgrades the chatbot from a Q&A assistant into a real agent. Skills are mod
 * **Product recommendations** — searches your WooCommerce catalogue live and renders visual product cards in chat (image, price, sale strikethrough, stock)
 * **Add to cart / draft order** — agent confirms the exact item and quantity with the visitor, OTP-verifies their email, creates a real pending WooCommerce order, hands them a one-click checkout link
 * **Order enquiries** — OTP-verifies the visitor owns the order, then looks up status, tracking, delivery ETA. Never exposes another customer's order
-* **Refund / return / complaint tickets** — files a support ticket against the right order with full context, emails your team
-* **Appointment booking** — surfaces available slots from your Settings → Appointments config (no Calendly account needed), confirms in the visitor's local timezone, emails both sides with an `.ics` invite
-* **Lead qualification (BANT)** — conversationally captures budget, authority, need, timeline; scores the lead; flags high-intent ones
-* **Cart-recovery discount** — offers a configured coupon when a hesitating visitor is near-buy (never on the first mention of price — no training visitors to fish for codes)
 * **Live handover** — if you're online (heartbeat seen in the last 5 minutes), the chat flips to you directly in the Live Chats dashboard. If not, a handover email goes out and a lead is created
 
 The Live Chats dashboard shows every active conversation in real time with PRESENT / IDLE / LEFT presence pills, so you can jump into any thread the moment you want to take over.
@@ -86,7 +82,7 @@ The Live Chats dashboard shows every active conversation in real time with PRESE
 
 **Pro — $20/month** — Unlimited chat, unlimited posts (prompt / URL / PDF), unlimited forms, unlimited leads, AI Lead Research, drafted follow-up emails, email notifications, Topic Discovery, Style Analysis, AI form generation. Removes BitBot branding. Fair-use applies. Cancel anytime.
 
-**Pro+ — $49/month** — Everything in Pro, plus all eight agent skills above. Built for WooCommerce stores and service businesses where conversations should turn into orders and meetings, not just leads in a list. Cancel anytime.
+**Pro+ — $49/month** — Everything in Pro, plus the Agent: a chatbot that actually does things, using a growing list of integrations (WooCommerce, Zoho, Pipedrive, Google Search Console, and more) to meet your business where it already runs, without disrupting your flow. Cancel anytime.
 
 == Installation ==
 
@@ -142,20 +138,33 @@ Your content is stored on infrastructure operated by youami.ai (US-based, encryp
 
 = What's the difference between Pro and Pro+? =
 
-Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up emails, and email notifications. Pro+ adds the **agent** — eight skills (product recommendations, draft orders, order enquiries, refunds, appointments, BANT qualification, cart-recovery coupons, live handover) that take real actions on behalf of your visitors. If you sell on WooCommerce or run a service business with bookings, Pro+ is what you want.
+Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up emails, and email notifications. Pro+ adds the **agent**: a chatbot that takes real actions for your visitors using a growing list of integrations (live WooCommerce product search, draft orders with checkout, order lookups, live human handover, and more), meeting your business where it already runs. If you want conversations that do things, not just answer, Pro+ is what you want.
 
 == Screenshots ==
 
-1. Visitors browse your WooCommerce catalogue inside the chat — image, price, sale strikethrough, stock — without leaving the page.
-2. Every form submission and chat email lands in a single inbox. Stage tracking, location, source, and an unread badge on the BitBot menu.
-3. One-click AI research on any lead — pulls from the chatbot's full conversation and the open web, returns a who-they-are summary with a suggested next step.
-4. Discover Topics surfaces gaps in what you've already published, suggests SEO-shaped angles, and generates the draft for any one of them in a couple of clicks.
-5. Describe a form in plain English — BitBot generates the fields, gives you a live preview, and a shortcode you can drop on any page.
-6. Appointments booked through chat appear on the admin Calendar. Click an entry to see the lead, the conversation, and any AI research already attached.
-7. When the chatbot hands off to a human, the visitor sees a clear "Live: you're now chatting with someone from the team" banner. Their next message lands directly in your Live Chats dashboard.
-8. The visitor asks in Hindi, the bot answers in Hindi — same product cards, same flow. Tested across English, Hindi, Spanish, Arabic, French, German and more.
+1. Your whole bot at a glance. Top cited pages, the questions visitors actually ask, coverage gaps to fix, where visitors are from, and how many turn into leads.
+2. Visitors browse your WooCommerce catalogue inside the chat — image, price, sale strikethrough, stock — without leaving the page.
+3. Every form submission and chat email lands in a single inbox. Stage tracking, location, source, and an unread badge on the BitBot menu.
+4. One-click AI research on any lead — pulls from the chatbot's full conversation and the open web, returns a who-they-are summary with a suggested next step.
+5. Discover Topics surfaces gaps in what you've already published, suggests SEO-shaped angles, and generates the draft for any one of them in a couple of clicks.
+6. Turn on the tools you already use and the agent acts inside the conversation. WooCommerce, Zoho, Pipedrive, Search Console and a growing list, with more shipping every sprint.
+7. Describe a form in plain English — BitBot generates the fields, gives you a live preview, and a shortcode you can drop on any page.
+8. When the chatbot hands off to a human, the visitor sees a clear "Live: you're now chatting with someone from the team" banner. Their next message lands directly in your Live Chats dashboard.
+9. The visitor writes in Hindi, the bot replies in Hindi. Tested across English, Hindi, Spanish, Arabic, French, German and more.
 
 == Changelog ==
+
+= 2.0.0 =
+*Release Date - <set at release>*
+
+Major release — BitBot grows from a chatbot into a full AI assistant for your site.
+
+* New: AI Agent (Pro+) — the chatbot uses your connected tools to act, not just answer.
+* New: Integrations — connect WooCommerce, Zoho CRM, Pipedrive, and Google Search Console.
+* New: Insights — Top Questions, Coverage Gaps, and high-intent visitors who didn't leave an email, on the Overview tab.
+* New: Leads inbox upgrades — one-click CRM sync with live pipeline status, AI lead research, AI-drafted follow-up emails, and bulk select / mark-read / delete.
+* Improved: Multi-language answers across 100+ languages, with sharper context understanding on Pro+.
+* Improved: Rebuilt admin dashboard — faster and cleaner across every tab.
 
 = 1.8.3 =
 *Release Date - 14 May 2026*
@@ -187,14 +196,13 @@ Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up e
 * Update: `searchProducts` payload is slimmed via WC `_fields` — page-load on a 7-product sale sweep dropped from ~100 KB to ~3.5 KB on the wire.
 
 = 1.8.0 =
-* Add: Calendar-style admin view for appointments booked via chat (Pro+).
 * Add: Widget collision auto-stack — detects WhatsApp, accessibility menus and other floating buttons, lifts above them so the chat icon is always tappable.
 * Add: Live Chats inbox now uses a 4-step display label (lead name → verified email → "Visitor from City, Country" → anonymous handle) instead of raw IPv6 addresses.
 * Update: Multi-tool turns now run in parallel — chat responses for product browse + RAG fan out together instead of serially.
 * Update: WooCommerce skill teaches the agent to tree-walk product categories when a plural noun ("hoodies") doesn't text-match a single SKU.
 
 = 1.7.0 =
-* Add: Pro+ tier ($49/mo) — the chatbot becomes an agent. Eight skills: product recommendations, draft orders, order enquiries, refunds, appointment booking, BANT qualification, cart-recovery coupons, live handover.
+* Add: Pro+ tier ($49/mo) — the chatbot becomes an agent. Skills: product recommendations, draft orders, order enquiries, and live handover.
 * Add: Live Chats admin dashboard with PRESENT / IDLE / LEFT presence pills and a Take Over button.
 * Add: Visual product cards in chat (image, price, sale strikethrough, View → CTA).
 * Add: Cross-turn memory — tool results persist across turns; agent never asks "which product did you mean?" twice.
@@ -260,7 +268,7 @@ Content indexing edge case handled and mobile view improved. Recommended for all
 Big stability + UX pass. Cap messages now surface inline; the chatbot no longer falsely confirms a lead capture when at the Free cap; multilingual replies stay in one language; product-card filters (on sale, price range) work correctly; the Pro→Pro+ swap webhook race is fixed; admin pages past 1,000 rows paginate properly. Recommended for all users.
 
 = 1.7.0 =
-Pro+ tier launches — the chatbot becomes an agent that recommends products, takes draft orders with checkout links, looks up orders, files tickets, books appointments, and hands off to humans. Live Chats admin dashboard with real-time presence and one-click takeover.
+Pro+ tier launches — the chatbot becomes an agent that recommends products, takes draft orders with checkout links, looks up orders, and hands off to humans. Live Chats admin dashboard with real-time presence and one-click takeover.
 
 = 1.6.0 =
 Free plan is now free forever. Pro at $20/mo for unlimited chat, posts, forms, and leads, plus AI Lead Research and drafted follow-up emails.

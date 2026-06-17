@@ -83,6 +83,17 @@ class BitBot_Widget {
             return;
         }
 
+        // 2.0.16: skip the host div on excluded URLs too. The script
+        // enqueue path already bails on these, but the host markup
+        // was rendered unconditionally on wp_footer, leaving a dead
+        // <div id="bitbot-widget"> on /checkout, /cart, etc. that
+        // confused diagnostics ("widget IS present but script isn't").
+        // Cheap call — the regex compile is bounded by the admin's
+        // own pattern list.
+        if ( apply_filters( 'bitbot_should_hide_widget', false ) ) {
+            return;
+        }
+
         $position        = sanitize_text_field( get_option( 'bitbot_widget_position', 'bottom-right' ) );
         $primary_color   = sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) );
         // Owner-configurable pixel offsets from the chosen corner. JS
@@ -95,6 +106,13 @@ class BitBot_Widget {
         // Check if user has set a custom welcome message, otherwise use localized default
         $custom_message  = get_option( 'bitbot_welcome_message', '' );
         $welcome_message = ! empty( $custom_message ) ? wp_kses_post( $custom_message ) : $this->get_localized_greeting();
+
+        // 1.9.0: custom widget title. Empty option string falls back to
+        // the localized "Chat with us" default so existing installs see no
+        // change. Sanitized at save time (sanitize_widget_title); we still
+        // esc_html on render as defense in depth.
+        $custom_title  = get_option( 'bitbot_widget_title', '' );
+        $widget_title  = ! empty( $custom_title ) ? $custom_title : __( 'Chat with us', 'bitbot' );
         ?>
         <?php
         // 1.8.2: widget is mounted in a shadow root so theme CSS targeting
@@ -107,14 +125,28 @@ class BitBot_Widget {
         // the host's shadow root on init. Light DOM stays empty after that
         // — nothing for a theme to override.
         $preferred_corner = ( strpos( $position, 'left' ) !== false ) ? 'left' : 'right';
+
+        // 1.9.0: appearance — corner radius (Free) + shape (Pro). Both are
+        // passed as CSS variables so widget.css can read them inside the
+        // shadow root. Shape is also stamped as a data attribute so CSS
+        // can apply a clip-path preset selectively.
+        // 2.0.2: default bumped to 32 (max) so a fresh install renders
+        // the FAB as a full circle out of the box — that's the most
+        // recognisable launcher shape. Cap also raised from 24 → 32
+        // to match the React slider's range and the CSS we wire it
+        // into (.bitbot-toggle border-radius reads this directly).
+        $corner_radius = max( 0, min( 32, (int) get_option( 'bitbot_corner_radius', 32 ) ) );
+        $widget_shape  = sanitize_text_field( get_option( 'bitbot_widget_shape', 'rounded' ) );
+
         $widget_style     = sprintf(
-            '--bitbot-primary: %s; --bitbot-offset-x: %dpx; --bitbot-offset-y: %dpx;',
+            '--bitbot-primary: %s; --bitbot-offset-x: %dpx; --bitbot-offset-y: %dpx; --bitbot-radius: %dpx;',
             esc_attr( $primary_color ),
             $offset_x,
-            $offset_y
+            $offset_y,
+            $corner_radius
         );
         ?>
-        <div id="bitbot-widget" class="bitbot-<?php echo esc_attr( $position ); ?>" data-preferred="<?php echo esc_attr( $preferred_corner ); ?>" data-base-offset-y="<?php echo esc_attr( $offset_y ); ?>" style="<?php echo esc_attr( $widget_style ); ?>"></div>
+        <div id="bitbot-widget" class="bitbot-<?php echo esc_attr( $position ); ?>" data-preferred="<?php echo esc_attr( $preferred_corner ); ?>" data-base-offset-y="<?php echo esc_attr( $offset_y ); ?>" data-shape="<?php echo esc_attr( $widget_shape ); ?>" style="<?php echo esc_attr( $widget_style ); ?>"></div>
         <template id="bitbot-widget-template">
             <div class="bitbot-widget">
                 <!-- Chat Toggle Button -->
@@ -132,7 +164,12 @@ class BitBot_Widget {
                 <div id="bitbot-chat" class="bitbot-chat" style="display:none;">
                     <!-- Header -->
                     <div class="bitbot-header">
-                        <span class="bitbot-title"><?php esc_html_e( 'Chat with us', 'bitbot' ); ?></span>
+                        <!-- 2.0.2: avatar slot. Populated by widget.js when
+                             config.avatarUrl is set; otherwise stays empty
+                             (CSS hides via :empty). Apes Intercom/Drift —
+                             gives visitors a face to associate with the bot. -->
+                        <span id="bitbot-header-avatar" class="bitbot-header-avatar"></span>
+                        <span class="bitbot-title"><?php echo esc_html( $widget_title ); ?></span>
                         <button id="bitbot-minimize" class="bitbot-minimize" aria-label="<?php esc_attr_e( 'Minimize chat', 'bitbot' ); ?>">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -360,6 +397,23 @@ class BitBot_Widget {
             return new WP_REST_Response( array( 'success' => false ), 400 );
         }
         $this->api_client->visitor_left( $session_id );
+        return new WP_REST_Response( array( 'success' => true ), 200 );
+    }
+
+    /**
+     * Citation click beacon. Records that a visitor opened a link the
+     * bot served in a chat reply. Drives the Overview "Top Cited Pages"
+     * CTR. Best-effort — we always return success even if the upstream
+     * call fails, so the widget's beacon doesn't retry.
+     */
+    public function handle_citation_click( $request ) {
+        $session_id = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
+        $url        = esc_url_raw( $request->get_param( 'url' ) ?? '' );
+        $title      = sanitize_text_field( $request->get_param( 'title' ) ?? '' );
+        if ( empty( $url ) ) {
+            return new WP_REST_Response( array( 'success' => false ), 400 );
+        }
+        $this->api_client->record_citation_click( $session_id, $url, $title );
         return new WP_REST_Response( array( 'success' => true ), 200 );
     }
 }

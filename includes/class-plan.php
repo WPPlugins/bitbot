@@ -103,6 +103,24 @@ class BitBot_Plan {
     }
 
     /**
+     * True when the cached plan snapshot reports accessMode === "expired"
+     * (trial ran out + no subscription). Drives the proactive widget
+     * hide on enqueue so visitors don't see a FAB they'd click into a
+     * dead chat. Defaults to false on missing cache / older payloads so
+     * we fail OPEN — the widget's reactive TRIAL_EXPIRED handler still
+     * catches anything we miss here.
+     *
+     * @return bool
+     */
+    public static function is_access_expired() {
+        $status = self::get_cached_status();
+        if ( ! is_array( $status ) ) {
+            return false;
+        }
+        return isset( $status['accessMode'] ) && $status['accessMode'] === 'expired';
+    }
+
+    /**
      * Short human label: "Free", "Pro", "Pro+".
      *
      * @param mixed $plan
