@@ -5,7 +5,7 @@ Tags: chatbot, ai, live chat, contact form, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.1
+Stable tag: 2.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,11 @@ Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up e
 
 == Changelog ==
 
+= 2.0.2 =
+*Release Date - 18 June 2026*
+
+* Performance improvements for large page libraries, plus minor fixes.
+
 = 2.0.1 =
 *Release Date - 18 June 2026*
 
@@ -265,6 +270,9 @@ Major release — BitBot grows from a chatbot into a full AI assistant for your 
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 2.0.2 =
+Performance improvements for large page libraries, plus minor fixes.
 
 = 2.0.1 =
 Minor UI polish and small fixes.
