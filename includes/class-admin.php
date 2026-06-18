@@ -57,6 +57,8 @@ class BitBot_Admin {
 
         // Register AJAX handlers
         add_action('wp_ajax_bitbot_sync', array($this, 'ajax_sync'));
+        add_action('wp_ajax_bitbot_sync_progress', array($this, 'ajax_sync_progress'));
+        add_action('wp_ajax_bitbot_sync_stop', array($this, 'ajax_sync_stop'));
         add_action('wp_ajax_bitbot_generate', array($this, 'ajax_generate'));
         add_action('wp_ajax_bitbot_get_upload_url', array($this, 'ajax_get_upload_url'));
         add_action('wp_ajax_bitbot_generate_from_storage', array($this, 'ajax_generate_from_storage'));
@@ -3536,13 +3538,69 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $result = $this->api_client->trigger_sync();
+        // Kick off a resumable BACKGROUND sync and return immediately. The
+        // crawl runs across many tiny wp-cron ticks (one batch each), so a
+        // large site can't fatal the request and the admin can close the tab.
+        // The SPA polls bitbot_sync_progress for live "X / Y" status.
+        $started = BitBot::get_instance()->start_background_sync();
 
-        if ($result['success']) {
-            wp_send_json_success($result['data']);
-        } else {
-            wp_send_json_error(array('error' => $result['error']));
+        wp_send_json_success(array(
+            'state'        => $started['total'] > 0 ? 'running' : 'done',
+            'total'        => $started['total'],
+            'totalBatches' => $started['totalBatches'],
+            'pagesQueued'  => $started['total'],
+        ));
+    }
+
+    /**
+     * AJAX: stop the active bulk sync.
+     */
+    public function ajax_sync_stop() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
         }
+
+        wp_send_json_success(BitBot::get_instance()->stop_background_sync());
+    }
+
+    /**
+     * AJAX: return live bulk-sync progress for the admin SPA to poll.
+     */
+    public function ajax_sync_progress() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        $progress = get_option(BitBot::SYNC_PROGRESS_OPTION, null);
+
+        if (!is_array($progress)) {
+            // No bulk sync has ever run on this install.
+            wp_send_json_success(array('state' => 'idle'));
+        }
+
+        // Self-heal: while a run is active, every poll nudges wp-cron so the
+        // chain keeps advancing even on a zero-traffic site (where wp-cron
+        // would otherwise only fire on a front-end visit). The SPA polls every
+        // ~2.5s, so this keeps the counter moving without a system cron.
+        if (isset($progress['state']) && $progress['state'] === 'running' && function_exists('spawn_cron')) {
+            spawn_cron();
+        }
+
+        $total = isset($progress['total']) ? (int) $progress['total'] : 0;
+        $done  = isset($progress['done']) ? (int) $progress['done'] : 0;
+        $pct   = $total > 0 ? (int) floor(min($done, $total) / $total * 100) : 0;
+
+        wp_send_json_success(array(
+            'state'   => isset($progress['state']) ? $progress['state'] : 'idle',
+            'done'    => min($done, $total),
+            'total'   => $total,
+            'percent' => $pct,
+            'error'   => isset($progress['error']) ? $progress['error'] : null,
+        ));
     }
 
     /**

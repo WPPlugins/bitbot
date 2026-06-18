@@ -543,8 +543,124 @@ class BitBot_API_Client {
     }
 
     /**
+     * Resolve the set of post types we sync.
+     *
+     * Extracted from the old gather_content() so both the lightweight ID
+     * collector and the per-batch content fetcher share one definition.
+     *
+     * @since 2.0.3
+     * @return array Post type slugs.
+     */
+    private function get_syncable_post_types() {
+        // Every publicly-visible post type the site declares — covers core
+        // post/page, WooCommerce 'product', LearnDash courses, Tribe Events,
+        // Jetpack Portfolio, BetterDocs, and any CPT a theme/plugin registers
+        // with public => true.
+        //
+        // NOTE: do NOT add 'publicly_queryable' => true to the filter — core's
+        // 'page' CPT is registered without that flag explicitly set to true,
+        // so it gets silently filtered out and every site loses page content.
+        $post_types = array_keys(
+            get_post_types( array( 'public' => true ), 'names' )
+        );
+
+        // Drop template/internal fragments that are never visitor narrative
+        // content. 'attachment' = media files; the rest are page-builder
+        // libraries and block-theme internals that public=true accepts but
+        // shouldn't be in chat context.
+        $exclude = array(
+            'attachment',
+            'elementor_library',
+            'e-floating-buttons',
+            'ae_global_templates',
+            'oxy_template',
+            'bricks_template',
+            'et_pb_layout',
+            'et_template',
+            'wp_block',
+            'wp_template',
+            'wp_template_part',
+            'wp_global_styles',
+            'wp_navigation',
+        );
+
+        return array_values( array_diff( $post_types, $exclude ) );
+    }
+
+    /**
+     * Collect the IDs of every published post we sync, newest-modified first.
+     *
+     * IDs only (no content) so this stays cheap even on 5,000+ page sites —
+     * the memory blow-up that fataled large syncs lived in loading all that
+     * rendered content at once, not in the ID list.
+     *
+     * @since 2.0.3
+     * @return int[] Post IDs.
+     */
+    public function gather_post_ids() {
+        $query = new WP_Query( array(
+            'post_type'              => $this->get_syncable_post_types(),
+            'post_status'            => 'publish',
+            'posts_per_page'         => -1,
+            'orderby'                => 'modified',
+            'order'                  => 'DESC',
+            'fields'                 => 'ids',     // IDs only — light
+            'no_found_rows'          => true,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ) );
+
+        return array_map( 'intval', (array) $query->posts );
+    }
+
+    /**
+     * Gather rendered content for a specific set of post IDs (one batch).
+     *
+     * @since 2.0.3
+     * @param int[] $ids Post IDs to fetch (a single batch's worth).
+     * @return array Array of pages with url, title, and content.
+     */
+    private function gather_content_for_ids( $ids ) {
+        $pages = array();
+        if ( empty( $ids ) ) {
+            return $pages;
+        }
+
+        $query = new WP_Query( array(
+            'post_type'              => 'any',
+            'post_status'            => 'publish',
+            'post__in'               => $ids,
+            'orderby'                => 'post__in',
+            'posts_per_page'         => count( $ids ),
+            'ignore_sticky_posts'    => true,
+            'no_found_rows'          => true,
+            'update_post_term_cache' => false,
+        ) );
+
+        if ( $query->have_posts() ) {
+            while ( $query->have_posts() ) {
+                $query->the_post();
+                $content = apply_filters( 'the_content', get_the_content() );
+                $pages[] = array(
+                    'url'     => get_permalink(),
+                    'title'   => get_the_title(),
+                    'content' => $content,
+                );
+            }
+            wp_reset_postdata();
+        }
+
+        return $pages;
+    }
+
+    /**
      * Gather all published content from WordPress
      *
+     * @deprecated 2.0.3 Loads every page's content into memory at once, which
+     *             fatals on large sites (penteli.gov.gr, ~6k pages). Retained
+     *             only for callers that genuinely need the whole set; the sync
+     *             path now paginates via gather_post_ids() +
+     *             gather_content_for_ids().
      * @since 1.0.0
      * @return array Array of pages with url, title, and content.
      */
@@ -631,10 +747,15 @@ class BitBot_API_Client {
      *               { success: true, data: { async: true } } (async).
      */
     public function trigger_sync( $async = false ) {
-        // Gather all content locally
-        $all_pages = $this->gather_content();
+        // Collect post IDs only (cheap) — then fetch + send content ONE batch
+        // at a time, freeing each batch before the next. This caps peak memory
+        // at ~50 pages' worth of rendered HTML regardless of total site size.
+        // The old path called gather_content() and held every page's content
+        // in memory at once, which fataled large sites (penteli.gov.gr ~6k
+        // pages → "There has been a critical error" → sync never completed).
+        $all_ids = $this->gather_post_ids();
 
-        if ( empty( $all_pages ) ) {
+        if ( empty( $all_ids ) ) {
             return array(
                 'success' => true,
                 'data'    => array(
@@ -644,15 +765,15 @@ class BitBot_API_Client {
             );
         }
 
-        // Batch pages to avoid hitting payload limits (~50 pages per batch)
+        // Batch by ID (~50 posts per batch) — content is fetched per batch.
         $batch_size    = 50;
-        $batches       = array_chunk( $all_pages, $batch_size );
-        $total_batches = count( $batches );
+        $id_batches    = array_chunk( $all_ids, $batch_size );
+        $total_batches = count( $id_batches );
+        $total_pages   = count( $all_ids );
 
-        // Collect all URLs for cleanup of deleted pages
-        $all_urls = array_map( function( $page ) {
-            return $page['url'];
-        }, $all_pages );
+        // allUrls (for deleted-page cleanup) is accumulated as we walk the
+        // batches and attached to the final one — no second full pass.
+        $all_urls = array();
 
         $total_saved   = 0;
         $total_skipped = 0;
@@ -660,7 +781,19 @@ class BitBot_API_Client {
         $chunks_embedded = 0;
 
         // Send each batch to the API
-        foreach ( $batches as $index => $batch ) {
+        foreach ( $id_batches as $index => $id_batch ) {
+            // Some hosts kill long syncs on max_execution_time. Re-arm the
+            // clock per batch (best-effort; safe-mode hosts ignore it).
+            if ( function_exists( 'set_time_limit' ) ) {
+                @set_time_limit( 300 );
+            }
+
+            // Fetch THIS batch's content just-in-time.
+            $batch = $this->gather_content_for_ids( $id_batch );
+            foreach ( $batch as $page ) {
+                $all_urls[] = $page['url'];
+            }
+
             $payload = array(
                 'pages'        => $batch,
                 'batchIndex'   => $index,
@@ -673,6 +806,9 @@ class BitBot_API_Client {
             }
 
             $result = $this->rpc( 'SyncContent', $payload, 300, ! $async );
+
+            // Free this batch's content before the next iteration.
+            unset( $batch, $payload );
 
             if ( $async ) {
                 // Non-blocking: no per-batch totals to aggregate. Backend
@@ -698,7 +834,7 @@ class BitBot_API_Client {
             return array(
                 'success' => true,
                 'data'    => array(
-                    'message'      => sprintf( '%d pages queued for sync', count( $all_pages ) ),
+                    'message'      => sprintf( '%d pages queued for sync', $total_pages ),
                     'async'        => true,
                     'totalBatches' => $total_batches,
                 ),
@@ -727,6 +863,62 @@ class BitBot_API_Client {
                 'message'         => 'Sync complete! ' . implode( ', ', $message_parts ) . '.',
             ),
         );
+    }
+
+    /**
+     * Send ONE batch of pages to the backend (used by the resumable
+     * background-sync cron chain). Content is gathered just-in-time for the
+     * given post IDs, so peak memory stays at ~one batch regardless of total
+     * site size. Blocking — the cron tick waits for the backend so the next
+     * tick only fires after this batch is persisted.
+     *
+     * @since 2.0.3
+     * @param int[]      $batch_ids     Post IDs in this batch.
+     * @param int        $batch_index   Zero-based batch index.
+     * @param int        $total_batches Total batch count.
+     * @param array|null $all_urls      Full URL list — pass on the FINAL batch
+     *                                  only, so the backend can clean up pages
+     *                                  deleted in WordPress.
+     * @return array RPC response.
+     */
+    public function sync_batch( $batch_ids, $batch_index, $total_batches, $all_urls = null ) {
+        $pages = $this->gather_content_for_ids( $batch_ids );
+
+        $payload = array(
+            'pages'        => $pages,
+            'batchIndex'   => (int) $batch_index,
+            'totalBatches' => (int) $total_batches,
+        );
+
+        if ( is_array( $all_urls ) ) {
+            $payload['allUrls'] = $all_urls;
+        }
+
+        return $this->rpc( 'SyncContent', $payload, 300 );
+    }
+
+    /**
+     * Prune pages deleted in WordPress — WITHOUT re-syncing content.
+     *
+     * Used by the post-delete hook. Gathers only the current published-URL
+     * list (no rendered content, no embeddings) and sends a single empty
+     * SyncContent whose `allUrls` tells the backend to drop any plugin-owned
+     * page no longer present. Cheap and fast, vs the old behaviour of a full
+     * blocking re-sync of the entire site on every deletion.
+     *
+     * @since 2.0.3
+     * @return array RPC response.
+     */
+    public function prune_deleted_pages() {
+        $ids = $this->gather_post_ids();
+        $all_urls = array_values( array_filter( array_map( 'get_permalink', $ids ) ) );
+
+        return $this->rpc( 'SyncContent', array(
+            'pages'        => array(),
+            'batchIndex'   => 0,
+            'totalBatches' => 1,
+            'allUrls'      => $all_urls,
+        ), 60 );
     }
 
     /**

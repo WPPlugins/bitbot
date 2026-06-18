@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           2.0.2
+ * Version:           2.0.3
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.0.2' );
+define( 'BITBOT_VERSION', '2.0.3' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -88,6 +88,47 @@ class BitBot {
      * failures on shared hosts.
      */
     const FIRST_SYNC_RUN_HOOK = 'bitbot_first_sync_run';
+
+    /**
+     * Resumable bulk-sync tick. Each fire processes ONE batch of pages then
+     * reschedules itself for the next batch, so a full re-index of a large
+     * site (thousands of pages) is spread across many tiny wp-cron requests
+     * that each stay well under PHP memory/time limits. Progress is written
+     * to the `bitbot_sync_progress` option so the admin SPA can poll it.
+     */
+    const SYNC_CHUNK_CRON_HOOK = 'bitbot_sync_chunk';
+
+    /** Option holding live bulk-sync progress; read by the admin SPA. */
+    const SYNC_PROGRESS_OPTION = 'bitbot_sync_progress';
+
+    /** Transient caching the post-ID worklist for the active bulk sync. */
+    const SYNC_IDS_TRANSIENT = 'bitbot_sync_ids';
+
+    /**
+     * Token identifying the CURRENT bulk-sync run. Every start_background_sync
+     * mints a fresh one; each cron tick carries the token it was scheduled
+     * with and bails if it no longer matches — so a re-triggered sync cleanly
+     * supersedes any in-flight chain instead of racing it (which previously
+     * stamped last_sync early and froze the counter).
+     */
+    const SYNC_RUN_OPTION = 'bitbot_sync_run';
+
+    /**
+     * Hard ceiling on a single bulk-sync run. A run that hasn't finished
+     * within this window is force-stopped on the next tick — a backstop
+     * against any chain that never reaches its final batch and would
+     * otherwise reschedule itself indefinitely. The worklist transient also
+     * self-expires (see SYNC_IDS_TRANSIENT TTL) as a second safety net.
+     */
+    const SYNC_MAX_RUN_SECONDS = 1800; // 30 minutes
+
+    /**
+     * Deferred, debounced prune of pages deleted in WordPress. A post delete
+     * schedules this once (not a full re-sync); it sends only the current URL
+     * list so the backend drops stale pages. Debounced so a burst of deletes
+     * collapses into a single prune.
+     */
+    const PRUNE_CRON_HOOK = 'bitbot_prune_deleted';
 
     /**
      * Singleton instance
@@ -186,6 +227,13 @@ class BitBot {
 
         // Deferred sync handler (runs via WP-Cron, not inside the REST save request)
         add_action( 'bitbot_sync_post', array( $this, 'run_deferred_post_sync' ) );
+
+        // Resumable bulk-sync tick — one batch per fire, reschedules until done.
+        add_action( self::SYNC_CHUNK_CRON_HOOK, array( $this, 'run_sync_chunk' ), 10, 2 );
+
+        // Deferred, debounced prune when posts are deleted (replaces the old
+        // full blocking re-sync on every deletion).
+        add_action( self::PRUNE_CRON_HOOK, array( $this, 'run_prune_deleted' ) );
 
         // Daily plan-cache refresh (hook scheduled in activate()).
         add_action( BitBot_Plan::REFRESH_CRON_HOOK, array( $this, 'refresh_plan_status_cron' ) );
@@ -511,6 +559,262 @@ class BitBot {
     }
 
     /**
+     * Kick off a resumable background bulk sync.
+     *
+     * Snapshots the post-ID worklist once (so batch boundaries stay stable
+     * across cron ticks), seeds the progress option, and schedules the first
+     * chunk. Returns immediately — the admin can close the tab; the cron
+     * chain self-drives to completion. Safe to call again: a fresh call
+     * restarts from batch 0 with a new snapshot.
+     *
+     * @since 2.0.3
+     * @return array { total, totalBatches } for the SPA's initial render.
+     */
+    /** Batch size for the resumable bulk sync (pages per SyncContent POST). */
+    const SYNC_BATCH_SIZE = 100;
+
+    public function start_background_sync() {
+        $ids = $this->api_client->gather_post_ids();
+        $total = count( $ids );
+
+        // Mint a fresh run token. Any cron tick from a PRIOR run carries an
+        // older token and will bail, so re-triggering cleanly supersedes an
+        // in-flight sync instead of racing it.
+        $run_id = wp_generate_uuid4();
+        update_option( self::SYNC_RUN_OPTION, $run_id, false );
+
+        if ( $total === 0 ) {
+            update_option( self::SYNC_PROGRESS_OPTION, array(
+                'state'      => 'done',
+                'done'       => 0,
+                'total'      => 0,
+                'run_id'     => $run_id,
+                'message'    => 'No published content found to sync.',
+                'updated_at' => time(),
+            ), false );
+            delete_transient( self::SYNC_IDS_TRANSIENT );
+            return array( 'total' => 0, 'totalBatches' => 0 );
+        }
+
+        $total_batches = (int) ceil( $total / self::SYNC_BATCH_SIZE );
+
+        // Snapshot the worklist so every tick chunks the SAME list.
+        set_transient( self::SYNC_IDS_TRANSIENT, $ids, HOUR_IN_SECONDS );
+
+        update_option( self::SYNC_PROGRESS_OPTION, array(
+            'state'         => 'running',
+            'done'          => 0,
+            'cursor'        => 0,      // next batch index — authoritative resume point
+            'total'         => $total,
+            'total_batches' => $total_batches,
+            'batch_size'    => self::SYNC_BATCH_SIZE,
+            'run_id'        => $run_id,
+            'started_at'    => time(),
+            'updated_at'    => time(),
+        ), false );
+
+        $this->schedule_sync_chunk( 0, $run_id );
+
+        return array( 'total' => $total, 'totalBatches' => $total_batches );
+    }
+
+    /**
+     * Stop the active bulk sync immediately.
+     *
+     * Rotates the run token to a value no scheduled tick carries, so every
+     * in-flight chain bails on its next fire (via the run guard), and clears
+     * the worklist. Idempotent and safe to call when nothing is running.
+     *
+     * @since 2.0.3
+     * @return array { state, done, total } snapshot after stopping.
+     */
+    public function stop_background_sync() {
+        $progress = get_option( self::SYNC_PROGRESS_OPTION );
+        $done  = ( is_array( $progress ) && isset( $progress['done'] ) )  ? (int) $progress['done']  : 0;
+        $total = ( is_array( $progress ) && isset( $progress['total'] ) ) ? (int) $progress['total'] : 0;
+
+        // New token nobody matches → all chains bail on next tick.
+        update_option( self::SYNC_RUN_OPTION, 'stopped-' . wp_generate_uuid4(), false );
+        delete_transient( self::SYNC_IDS_TRANSIENT );
+
+        update_option( self::SYNC_PROGRESS_OPTION, array(
+            'state'      => 'idle',
+            'done'       => $done,
+            'total'      => $total,
+            'stopped_at' => time(),
+            'updated_at' => time(),
+        ), false );
+
+        return array( 'state' => 'idle', 'done' => $done, 'total' => $total );
+    }
+
+    /**
+     * Schedule (and nudge) the next bulk-sync chunk for a given run.
+     *
+     * @since 2.0.3
+     * @param int    $batch_index Zero-based batch to process next.
+     * @param string $run_id      Token of the run this tick belongs to.
+     */
+    private function schedule_sync_chunk( $batch_index, $run_id ) {
+        $args = array( $batch_index, $run_id );
+        if ( ! wp_next_scheduled( self::SYNC_CHUNK_CRON_HOOK, $args ) ) {
+            wp_schedule_single_event( time(), self::SYNC_CHUNK_CRON_HOOK, $args );
+        }
+        // Nudge wp-cron to fire promptly instead of waiting for the next
+        // front-end visit (low-traffic sites would otherwise stall).
+        if ( function_exists( 'spawn_cron' ) ) {
+            spawn_cron();
+        }
+    }
+
+    /**
+     * Process one bulk-sync batch, update progress, and reschedule the next.
+     *
+     * One batch per fire keeps each wp-cron request tiny so it never trips
+     * memory/time limits — the failure mode that killed the old single-shot
+     * blocking sync on large sites. Resumable: if a tick dies, the next
+     * front-end visit re-fires the still-scheduled event.
+     *
+     * @since 2.0.3
+     * @param int    $batch_index Zero-based batch to process.
+     * @param string $run_id      Token of the run this tick belongs to.
+     */
+    public function run_sync_chunk( $batch_index = 0, $run_id = '' ) {
+        // Run guard: bail if a newer sync (or a stop) has superseded this chain.
+        if ( get_option( self::SYNC_RUN_OPTION ) !== $run_id ) {
+            return;
+        }
+
+        // Only an actively-running sync does work. A tick that arrives after
+        // the run finished / errored / was stopped (e.g. the watchdog below)
+        // bails here — this also stops the max-run cap from ever flipping a
+        // completed run to 'error'.
+        $progress = get_option( self::SYNC_PROGRESS_OPTION );
+        if ( ! is_array( $progress ) || ( isset( $progress['state'] ) && $progress['state'] !== 'running' ) ) {
+            return;
+        }
+
+        // Hard max-run cap: force-stop a run that's overrun its window so a
+        // desynced chain can never reschedule itself forever.
+        $started_at = isset( $progress['started_at'] ) ? (int) $progress['started_at'] : time();
+        if ( time() - $started_at > self::SYNC_MAX_RUN_SECONDS ) {
+            update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+                'state'      => 'error',
+                'error'      => 'Sync timed out',
+                'updated_at' => time(),
+            ) ), false );
+            delete_transient( self::SYNC_IDS_TRANSIENT );
+            return;
+        }
+
+        $ids = get_transient( self::SYNC_IDS_TRANSIENT );
+        if ( ! is_array( $ids ) || empty( $ids ) ) {
+            return; // worklist expired or cleared — stop cleanly
+        }
+
+        if ( function_exists( 'set_time_limit' ) ) {
+            @set_time_limit( 300 );
+        }
+
+        $batch_size    = self::SYNC_BATCH_SIZE;
+        $batches       = array_chunk( $ids, $batch_size );
+        $total_batches = count( $batches );
+        $total         = count( $ids );
+
+        // The PERSISTED cursor is the authoritative resume point — not the
+        // passed arg (which a stale/watchdog event may carry). So any tick,
+        // however it was triggered, resumes from exactly where we left off.
+        $cursor = isset( $progress['cursor'] ) ? (int) $progress['cursor'] : (int) $batch_index;
+        if ( $cursor >= $total_batches ) {
+            return;
+        }
+
+        // WATCHDOG (the #1 resilience fix): queue a recovery tick ~90s out
+        // BEFORE the heavy loop. If this PHP process is killed mid-loop (tight
+        // host limit / OOM), no progress is lost — the watchdog fires and
+        // resumes from the persisted cursor. Sentinel index -1 + run_id keeps
+        // exactly one watchdog queued per run; on normal completion it simply
+        // bails (state !== 'running'). Batches are idempotent (content_hash),
+        // so a re-run of an interrupted batch is a cheap no-op.
+        if ( ! wp_next_scheduled( self::SYNC_CHUNK_CRON_HOOK, array( -1, $run_id ) ) ) {
+            wp_schedule_single_event( time() + 90, self::SYNC_CHUNK_CRON_HOOK, array( -1, $run_id ) );
+        }
+
+        // 100 pages/batch, several batches per tick under a wall-clock budget.
+        $time_budget_secs = 25;
+        $max_per_tick     = 8;
+        $tick_started     = time();
+        $processed        = 0;
+
+        while (
+            $cursor < $total_batches
+            && $processed < $max_per_tick
+            && ( time() - $tick_started ) < $time_budget_secs
+        ) {
+            // A newer run may supersede mid-tick.
+            if ( get_option( self::SYNC_RUN_OPTION ) !== $run_id ) {
+                return;
+            }
+
+            $is_final = ( $cursor === $total_batches - 1 );
+            $all_urls = $is_final
+                ? array_values( array_filter( array_map( 'get_permalink', $ids ) ) )
+                : null;
+
+            $result = $this->api_client->sync_batch(
+                $batches[ $cursor ],
+                $cursor,
+                $total_batches,
+                $all_urls
+            );
+
+            if ( is_array( $result ) && empty( $result['success'] ) ) {
+                update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+                    'state'      => 'error',
+                    'done'       => min( $cursor * $batch_size, $total ),
+                    'cursor'     => $cursor,
+                    'error'      => isset( $result['error'] ) ? $result['error'] : 'Sync failed',
+                    'updated_at' => time(),
+                ) ), false );
+                delete_transient( self::SYNC_IDS_TRANSIENT );
+                return;
+            }
+
+            // Batch persisted — advance the authoritative cursor immediately.
+            $cursor++;
+
+            if ( $cursor >= $total_batches ) {
+                // Final batch done. last_sync_at is stamped backend-side only on
+                // that batch, so it can't read "just now" before completion.
+                update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+                    'state'       => 'done',
+                    'done'        => $total,
+                    'cursor'      => $cursor,
+                    'finished_at' => time(),
+                    'updated_at'  => time(),
+                ) ), false );
+                delete_transient( self::SYNC_IDS_TRANSIENT );
+                return;
+            }
+
+            update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+                'state'      => 'running',
+                'done'       => min( $cursor * $batch_size, $total ),
+                'cursor'     => $cursor,
+                'updated_at' => time(),
+            ) ), false );
+
+            $processed++;
+        }
+
+        // More batches remain — hand off to the next tick (same run). The
+        // watchdog above backstops this if the process dies before we get here.
+        if ( $cursor < $total_batches ) {
+            $this->schedule_sync_chunk( $cursor, $run_id );
+        }
+    }
+
+    /**
      * Remove from index when a post or page is trashed/deleted
      *
      * @since 1.5.0
@@ -520,8 +824,24 @@ class BitBot {
         $post = get_post( $post_id );
         if ( ! $post || ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
 
-        // Full sync sends allUrls — backend removes pages not in that list
-        $this->api_client->trigger_sync();
+        // Schedule a deferred, DEBOUNCED prune instead of a full blocking
+        // re-sync. Sending the URL list (no content) lets the backend drop the
+        // deleted page; deferring keeps it off the delete request; debouncing
+        // (skip if one's already queued) collapses bulk deletes into one prune.
+        if ( ! wp_next_scheduled( self::PRUNE_CRON_HOOK ) ) {
+            wp_schedule_single_event( time() + 15, self::PRUNE_CRON_HOOK );
+        }
+    }
+
+    /**
+     * Deferred prune handler — sends the current URL list so the backend drops
+     * pages deleted in WordPress. No content fetch, no embeddings, no full
+     * re-sync.
+     *
+     * @since 2.0.3
+     */
+    public function run_prune_deleted() {
+        $this->api_client->prune_deleted_pages();
     }
 
     /**
