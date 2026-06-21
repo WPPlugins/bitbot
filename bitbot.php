@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           2.0.3
+ * Version:           2.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.0.3' );
+define( 'BITBOT_VERSION', '2.1.0' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -234,9 +234,6 @@ class BitBot {
         // Deferred, debounced prune when posts are deleted (replaces the old
         // full blocking re-sync on every deletion).
         add_action( self::PRUNE_CRON_HOOK, array( $this, 'run_prune_deleted' ) );
-
-        // Daily plan-cache refresh (hook scheduled in activate()).
-        add_action( BitBot_Plan::REFRESH_CRON_HOOK, array( $this, 'refresh_plan_status_cron' ) );
 
         // Hourly safety-net that retries the first content sync until
         // at least one page is indexed. Self-unregisters on success.
@@ -482,13 +479,16 @@ class BitBot {
             if ( ! wp_next_scheduled( self::FIRST_BOOT_CRON_HOOK ) ) {
                 wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
             }
-            if ( ! wp_next_scheduled( BitBot_Plan::REFRESH_CRON_HOOK ) ) {
-                wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', BitBot_Plan::REFRESH_CRON_HOOK );
-            }
             if ( ! wp_next_scheduled( self::FIRST_SYNC_CRON_HOOK ) ) {
                 wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'hourly', self::FIRST_SYNC_CRON_HOOK );
             }
         }
+
+        // Retired the daily plan-cache refresh cron: the backend gates every
+        // chat server-side and the widget reacts to an expired response, so the
+        // poll only narrowed a cosmetic FAB flash and did it poorly at 24h.
+        // Shed any event already scheduled on existing installs.
+        wp_clear_scheduled_hook( BitBot_Plan::REFRESH_CRON_HOOK );
 
         update_option( 'bitbot_db_version', BITBOT_VERSION );
     }
@@ -892,13 +892,6 @@ class BitBot {
             wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
         }
 
-        // Refresh the cached plan once a day so paying customers aren't
-        // stuck showing Free branding if no admin visits the dashboard
-        // and the plan changes server-side (checkout, downgrade, etc.).
-        if ( ! wp_next_scheduled( BitBot_Plan::REFRESH_CRON_HOOK ) ) {
-            wp_schedule_event( time() + DAY_IN_SECONDS, 'daily', BitBot_Plan::REFRESH_CRON_HOOK );
-        }
-
         // Hourly safety-net: retries the first sync until the site has
         // at least one indexed page. Self-unregisters on success.
         if ( ! wp_next_scheduled( self::FIRST_SYNC_CRON_HOOK ) ) {
@@ -959,19 +952,6 @@ class BitBot {
         wp_clear_scheduled_hook( self::FIRST_SYNC_RUN_HOOK );
     }
 
-    /**
-     * Daily background refresh of the persistent plan cache. Runs via
-     * WP-Cron so the widget stays current even on sites where admins
-     * rarely open the dashboard.
-     *
-     * @since 1.7.0
-     */
-    public function refresh_plan_status_cron() {
-        $result = $this->api_client->get_plan_status();
-        if ( ! empty( $result['success'] ) && ! empty( $result['data'] ) ) {
-            BitBot_Plan::store_cached_status( $result['data'] );
-        }
-    }
 
     /**
      * Hourly safety-net: if the site still has zero indexed pages, kick

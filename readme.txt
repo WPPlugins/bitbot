@@ -5,7 +5,7 @@ Tags: chatbot, ai, live chat, contact form, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.3
+Stable tag: 2.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -153,6 +153,11 @@ Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up e
 9. The visitor writes in Hindi, the bot replies in Hindi. Tested across English, Hindi, Spanish, Arabic, French, German and more.
 
 == Changelog ==
+
+= 2.1.0 =
+*Release Date - 21 June 2026*
+
+* Multilingual chat: your bot now understands and replies to visitors in many more languages, not just your site's main one. Plus knowledge base improvements (filter pages by source, live sync progress) and reliability fixes.
 
 = 2.0.3 =
 *Release Date - 18 June 2026*

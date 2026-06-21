@@ -202,6 +202,10 @@ class BitBot_API_Client {
         $payload = array(
             'domain'     => $this->get_site_domain(),
             'sitemapUrl' => $this->get_sitemap_url(),
+            // WordPress site locale (e.g. "el", "de_DE"). Lets the backend
+            // resolve the content language without an LLM call when it's a
+            // trustworthy non-English value.
+            'wpLocale'   => get_locale(),
         );
 
         $result = $this->rpc( 'RegisterSite', $payload );
@@ -888,6 +892,12 @@ class BitBot_API_Client {
             'pages'        => $pages,
             'batchIndex'   => (int) $batch_index,
             'totalBatches' => (int) $total_batches,
+            // This sender is reached ONLY via start_background_sync, which only
+            // the "Sync now" button calls. Flagging the run manual tells the
+            // backend to force a full re-probe of sitemap + manual URLs (refresh
+            // existing, not just new) on batch 0. wp-cron senders (first-sync
+            // retry, save_post) never set it, so automated syncs stay incremental.
+            'manual'       => true,
         );
 
         if ( is_array( $all_urls ) ) {
