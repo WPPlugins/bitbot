@@ -197,8 +197,10 @@ class BitBot_API_Client {
     public function register_site() {
         $admin_email = sanitize_email( get_option( 'admin_email', '' ) );
 
-        // Lead notifications are opt-in: we do NOT send the WP admin email as a
-        // notification seed. The owner enables them explicitly in the Leads tab.
+        // Lead notifications stay opt-in. adminEmail is sent as METADATA only
+        // (stored in sites.admin_email as an owner contact for ops/outreach).
+        // It does NOT seed notification_email — the owner still enables lead
+        // notifications explicitly in the Leads tab. Two separate fields.
         $payload = array(
             'domain'     => $this->get_site_domain(),
             'sitemapUrl' => $this->get_sitemap_url(),
@@ -206,6 +208,8 @@ class BitBot_API_Client {
             // resolve the content language without an LLM call when it's a
             // trustworthy non-English value.
             'wpLocale'   => get_locale(),
+            // WP admin email — metadata/contact only (see note above).
+            'adminEmail' => $admin_email,
         );
 
         $result = $this->rpc( 'RegisterSite', $payload );
@@ -555,7 +559,7 @@ class BitBot_API_Client {
      * @since 2.0.3
      * @return array Post type slugs.
      */
-    private function get_syncable_post_types() {
+    public function get_syncable_post_types() {
         // Every publicly-visible post type the site declares — covers core
         // post/page, WooCommerce 'product', LearnDash courses, Tribe Events,
         // Jetpack Portfolio, BetterDocs, and any CPT a theme/plugin registers

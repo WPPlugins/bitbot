@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI-powered multilingual chatbot that helps visitors navigate your website in any language, plus AI content generation.
- * Version:           2.1.0
+ * Version:           2.1.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -45,7 +45,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.1.0' );
+define( 'BITBOT_VERSION', '2.1.1' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -523,7 +523,11 @@ class BitBot {
         // Skip autosaves, revisions, and non-public post types
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
         if ( wp_is_post_revision( $post_id ) ) return;
-        if ( ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
+        // Sync the SAME post types the full sync covers (all public CPTs:
+        // hotels, products, events, listings, …), not just post+page —
+        // otherwise new/edited CPT entries never auto-sync on save and the
+        // bot silently goes stale until a manual full re-sync.
+        if ( ! in_array( $post->post_type, $this->api_client->get_syncable_post_types(), true ) ) return;
 
         // Only sync published content
         if ( $post->post_status !== 'publish' ) return;
@@ -548,7 +552,7 @@ class BitBot {
     public function run_deferred_post_sync( $post_id ) {
         $post = get_post( $post_id );
         if ( ! $post ) return;
-        if ( ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
+        if ( ! in_array( $post->post_type, $this->api_client->get_syncable_post_types(), true ) ) return;
         if ( $post->post_status !== 'publish' ) return;
 
         $this->api_client->sync_single_page(
@@ -1038,70 +1042,105 @@ class BitBot {
         // the page request itself; we don't fire on every action.
         update_option( 'bitbot_widget_enqueued_at', time(), false );
 
-        // Get site language code (e.g., 'en', 'hi', 'es')
-        $locale = get_locale();
-        $language_code = substr( $locale, 0, 2 ); // Extract first 2 chars (e.g., 'en' from 'en_US')
+        // Widget config is built by build_widget_config() — the SINGLE source
+        // of truth, also served by the /widget-config REST endpoint so the
+        // widget can refresh it at runtime past full-page caches. See that
+        // method for why the runtime fetch exists.
+        wp_localize_script( 'bitbot-widget', 'bitbotConfig', $this->build_widget_config() );
+    }
 
-        // 1.9.0: custom copy bundle. Empty option strings tell the widget
-        // (and backend) to use built-in defaults. Sanitized at save time
-        // (sanitize_short_copy / sanitize_textarea_field).
-        $custom_placeholder       = (string) get_option( 'bitbot_placeholder_text', '' );
-        $custom_typing            = (string) get_option( 'bitbot_typing_indicator_text', '' );
-        $custom_fallback_message  = (string) get_option( 'bitbot_fallback_message', '' );
-        $custom_lead_prompt       = (string) get_option( 'bitbot_lead_capture_prompt', '' );
+    /**
+     * Build the widget runtime config. SINGLE source of truth for BOTH the
+     * inlined wp_localize_script (first paint) AND the /widget-config REST
+     * endpoint (runtime refresh).
+     *
+     * Why the endpoint exists: wp_localize_script bakes this into the page
+     * HTML, which full-page caches (LiteSpeed, WP Rocket, CDNs) then freeze —
+     * so a settings change (avatar, colour, copy) wouldn't show on cached
+     * pages until the cache expired. widget.js fetches /widget-config with a
+     * cache-buster on load and overrides the (possibly stale) inlined values,
+     * so the widget always reflects current settings regardless of ANY cache
+     * layer — no cache-plugin enumeration, correct by construction.
+     *
+     * @since 2.1.2
+     * @return array
+     */
+    public function build_widget_config() {
+        $language_code  = substr( get_locale(), 0, 2 );
+        $css_ver        = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/css/widget.css' );
+        $widget_css_url = BITBOT_PLUGIN_URL . 'assets/css/widget.css?ver=' . rawurlencode( $css_ver );
 
-        wp_localize_script( 'bitbot-widget', 'bitbotConfig', array(
-            'restUrl'        => esc_url_raw( rest_url( 'bitbot/v1' ) ),
-            'nonce'          => wp_create_nonce( 'wp_rest' ),
-            'position'       => sanitize_text_field( get_option( 'bitbot_widget_position', 'bottom-right' ) ),
-            'primaryColor'   => sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) ),
-            'welcomeMessage' => wp_kses_post( get_option( 'bitbot_welcome_message', __( 'Hi! How can I help you?', 'bitbot' ) ) ),
-            'languageCode'   => sanitize_text_field( $language_code ),
-            'cssUrl'         => esc_url_raw( $widget_css_url ),
-            // 1.9.0 custom copy bundle — client-side consumers:
-            'placeholderText'      => $custom_placeholder,   // input placeholder
-            'typingIndicatorText'  => $custom_typing,        // replaces dots animation
-            // 1.9.0 custom copy bundle — server-side consumers (8b):
-            // Plumbed into bitbotConfig so the widget can forward them on
-            // every Chat RPC call. Backend consumes these in the agent
-            // system prompt; until 8b lands the backend just ignores them.
-            'fallbackMessage'      => $custom_fallback_message,
-            'leadCapturePrompt'    => $custom_lead_prompt,
-            // 1.9.0 mobile-behaviour (8k). Read by widget.js on init and
-            // also gated by CSS @media so even a JS failure can't leave
-            // the widget visible if admin chose 'hide'.
+        // Normalise the welcome on read: get_option()'s default only fires when the
+        // option is ABSENT, so a cleared-and-saved value (empty string) would render
+        // a blank bubble. Fall back to the default whenever it's blank/whitespace.
+        $default_welcome = __( 'Hi! How can I help you?', 'bitbot' );
+        $welcome_message = trim( (string) get_option( 'bitbot_welcome_message', $default_welcome ) );
+        if ( '' === $welcome_message ) {
+            $welcome_message = $default_welcome;
+        }
+
+        return array(
+            'restUrl'              => esc_url_raw( rest_url( 'bitbot/v1' ) ),
+            'nonce'                => wp_create_nonce( 'wp_rest' ),
+            'position'             => sanitize_text_field( get_option( 'bitbot_widget_position', 'bottom-right' ) ),
+            'primaryColor'         => sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) ),
+            'welcomeMessage'       => wp_kses_post( $welcome_message ),
+            'languageCode'         => sanitize_text_field( $language_code ),
+            'cssUrl'               => esc_url_raw( $widget_css_url ),
+            'placeholderText'      => (string) get_option( 'bitbot_placeholder_text', '' ),
+            'typingIndicatorText'  => (string) get_option( 'bitbot_typing_indicator_text', '' ),
+            'fallbackMessage'      => (string) get_option( 'bitbot_fallback_message', '' ),
+            'leadCapturePrompt'    => (string) get_option( 'bitbot_lead_capture_prompt', '' ),
             'mobileBehaviour'      => sanitize_text_field( get_option( 'bitbot_mobile_behaviour', 'inherit' ) ),
-            // 1.9.0 custom avatar (8d). Empty string keeps default SVG.
             'avatarUrl'            => esc_url( get_option( 'bitbot_avatar_url', '' ) ),
-            // 2.0.2 avatar crop transform — `{ xPercent, yPercent, zoom }`.
-            // Widget.js applies `transform: translate(% %) scale(N)` to
-            // the avatar img inside its overflow-hidden container so the
-            // admin's framing shows on the FAB and chat header.
             'avatarTransform'      => $this->parse_avatar_transform(),
-            // 1.9.0 suggested questions chips (8e). Decoded so widget.js
-            // doesn't have to parse JSON; backend already validated shape.
             'suggestedQuestions'   => $this->parse_suggested_questions(),
-            // 1.9.0 auto-open trigger (8g). Already validated by
-            // sanitize_auto_open; widget.js applies the triggers.
             'autoOpen'             => $this->parse_auto_open(),
-            // 1.9.0 proactive nudge (8f). Three modes (simple, page-aware,
-            // rag). Widget.js picks the right one at render time.
             'nudge'                => $this->parse_nudge(),
-            // 2.1.x chat-gate. Default form's UUID + cached schema. When
-            // chat_gate_enabled is on AND the referenced form is still
-            // enabled, widget.js holds the first message and renders the
-            // inlined form fields. parse_chat_gate_form() returns null
-            // when either condition fails — we mirror the same guard on
-            // the ID so the widget can't accidentally fire on a disabled
-            // form.
             'chatGateFormId'       => $this->parse_chat_gate_form() !== null
                 ? (string) get_option( 'bitbot_chat_gate_form_id', '' )
                 : '',
             'chatGateForm'         => $this->parse_chat_gate_form(),
-            // 2.0.3: pinnedMessage retired — admin UI removed the field
-            // and widget.js no longer renders it. Stored option value is
-            // left in place (no destructive migration) but not surfaced.
-        ) );
+            // Server-authoritative pause: true when the bot can't reply
+            // (expired sub or Free monthly chat cap). widget.js hides the FAB
+            // on this rather than guessing with a client flag/timer. Read from
+            // the cached plan snapshot, refreshed (throttled) by the
+            // /widget-config endpoint below so it stays fresh without a
+            // per-pageview backend call.
+            'accessPaused'         => (bool) BitBot_Plan::is_access_paused(),
+        );
+    }
+
+    /**
+     * Public REST endpoint serving the live widget config, deliberately
+     * uncacheable. Paired with widget.js fetching it with a cache-buster so
+     * no page/CDN cache can serve stale settings. Public — it returns the
+     * same data already inlined (and public) on every page via bitbotConfig.
+     *
+     * @since 2.1.2
+     */
+    public function rest_widget_config( $request ) {
+        // Refresh the cached plan snapshot so accessPaused is accurate: a
+        // capped / expired site stays hidden, a reset / upgrade brings the
+        // widget back. The widget fetches this endpoint on every page load,
+        // but we only re-ask the backend once per 5 min per site (throttle
+        // transient) so we're not calling it on every pageview. Set the
+        // throttle BEFORE the call so a slow / erroring backend can't be
+        // hammered; on failure the last-known snapshot stays in place. An
+        // upgrade / cancel busts the cache directly, so it shows immediately
+        // (fail-open on the empty cache) rather than waiting the window out.
+        if ( ! get_transient( 'bitbot_widget_plan_throttle' ) ) {
+            set_transient( 'bitbot_widget_plan_throttle', 1, 5 * MINUTE_IN_SECONDS );
+            $plan = $this->api_client->get_plan_status();
+            if ( ! empty( $plan['success'] ) && ! empty( $plan['data'] ) ) {
+                BitBot_Plan::store_cached_status( $plan['data'] );
+            }
+        }
+
+        $res = new WP_REST_Response( $this->build_widget_config() );
+        $res->header( 'Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0' );
+        $res->header( 'Pragma', 'no-cache' );
+        return $res;
     }
 
     /**
@@ -1540,6 +1579,17 @@ class BitBot {
      * @since 1.0.0
      */
     public function register_rest_routes() {
+        // Widget config — deliberately uncacheable. widget.js fetches this on
+        // load (cache-busted) and overrides the inlined bitbotConfig, so a
+        // settings change shows immediately even when the page itself is
+        // frozen by a full-page cache (LiteSpeed/WP Rocket/CDN). Public — same
+        // data already inlined (and public) on every page.
+        register_rest_route( 'bitbot/v1', '/widget-config', array(
+            'methods'             => 'GET',
+            'callback'            => array( $this, 'rest_widget_config' ),
+            'permission_callback' => '__return_true',
+        ) );
+
         // Chat endpoint (for the widget)
         register_rest_route( 'bitbot/v1', '/chat', array(
             'methods'             => 'POST',

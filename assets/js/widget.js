@@ -379,19 +379,23 @@
         // 2.0.119: also covers Free monthly chat cap (was previously
         // deflecting to "leave us your email" which we couldn't honour
         // on Free since admin can't see lead rows).
+        // Server-authoritative pause. The plugin computes whether the bot can
+        // reply right now (expired sub or Free monthly chat cap) from a cached,
+        // throttle-refreshed plan snapshot and sends it as config.accessPaused
+        // (fetched fresh by the bootstrap before init runs). Honour it so we
+        // never render a FAB that clicks into a dead chat — and the widget
+        // reappears on its own once the cap resets / the site upgrades, with
+        // no client-side flag or timer.
+        if (config.accessPaused) {
+            widget.style.display = 'none';
+            return;
+        }
+        // Clear any pre-2.1.9 sticky flag so sessions stuck under the old
+        // client-flag behaviour recover (the server value is authoritative now).
         try {
-            if (sessionStorage.getItem('bitbot-access-paused') === '1') {
-                widget.style.display = 'none';
-                return;
-            }
-            // Migration: pre-2.0.119 used 'bitbot-trial-expired' flag.
-            // Honour it on this load + adopt the new key going forward.
-            if (sessionStorage.getItem('bitbot-trial-expired') === '1') {
-                sessionStorage.setItem('bitbot-access-paused', '1');
-                widget.style.display = 'none';
-                return;
-            }
-        } catch (e) { /* sessionStorage unavailable, fall through */ }
+            sessionStorage.removeItem('bitbot-access-paused');
+            sessionStorage.removeItem('bitbot-trial-expired');
+        } catch (e) { /* sessionStorage unavailable */ }
 
         // 2.0.12 widget-seen heartbeat. Single fire-and-forget POST per
         // browser session so the WP backend can stamp the wp_option the
@@ -1386,13 +1390,14 @@
     }
 
     /**
-     * Hide the widget entirely when the backend reports the bot can't
-     * reply right now (expired sub or Free monthly chat cap). Sets a
-     * sessionStorage flag so subsequent pageloads in this tab skip
-     * rendering rather than flicker-then-disappear.
+     * Hide the widget for the rest of THIS page view when a chat reply comes
+     * back paused (expired sub or Free chat cap) — avoids leaving a dead bot
+     * on screen after the visitor already hit the wall. No client flag: on the
+     * next page load the server-driven config.accessPaused (refreshed within
+     * ~5 min) decides whether the FAB renders, so it reappears on its own once
+     * the cap lifts.
      */
     function hideWidgetForSession() {
-        try { sessionStorage.setItem('bitbot-access-paused', '1'); } catch (e) {}
         var host = document.getElementById('bitbot-widget');
         if (host) host.style.display = 'none';
     }
@@ -1650,10 +1655,36 @@
         return div.innerHTML;
     }
 
+    // Refresh config past page caches, then initialize.
+    // bitbotConfig is inlined into the page HTML via wp_localize_script for
+    // first paint, but full-page caches (LiteSpeed/WP Rocket/CDN) freeze that
+    // HTML — so a settings change (avatar, colour, copy) can be stale. We
+    // fetch the live config from the uncacheable /widget-config endpoint with
+    // a cache-buster and override the inlined values BEFORE rendering, so the
+    // widget always reflects current settings regardless of any cache layer.
+    // A 2.5s timeout guarantees the widget still renders (from the inlined
+    // config) if the fetch is slow/blocked.
+    function bootstrap() {
+        var base = (config.restUrl || '').replace(/\/+$/, '');
+        if (!base) { init(); return; }
+        var started = false;
+        var go = function () { if (!started) { started = true; init(); } };
+        var timer = setTimeout(go, 2500);
+        fetch(base + '/widget-config?_=' + Date.now(), { cache: 'no-store', credentials: 'omit' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (fresh) {
+                if (fresh && typeof fresh === 'object') {
+                    for (var k in fresh) { if (Object.prototype.hasOwnProperty.call(fresh, k)) config[k] = fresh[k]; }
+                }
+            })
+            .catch(function () { /* keep inlined config on any failure */ })
+            .then(function () { clearTimeout(timer); go(); });
+    }
+
     // Initialize when DOM is ready
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', bootstrap);
     } else {
-        init();
+        bootstrap();
     }
 })();

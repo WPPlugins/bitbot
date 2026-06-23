@@ -121,6 +121,40 @@ class BitBot_Plan {
     }
 
     /**
+     * True when the bot genuinely can't reply right now, from the cached
+     * plan snapshot — either the sub is expired OR a Free site has used its
+     * monthly chat allowance. Drives the server-authoritative widget hide
+     * (build_widget_config -> config.accessPaused) so visitors never see a
+     * FAB that clicks into a dead chat, and the widget reappears on its own
+     * once the cap resets / the site upgrades (no client flag or timer).
+     *
+     * Fails OPEN on a missing / partial cache so an install that hasn't
+     * fetched its plan once stays functional.
+     *
+     * @return bool
+     */
+    public static function is_access_paused() {
+        $status = self::get_cached_status();
+        if ( ! is_array( $status ) ) {
+            return false;
+        }
+        // Expired sub / ToS force-expire.
+        if ( isset( $status['accessMode'] ) && $status['accessMode'] === 'expired' ) {
+            return true;
+        }
+        // Free monthly chat cap reached.
+        $plan = self::normalize( isset( $status['plan'] ) ? $status['plan'] : self::FREE );
+        if ( $plan === self::FREE ) {
+            $used = isset( $status['usage']['chatMessagesThisMonth'] ) ? (int) $status['usage']['chatMessagesThisMonth'] : 0;
+            $cap  = isset( $status['limits']['chatMessagesPerMonth'] ) ? (int) $status['limits']['chatMessagesPerMonth'] : 0;
+            if ( $cap > 0 && $used >= $cap ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Short human label: "Free", "Pro", "Pro+".
      *
      * @param mixed $plan
