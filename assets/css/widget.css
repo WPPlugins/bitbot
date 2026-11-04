@@ -13,6 +13,11 @@
     font-size: 14px;
     line-height: 1.5;
     color: #333;
+    /* text-align is an inherited property and crosses the shadow boundary, so
+       a theme with `text-align: center` on its content wrapper would center
+       every bubble's text. Reset it at the boundary; bubble-row alignment
+       (user right / bot left) is handled by flex layout, not text-align. */
+    text-align: left;
 }
 
 :host(.bitbot-bottom-right) {
@@ -36,6 +41,13 @@
        need to be a positioning context so .bitbot-chat (position:absolute)
        resolves against this element rather than the viewport. */
     position: relative;
+    /* Re-declare alignment HERE, inside the shadow tree, not only on :host.
+       text-align inherits across the shadow boundary, so a theme with
+       `text-align: center` on its content wrapper would center every bubble.
+       An explicit value on an inner shadow element the outer page can't
+       target always beats that inherited value. (Font is intentionally NOT
+       pinned here — the widget inherits/adopts the host theme's font.) */
+    text-align: left;
 }
 
 .bitbot-widget * {
@@ -185,6 +197,231 @@
 .bitbot-minimize svg {
     width: 20px;
     height: 20px;
+}
+
+/* WhatsApp click-to-chat: WhatsApp's own green badge, white glyph (like the app icon) */
+.bitbot-whatsapp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 7px;
+    background: #25d366;
+    color: #fff;
+    opacity: 1;
+    text-decoration: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    transition: background 0.2s, transform 0.2s;
+}
+
+.bitbot-whatsapp svg {
+    width: 18px;
+    height: 18px;
+}
+
+.bitbot-whatsapp:hover,
+.bitbot-whatsapp:focus-visible {
+    background: #1ebe5d;
+    opacity: 1;
+    transform: scale(1.06);
+}
+
+.bitbot-whatsapp[hidden] {
+    display: none;
+}
+
+.bitbot-whatsapp-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #25d366;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.bitbot-whatsapp-inline svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.bitbot-whatsapp-inline:hover,
+.bitbot-whatsapp-inline:focus-visible {
+    background: #1ebe5d;
+}
+
+/* Language picker: a white pill with a globe mark and the current pick's code,
+   menu of the owner's languages in their own names */
+.bitbot-lang {
+    position: relative;
+    display: inline-flex;
+}
+
+.bitbot-lang[hidden],
+.bitbot-lang-menu[hidden] {
+    display: none;
+}
+
+.bitbot-lang-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    padding: 0 9px 0 7px;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--bitbot-primary);
+    opacity: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.bitbot-lang-btn svg {
+    width: 15px;
+    height: 15px;
+}
+
+.bitbot-lang-code {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1;
+}
+
+.bitbot-lang-btn:hover,
+.bitbot-lang-btn:focus-visible,
+.bitbot-lang-btn[aria-expanded="true"] {
+    opacity: 1;
+    transform: scale(1.04);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.bitbot-lang-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.bitbot-lang-menu {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: -8px;
+    z-index: 5;
+    min-width: 150px;
+    max-height: min(320px, 55vh);
+    overscroll-behavior: contain;
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    background: #fff;
+    color: #222;
+    border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+}
+
+.bitbot-lang-item {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 14px;
+    text-align: start;
+    cursor: pointer;
+}
+
+.bitbot-lang-item:hover,
+.bitbot-lang-item:focus-visible {
+    background: #f1f1f1;
+    outline: none;
+}
+
+.bitbot-lang-item[aria-selected="true"] {
+    font-weight: 600;
+    color: var(--bitbot-primary);
+}
+
+/* Voice calls: a solid warm circle with a white phone, so the header reads
+   language, call, WhatsApp as three coloured controls */
+.bitbot-call {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: #f59e0b;
+    color: #fff;
+    opacity: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    transition: background 0.2s, transform 0.2s;
+}
+
+.bitbot-call svg {
+    width: 16px;
+    height: 16px;
+}
+
+.bitbot-call:hover,
+.bitbot-call:focus-visible {
+    background: #d97706;
+    opacity: 1;
+    transform: scale(1.06);
+}
+
+.bitbot-call[hidden],
+.bitbot-call-bar[hidden] {
+    display: none;
+}
+
+.bitbot-call:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.bitbot-call-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    background: #fafafa;
+    border-top: 1px solid #e5e5e5;
+    font-size: 13px;
+    color: #555;
+}
+
+.bitbot-hangup {
+    background: #c0392b;
+    color: #fff;
+    border: none;
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.bitbot-hangup:hover {
+    background: #a5301f;
+}
+
+.bitbot-message.bitbot-interim .bitbot-message-content {
+    opacity: 0.65;
 }
 
 /* Messages Container */
@@ -417,77 +654,120 @@
     line-height: 1;
 }
 
-/* 2.1.x chat-gate. Multi-field form rendered as a special message in
-   the messages list when the visitor sends their first message and
-   the admin has enabled the gate. Replaces the old pre-chat email
-   prompt entirely. */
+/* Chat-gate. The visitor's first message stays visible as a pending bubble;
+   the details form sits below it. The form scrolls inside the message panel
+   (never taller than the panel) and the buttons stick to the bottom edge so
+   they stay reachable above the mobile keyboard. */
+.bitbot-pending {
+    opacity: 0.75;
+}
+.bitbot-pending-note {
+    font-size: 11px;
+    margin-top: 4px;
+    opacity: 0.85;
+}
 .bitbot-chat-gate {
     align-self: center;
     width: calc(100% - 24px);
     max-width: 320px;
-    margin: 8px 12px;
-    padding: 14px;
+    margin: 6px 12px;
+    padding: 12px;
     background: #fff;
     border: 1px solid #dde3ee;
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    overscroll-behavior: contain;
+    scroll-margin-top: 8px;
+    box-sizing: border-box;
 }
 .bitbot-chat-gate-head {
     font-size: 14px;
     font-weight: 600;
     color: #1f2a44;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
 }
 .bitbot-chat-gate-form {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
+    /* Room for the sticky action row so it never covers the last field
+       (the 375px case, where the form is taller than the panel). */
 }
 .bitbot-chat-gate-row {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
 }
-.bitbot-chat-gate-row > span {
+.bitbot-chat-gate-label,
+.bitbot-chat-gate-legend {
     font-size: 12px;
     color: #6b7488;
+    padding: 0;
 }
-.bitbot-chat-gate-row > input {
+.bitbot-chat-gate-input {
     padding: 8px 10px;
     border: 1px solid #cdd5e3;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 16px; /* 16px stops iOS zooming the page on focus */
     font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+    background: #fff;
 }
-/* 2.0.20 error state. Red border on the input + small inline message
-   under it. Cleared on next input event so the visitor sees their fix
-   land before they re-submit. */
-.bitbot-chat-gate-row-error > input {
-    border-color: #c43d3d;
-    box-shadow: 0 0 0 2px rgba(196, 61, 61, 0.10);
+textarea.bitbot-chat-gate-input {
+    resize: vertical;
+    min-height: 72px;
 }
-.bitbot-chat-gate-row-error > span {
-    color: #c43d3d;
-}
-.bitbot-chat-gate-row-msg {
-    font-size: 12px;
-    color: #c43d3d;
-    margin-top: 2px;
-    line-height: 1.3;
-}
-.bitbot-chat-gate-actions {
+.bitbot-chat-gate-choice {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 4px;
+    font-size: 13px;
+    color: #1f2a44;
+    min-height: 32px;
+}
+.bitbot-chat-gate-choice input {
+    margin: 0;
+    flex: none;
+}
+/* Error state: red border on the control, message under it. Cleared on
+   the next input so the visitor sees the fix land before re-submitting. */
+.bitbot-chat-gate-row-error .bitbot-chat-gate-input {
+    border-color: #c43d3d;
+    box-shadow: 0 0 0 2px rgba(196, 61, 61, 0.10);
+}
+.bitbot-chat-gate-row-error .bitbot-chat-gate-label,
+.bitbot-chat-gate-row-error .bitbot-chat-gate-legend {
+    color: #c43d3d;
+}
+.bitbot-chat-gate-msg {
+    font-size: 12px;
+    color: #c43d3d;
+    margin: 2px 0 0;
+    line-height: 1.3;
+}
+.bitbot-chat-gate-msg[hidden] {
+    display: none;
+}
+.bitbot-chat-gate-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-top: 8px;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 30%);
 }
 .bitbot-chat-gate-submit {
     background: var(--bitbot-primary, #0073aa);
     color: #fff;
     border: none;
-    padding: 8px 14px;
+    padding: 9px 12px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
 }
@@ -495,14 +775,26 @@
     opacity: 0.6;
     cursor: not-allowed;
 }
-.bitbot-chat-gate-cancel {
+.bitbot-chat-gate-back {
     background: none;
     border: none;
     color: #6b7488;
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
-    padding: 0;
+    padding: 2px 6px 0;
     text-decoration: underline;
+}
+.bitbot-chat-gate-back:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+@media (max-width: 480px) {
+    .bitbot-chat-gate {
+        width: calc(100% - 16px);
+        max-width: none;
+        margin: 8px;
+        max-height: calc(100% - 16px);
+    }
 }
 
 /* 1.9.0 Feature 8e: suggested-question chips. Rendered below the welcome
@@ -822,26 +1114,92 @@
     border-radius: 0;
 }
 
-:host([data-shape="pill"]) .bitbot-toggle {
-    /* 2.0.2: pill is now 112×28 — half the height and double the
-       width of the default rounded 56×56 launcher. Reads the
-       corner-radius slider so the admin can dial from sharp rectangle
-       (slider 0) through softly-rounded to a full pill with rounded
-       ends. Cap the rendered radius at half the height so it can't
-       exceed full-pill. */
-    width: 112px;
-    height: 28px;
-    border-radius: min(var(--bitbot-radius, 14px), 14px);
+.bitbot-pill-text {
+    display: contents;
 }
-
-/* 2.0.2 (reverted): pill now lets the avatar fill the full 96×56
-   container (object-fit: cover). Earlier we locked the img to 56×56
-   centered inside the pill to "preserve cropper framing", but that
-   defeated the point of picking Pill — the launcher looked like a
-   small circle with brand-colour wings, not a pill. The saved crop
-   transform still applies; on a wider container `object-fit: cover`
-   shows more of the source horizontally, which is the right visual
-   for an elongated shape. */
+:host([data-shape="pill"]) .bitbot-toggle {
+    /* Launcher: a transparent row holding the brand-coloured text pill and,
+       when an avatar is set, a separate round avatar beside it on the side
+       nearest the screen edge. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: auto;
+    padding: 0;
+    height: var(--bitbot-pill-height, 28px);
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+}
+:host([data-shape="pill"].bitbot-bottom-left) .bitbot-toggle {
+    flex-direction: row-reverse;
+}
+:host([data-shape="pill"]) .bitbot-toggle:hover {
+    box-shadow: none;
+}
+:host([data-shape="pill"]) .bitbot-pill-text {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 112px;
+    padding: 0 16px;
+    height: 100%;
+    background: var(--bitbot-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: min(var(--bitbot-radius, 14px), calc(var(--bitbot-pill-height, 28px) / 2));
+    transition: box-shadow 0.2s;
+}
+:host([data-shape="pill"]) .bitbot-toggle:hover .bitbot-pill-text {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+/* No chat icon on the pill: the title is the whole label. */
+:host([data-shape="pill"]) .bitbot-toggle .bitbot-icon-chat {
+    display: none !important;
+}
+:host([data-shape="pill"]) .bitbot-toggle .bitbot-icon-close {
+    width: 18px;
+    height: 18px;
+    flex: none;
+}
+:host([data-shape="pill"]) .bitbot-pill-avatar {
+    flex: none;
+    display: block;
+    box-sizing: border-box;
+    width: var(--bitbot-pill-height, 28px);
+    height: var(--bitbot-pill-height, 28px);
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 0 0 2px #fff, 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.bitbot-pill-label {
+    display: none;
+}
+:host([data-shape="pill"]) .bitbot-pill-label {
+    display: block;
+    font: 600 14px/1 system-ui, -apple-system, sans-serif;
+    color: #fff;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:host([data-shape="pill"]) .bitbot-open .bitbot-pill-label {
+    display: none;
+}
+/* Open: the text pill folds into a round close button of the pill height,
+   and the avatar steps aside, so the launcher reads like the round one. */
+:host([data-shape="pill"]) .bitbot-open .bitbot-pill-text {
+    min-width: 0;
+    width: var(--bitbot-pill-height, 28px);
+    padding: 0;
+    border-radius: 50%;
+}
+:host([data-shape="pill"]) .bitbot-open .bitbot-pill-avatar {
+    display: none;
+}
 
 :host([data-shape="hexagon"]) .bitbot-toggle {
     /* Six-sided polygon. Browsers without clip-path fall back to the
@@ -849,3 +1207,6 @@
     clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
     border-radius: 0;
 }
+
+/* The chat icon's resting state lives here so the JS can clear its inline override. */
+.bitbot-icon-chat { display: block; }

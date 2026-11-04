@@ -83,7 +83,7 @@ class BitBot_Plan {
     }
 
     /**
-     * True for any paying tier (Pro or Pro+).
+     * True for any paying tier (Assistant or Agent).
      *
      * @param mixed $plan
      * @return bool
@@ -93,7 +93,7 @@ class BitBot_Plan {
     }
 
     /**
-     * True only for the top Pro+ tier.
+     * True only for the top Agent tier (code pro_plus).
      *
      * @param mixed $plan
      * @return bool
@@ -104,10 +104,10 @@ class BitBot_Plan {
 
     /**
      * True when the cached plan snapshot reports accessMode === "expired"
-     * (trial ran out + no subscription). Drives the proactive widget
+     * (subscription lapsed or access force-expired). Drives the proactive widget
      * hide on enqueue so visitors don't see a FAB they'd click into a
      * dead chat. Defaults to false on missing cache / older payloads so
-     * we fail OPEN — the widget's reactive TRIAL_EXPIRED handler still
+     * we fail OPEN — the widget's reactive expired-access handler still
      * catches anything we miss here.
      *
      * @return bool
@@ -155,7 +155,7 @@ class BitBot_Plan {
     }
 
     /**
-     * Short human label: "Free", "Pro", "Pro+".
+     * Short human label: "Free", "Assistant", "Agent" (codes: free, pro, pro_plus).
      *
      * @param mixed $plan
      * @return string
@@ -163,9 +163,9 @@ class BitBot_Plan {
     public static function label( $plan ) {
         switch ( self::normalize( $plan ) ) {
             case self::PRO_PLUS:
-                return 'Pro+';
+                return 'Agent';
             case self::PRO:
-                return 'Pro';
+                return 'Assistant';
             default:
                 return 'Free';
         }
@@ -226,6 +226,10 @@ class BitBot_Plan {
      * @param array $status Must at minimum contain a 'plan' key.
      */
     public static function store_cached_status( array $status ) {
+        // The backend's id for this site: the widget answer stream is addressed by it.
+        if ( isset( $status['siteId'] ) ) {
+            BitBot_API_Client::remember_site_id( $status['siteId'] );
+        }
         // autoload=no — the option is only needed when bitbot code runs,
         // no reason to load it on every WP page boot.
         update_option( self::STATUS_OPTION, $status, false );

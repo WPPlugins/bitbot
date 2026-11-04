@@ -1,0 +1,134 @@
+/**
+ * BitBot TOC rail — styles for the plugin-owned scroll-spy table of contents
+ * (assets/js/bitbot-toc.js builds the markup into .bb-toc-rail at render).
+ * Neutral, token-friendly scaffolding: inherits the theme's fonts and colors;
+ * only structure, weight, and the active accent are asserted here.
+ */
+
+.bb-toc-rail {
+  position: sticky;
+  top: 96px; /* clears the bb-sticky header band */
+  align-self: flex-start;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.bb-toc-rail.bb-toc-empty {
+  display: none;
+}
+
+.bb-toc-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 14px;
+}
+
+.bb-toc-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bb-toc-nav li {
+  margin: 0;
+  padding: 0;
+}
+
+.bb-toc-nav a {
+  display: block;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid rgba(0, 0, 0, 0.08);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-decoration: none;
+  color: inherit;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.bb-toc-nav a:hover {
+  opacity: 1;
+}
+
+.bb-toc-nav a.bb-toc-active {
+  opacity: 1;
+  font-weight: 600;
+  border-left-color: currentColor;
+}
+
+/* Stacked (mobile): the rail sits inline above the content, not sticky —
+   a full-height sticky TOC on a phone would eat the viewport. */
+@media (max-width: 781px) {
+  .bb-toc-rail {
+    position: static;
+    max-height: none;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  }
+}
+
+/* Content images can never escape their column — the layout guarantees it. */
+.wp-block-post-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Tables keep whole words — core's break-word splits mid-word in narrow
+   columns ("Basswoo / d"). The figure scrolls sideways instead when the
+   table outgrows its column. */
+.wp-block-post-content .wp-block-table {
+  overflow-x: auto;
+}
+.wp-block-post-content .wp-block-table td,
+.wp-block-post-content .wp-block-table th {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+/* Related-band cards: image then text, stacked, never overlapping. */
+.bb-related-card {
+  display: flex;
+  flex-direction: column;
+}
+.bb-related-card figure {
+  margin: 0 0 12px;
+  position: static;
+}
+.bb-related-card figure img {
+  width: 100%;
+  height: auto;
+}
+
+/* Preset spacing guarantee (values mirror the post-toc-rail markup in
+   SkillTools.ts). Site custom CSS may carry blanket !important resets like
+   `main { padding-top: 0 }` from unrelated flush-hero work; the preset's
+   breathing room must survive them, so these scoped rules outrank any
+   blanket selector. */
+main.wp-block-group.alignfull:has(.bb-related-rail) {
+  padding-top: 64px !important;
+}
+/* h1 only — the related-rail cards carry .wp-block-post-title on their h6 links
+   and keep their own tight spacing. */
+main:has(.bb-related-rail) h1.wp-block-post-title {
+  margin-bottom: 36px !important;
+  margin-block-end: 36px !important;
+}
+
+/* Related cards: curved boundary, hover zoom CLIPPED inside it. */
+.bb-related-card figure {
+  overflow: hidden;
+  border-radius: 8px;
+  position: static;
+}
+.bb-related-card figure img {
+  border-radius: 8px;
+  transition: transform 0.25s ease;
+}
+.bb-related-card:hover figure img {
+  transform: scale(1.05);
+}

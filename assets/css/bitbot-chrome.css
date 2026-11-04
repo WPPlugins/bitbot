@@ -1,0 +1,79 @@
+/**
+ * BitBot chrome GUARANTEES — not styling. The agent designs template parts
+ * freely (proposeSitePart); these utility classes are behaviours we promise
+ * work on any block theme, so the agent never hand-rolls fragile CSS for
+ * them. Enqueued only when a BitBot part override exists.
+ *
+ *   bb-sticky       on a header wrapper group → pinned on scroll, above
+ *                   content, offset under the WP admin bar, immune to the
+ *                   ancestor overflow traps that silently kill sticky.
+ *   bb-site-header  on a header wrapper group → flush zero-gap join between
+ *                   the header and the page content (themes love padding the
+ *                   top of main; the design should own its own spacing).
+ */
+
+/* sticky must live on the OUTER template-part wrapper: an element can only
+   stick within its parent's bounds, and the inner group's parent (<header>)
+   is exactly its own height — sticky there never pins. The :has selectors
+   lift the behaviour onto the wrapper regardless of where the agent put the
+   class. */
+header.wp-block-template-part:has(.bb-sticky),
+.wp-site-blocks > *:has(> .bb-sticky) {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+}
+/* A sticky header needs a surface — default to the theme's base color only
+   if the agent's markup didn't set a background on the group. */
+.bb-sticky:not([style*="background"]):not([class*="has-background"]) {
+  background: var(--wp--preset--color--base, #fff);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+body.admin-bar header.wp-block-template-part:has(.bb-sticky),
+body.admin-bar .wp-site-blocks > *:has(> .bb-sticky) {
+  top: 32px;
+}
+@media screen and (max-width: 782px) {
+  body.admin-bar header.wp-block-template-part:has(.bb-sticky),
+  body.admin-bar .wp-site-blocks > *:has(> .bb-sticky) {
+    top: 46px;
+  }
+}
+/* position:sticky dies inside an overflow-x:hidden ancestor (it becomes a
+   scroll container). clip gives the same no-sideways-scroll without breaking
+   sticky. Scoped via :has so it only applies when a sticky part is present. */
+body:has(.bb-sticky) {
+  overflow-x: clip !important;
+}
+body:has(.bb-sticky) .wp-site-blocks {
+  overflow: visible !important;
+}
+
+/* Zero-gap join: when the agent's header is present, the theme's main-top
+   padding is removed — the hero/design owns its own spacing. */
+.wp-site-blocks:has(.bb-site-header) > main {
+  margin-block-start: 0 !important;
+  padding-block-start: 0 !important;
+}
+header.wp-block-template-part:has(.bb-site-header) {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+header.wp-block-template-part:has(.bb-site-header) + * {
+  margin-block-start: 0 !important;
+}
+
+/* bb-flush-top — on the FIRST block of a page's content: that section joins
+   the header edge-to-edge. Block themes wrap post content in their template's
+   own padded group (TT5: padding-top var(--wp--preset--spacing--60)), which a
+   page-body edit cannot remove and which reads as a colored band above any
+   full-bleed hero. Opt-in per design, so article pages keep their template
+   spacing. */
+.wp-site-blocks main > .wp-block-group.has-global-padding:first-child:has(.bb-flush-top),
+.wp-site-blocks main > .wp-block-group.has-global-padding:has(> .wp-block-post-content > .bb-flush-top:first-child) {
+  padding-block-start: 0 !important;
+}
+.wp-site-blocks main .wp-block-post-content > .bb-flush-top:first-child,
+.wp-site-blocks main > .bb-flush-top:first-child {
+  margin-block-start: 0 !important;
+}

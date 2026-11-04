@@ -210,6 +210,8 @@ class BitBot_API_Client {
             'wpLocale'   => get_locale(),
             // WP admin email — metadata/contact only (see note above).
             'adminEmail' => $admin_email,
+            // The backend gates request encodings and features on this.
+            'pluginVersion' => BITBOT_VERSION,
         );
 
         $result = $this->rpc( 'RegisterSite', $payload );
@@ -237,9 +239,63 @@ class BitBot_API_Client {
         // genuinely succeeds.
         if ( $result['success'] ) {
             update_option( 'bitbot_registered', BITBOT_VERSION );
+            if ( isset( $result['data']['siteId'] ) ) {
+                self::remember_site_id( $result['data']['siteId'] );
+            }
         }
 
         return $result;
+    }
+
+    /**
+     * Keep the backend's id for this site (RegisterSite and GetPlanStatus both
+     * return it). Only a UUID is stored.
+     *
+     * @since 2.1.371
+     * @param mixed $site_id Candidate id.
+     */
+    public static function remember_site_id( $site_id ) {
+        $site_id = is_string( $site_id ) ? strtolower( trim( $site_id ) ) : '';
+        if ( preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $site_id ) && get_option( 'bitbot_site_id' ) !== $site_id ) {
+            update_option( 'bitbot_site_id', $site_id, false );
+        }
+    }
+
+    /**
+     * Ticket for the widget answer stream: base64url(JSON{"s": siteId, "e": expiry})
+     * dot hex(HMAC-SHA256(api key, that base64url)). The backend checks it against
+     * the site's api key, so the key itself never reaches the browser.
+     *
+     * @since 2.1.371
+     * @param string $site_id Backend site id.
+     * @param int    $expires Unix expiry.
+     * @return string Ticket, or '' when there is no api key.
+     */
+    public function mint_stream_ticket( $site_id, $expires ) {
+        if ( '' === $this->api_key || '' === $site_id ) {
+            return '';
+        }
+        $payload = rtrim( strtr( base64_encode( wp_json_encode( array( 's' => $site_id, 'e' => (int) $expires ) ) ), '+/', '-_' ), '=' );
+        return $payload . '.' . hash_hmac( 'sha256', $payload, $this->api_key );
+    }
+
+    /**
+     * Widget config for the answer stream: where to POST and the 15 minute ticket.
+     * Empty until the backend's site id is known (the widget then uses the REST path).
+     *
+     * @since 2.1.371
+     * @return array { streamUrl, streamTicket } or empty array.
+     */
+    public function widget_stream_config() {
+        $site_id = (string) get_option( 'bitbot_site_id', '' );
+        $ticket  = $this->mint_stream_ticket( $site_id, time() + 15 * MINUTE_IN_SECONDS );
+        if ( '' === $ticket ) {
+            return array();
+        }
+        return array(
+            'streamUrl'    => esc_url_raw( rtrim( BITBOT_API_URL, '/' ) . '/public-chat/' . $site_id . '?mode=widget' ),
+            'streamTicket' => $ticket,
+        );
     }
 
     /**
@@ -387,6 +443,62 @@ class BitBot_API_Client {
             'code'        => (string) $code,
             'description' => (string) $description,
         ) );
+    }
+
+    /**
+     * Voice calls (Habitat). One partner key lives in the backend only
+     * (env HABITAT_VOICE_KEY); no site and no plugin ever holds a Habitat key.
+     *
+     * @since 2.2.0
+     */
+    public function get_voice_calls( $timeout = 90 ) {
+        return $this->rpc( 'GetVoiceCalls', array(), (int) $timeout );
+    }
+
+    public function set_voice_calls( $enabled ) {
+        return $this->rpc( 'SetVoiceCalls', array( 'enabled' => (bool) $enabled ) );
+    }
+
+    /** Languages the site offers (hints for the voice session). An empty list clears them. */
+    public function set_voice_languages( $codes ) {
+        return $this->rpc( 'SetVoiceCallOptions', array( 'languageHints' => array_values( array_map( 'sanitize_text_field', (array) $codes ) ) ) );
+    }
+
+    /**
+     * Machine translations of the widget title and welcome message.
+     * Returns the usual result array; data['copy'] is code => array( title, welcome ).
+     */
+    public function translate_widget_copy( $title, $welcome, $from, array $to, array $questions = array(), $placeholder = '' ) {
+        return $this->rpc( 'TranslateWidgetCopy', array(
+            'title'         => (string) $title,
+            'welcome'       => (string) $welcome,
+            'questions'     => array_values( array_map( 'strval', $questions ) ),
+            'placeholder'   => (string) $placeholder,
+            'fromLanguage'  => sanitize_text_field( $from ),
+            'toLanguages'   => array_values( array_map( 'sanitize_text_field', $to ) ),
+        ), 60 );
+    }
+
+    public function start_voice_call( $visitor_id, $language = '', $greeting = '', $greeting_language = '' ) {
+        $payload = array( 'visitorId' => sanitize_text_field( $visitor_id ) );
+        if ( '' !== $language ) {
+            $payload['language'] = sanitize_text_field( $language );
+        }
+        // The owner's welcome message opens the call (Habitat speaks it as the
+        // visitor joins); blank keeps Habitat's own opening line.
+        $greeting = trim( (string) $greeting );
+        if ( '' !== $greeting ) {
+            $payload['greeting'] = sanitize_textarea_field( $greeting );
+            if ( '' !== $greeting_language ) {
+                $payload['greetingLanguage'] = sanitize_text_field( $greeting_language );
+            }
+        }
+        return $this->rpc( 'StartVoiceCall', $payload, 20 );
+    }
+
+    /** Links of the newest finished spoken answer of a call (null data when none). */
+    public function voice_turn_links( $session_id ) {
+        return $this->rpc( 'GetVoiceTurnLinks', array( 'sessionId' => sanitize_text_field( $session_id ) ), 10 );
     }
 
     /**
@@ -649,16 +761,442 @@ class BitBot_API_Client {
             while ( $query->have_posts() ) {
                 $query->the_post();
                 $content = apply_filters( 'the_content', get_the_content() );
-                $pages[] = array(
-                    'url'     => get_permalink(),
-                    'title'   => get_the_title(),
-                    'content' => $content,
+                $post_id = get_the_ID();
+                $pages[] = array_merge(
+                    array(
+                        'url'     => get_permalink(),
+                        'title'   => get_the_title(),
+                        'content' => $content,
+                    ),
+                    // Phase 2 (Resident AI): editor-agnostic edit metadata so
+                    // the backend agent can see each real post and propose SEO
+                    // edits against it. Cheap per-post reads; no extra queries.
+                    $this->gather_editable_meta( $post_id )
                 );
             }
             wp_reset_postdata();
         }
 
         return $pages;
+    }
+
+    /**
+     * Collect the editor-agnostic metadata the agent needs to propose edits:
+     * the WP post id, which editor authored the body, current SEO meta
+     * (Yoast/RankMath), status, excerpt, and tags. Sent alongside the crawled
+     * content in the sync payload and stored on the `pages` row.
+     *
+     * @since 2.1.47
+     * @param int $post_id
+     * @return array{wpPostId:int, builtWith:string, postStatus:string, excerpt:string, tags:string[], seoTitle:string, seoDescription:string, seoFocusKeyphrase:string, seoPlugin:string}
+     */
+    private function gather_editable_meta( $post_id ) {
+        $post_id = (int) $post_id;
+        $post    = get_post( $post_id );
+
+        $seo = $this->read_seo_meta( $post_id );
+
+        // Tags (post_tag taxonomy). Non-post types simply return an empty set.
+        $tag_terms = get_the_terms( $post_id, 'post_tag' );
+        $tags      = array();
+        if ( is_array( $tag_terms ) ) {
+            foreach ( $tag_terms as $term ) {
+                $tags[] = $term->name;
+            }
+        }
+
+        // Raw editable body source (pre-`the_content` filter) — the exact text a
+        // body edit would rewrite. Only surfaced for editors we can safely edit
+        // (Classic HTML / Gutenberg blocks). Page-builder posts keep their body
+        // in postmeta, so their post_content is not the real source and must
+        // never be edited through the body — we send null + bodyEditable=false.
+        $built_with    = $this->detect_built_with( $post_id, $post );
+        $body_editable = in_array( $built_with, array( 'classic', 'block' ), true );
+        $raw_content   = $body_editable && $post ? (string) $post->post_content : null;
+
+        return array(
+            'wpPostId'          => $post_id,
+            // Stored on the pages row (editor_type column); roles are computed
+            // live, never stored (brief section 4).
+            'builtWith'         => $built_with,
+            'bodyEditable'      => $body_editable,
+            'rawContent'        => $raw_content,
+            'postStatus'        => $post ? $post->post_status : 'publish',
+            'excerpt'           => $post ? (string) $post->post_excerpt : '',
+            'tags'              => $tags,
+            'seoTitle'          => $seo['title'],
+            'seoDescription'    => $seo['description'],
+            'seoFocusKeyphrase' => $seo['focusKeyphrase'],
+            'seoPlugin'         => $seo['plugin'],
+        );
+    }
+
+    /**
+     * What BUILT a post: which system owns what a visitor sees on it. The ONE
+     * detector (brief "Plugin-Owned Agent Contract" section 4, the awareness
+     * layer). It grew out of the editor-type check, so the old names moved:
+     * `gutenberg` is `block`, and `other` split into `template` and `empty`
+     * because "other" read as unknown when the truth was known.
+     *
+     * Decides whether a body edit is safe (block/classic) vs owned elsewhere
+     * (never touch the body). SEO meta / title / tags / status edits are safe
+     * regardless.
+     *
+     * @since 2.1.47 (as detect_editor_type)
+     * @param int          $post_id
+     * @param WP_Post|null $post
+     * @return string elementor|divi|beaver|other-builder:<name>|block|classic|template|empty
+     */
+    public function detect_built_with( $post_id, $post = null ) {
+        $post    = $post ? $post : get_post( $post_id );
+        $content = $post ? (string) $post->post_content : (string) get_post_field( 'post_content', $post_id );
+        $meta    = array();
+        foreach ( self::BUILDER_META_KEYS as $key ) {
+            $meta[ $key ] = get_post_meta( $post_id, $key, true );
+        }
+        $has_blocks = function_exists( 'has_blocks' ) && has_blocks( $content );
+        // Only an empty body asks where the look comes from instead.
+        $designed = '' === trim( $content ) && $this->template_renders_design( $post_id, $post );
+        return self::built_with_from( $meta, $content, $has_blocks, $designed );
+    }
+
+    /** The post meta the builder signals below read. */
+    const BUILDER_META_KEYS = array(
+        '_elementor_edit_mode',
+        '_et_pb_use_builder',
+        '_fl_builder_enabled',
+        '_wpb_vc_js_status',
+        '_bricks_editor_mode',
+        'ct_builder_shortcodes',
+        'panels_data',
+    );
+
+    /**
+     * The decision itself, from signals already read. Pure so it can be tested
+     * without WordPress (tests/test-built-with.php).
+     *
+     * @param array  $meta             BUILDER_META_KEYS => stored value.
+     * @param string $content          post_content.
+     * @param bool   $has_blocks       has_blocks( $content ).
+     * @param bool   $template_designs The body is empty and the effective template renders the design.
+     * @return string
+     */
+    public static function built_with_from( $meta, $content, $has_blocks, $template_designs ) {
+        $m = function ( $key ) use ( $meta ) {
+            return isset( $meta[ $key ] ) ? $meta[ $key ] : '';
+        };
+        // `_elementor_data` alone (mode not builder) is leftover data: WordPress
+        // renders post_content then, so the content decides below.
+        if ( 'builder' === (string) $m( '_elementor_edit_mode' ) ) {
+            return 'elementor';
+        }
+        if ( 'on' === (string) $m( '_et_pb_use_builder' ) ) {
+            return 'divi';
+        }
+        if ( ! empty( $m( '_fl_builder_enabled' ) ) ) {
+            return 'beaver';
+        }
+        // WPBakery: 'true' while its editor owns the post, 'false' once the
+        // owner switched it back. Confirm key at port time.
+        if ( 'true' === (string) $m( '_wpb_vc_js_status' ) ) {
+            return 'other-builder:wpbakery';
+        }
+        // Bricks. Confirm key at port time.
+        if ( 'bricks' === (string) $m( '_bricks_editor_mode' ) ) {
+            return 'other-builder:bricks';
+        }
+        // Oxygen. Confirm key at port time.
+        if ( ! empty( $m( 'ct_builder_shortcodes' ) ) ) {
+            return 'other-builder:oxygen';
+        }
+        // SiteOrigin Page Builder. Confirm key at port time.
+        if ( ! empty( $m( 'panels_data' ) ) ) {
+            return 'other-builder:siteorigin';
+        }
+        if ( $has_blocks ) {
+            return 'block';
+        }
+        if ( '' !== trim( (string) $content ) ) {
+            return 'classic';
+        }
+        // An empty body: the visitor sees the template. `template` only when
+        // that template carries a design of its own; an empty page on the
+        // generic page template shows a title and nothing, which is `empty`.
+        return $template_designs ? 'template' : 'empty';
+    }
+
+    /**
+     * Storage keys the page builders keep their layout and content under. A raw
+     * REST write into one of these on a builder page leaves the builder's data,
+     * post_content and the rendered page disagreeing (round 3, 2026-10-02).
+     */
+    const BUILDER_WRITE_PREFIXES = array( '_elementor', '_et_', '_fl_', '_wpb', '_bricks', 'ct_builder', 'panels_data' );
+
+    /** Owner-facing builder names, keyed by builtWith. */
+    const BUILDER_DISPLAY_NAMES = array(
+        'elementor'                 => 'Elementor',
+        'divi'                      => 'Divi',
+        'beaver'                    => 'Beaver Builder',
+        'other-builder:wpbakery'    => 'WPBakery',
+        'other-builder:bricks'      => 'Bricks',
+        'other-builder:oxygen'      => 'Oxygen',
+        'other-builder:siteorigin'  => 'SiteOrigin Page Builder',
+    );
+
+    /**
+     * Is this builtWith a page builder (its content is not in post_content)?
+     *
+     * @param string $built_with
+     * @return bool
+     */
+    public static function is_page_builder( $built_with ) {
+        $b = (string) $built_with;
+        return in_array( $b, array( 'elementor', 'divi', 'beaver' ), true ) || 0 === strpos( $b, 'other-builder:' );
+    }
+
+    /**
+     * The fields a raw write may not carry on a builder page: content, builder
+     * storage keys (top level or under meta), and status when it changes.
+     * Pure, so tests/test-builder-write.php runs it without WordPress.
+     *
+     * @param array       $params         The REST body.
+     * @param string|null $current_status The post's status now; null when unknown (counts as a change).
+     * @return string[]
+     */
+    public static function builder_write_fields( $params, $current_status ) {
+        $params = is_array( $params ) ? $params : array();
+        $is_builder_key = function ( $key ) {
+            foreach ( self::BUILDER_WRITE_PREFIXES as $prefix ) {
+                if ( 0 === strpos( (string) $key, $prefix ) ) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        $out = array();
+        if ( array_key_exists( 'content', $params ) ) {
+            $out[] = 'content';
+        }
+        foreach ( array_keys( $params ) as $key ) {
+            if ( $is_builder_key( $key ) ) {
+                $out[] = (string) $key;
+            }
+        }
+        if ( isset( $params['meta'] ) && is_array( $params['meta'] ) ) {
+            foreach ( array_keys( $params['meta'] ) as $key ) {
+                if ( $is_builder_key( $key ) ) {
+                    $out[] = 'meta.' . $key;
+                }
+            }
+        }
+        if ( array_key_exists( 'status', $params ) && ( null === $current_status || (string) $params['status'] !== (string) $current_status ) ) {
+            $out[] = 'status';
+        }
+        return $out;
+    }
+
+    /**
+     * The refusal for a raw write into a page builder's page, or null. The
+     * API refuses the same write first (lib/builderWrites.ts); this is the
+     * backstop at the write itself.
+     *
+     * @param string      $built_with
+     * @param array       $params
+     * @param string|null $current_status
+     * @return string|null
+     */
+    public static function builder_write_refusal( $built_with, $params, $current_status ) {
+        if ( ! self::is_page_builder( $built_with ) ) {
+            return null;
+        }
+        $fields = self::builder_write_fields( $params, $current_status );
+        if ( empty( $fields ) ) {
+            return null;
+        }
+        $b    = (string) $built_with;
+        $name = isset( self::BUILDER_DISPLAY_NAMES[ $b ] ) ? self::BUILDER_DISPLAY_NAMES[ $b ] : preg_replace( '/^other-builder:/', '', $b );
+        $text = 'elementor' === $b
+            ? sprintf( 'Text in its heading and text widgets is changed with proposeReplaceText; everything else is changed in %s by the owner.', $name )
+            : sprintf( 'Its content is changed in %s by the owner.', $name );
+        return sprintf(
+            'This page is built with %1$s; its content lives in %1$s\'s data, so %2$s cannot be written here. %3$s Title, slug, featured image, SEO meta and template can still be written. No change made.',
+            $name,
+            implode( ', ', $fields ),
+            $text
+        );
+    }
+
+    /**
+     * Does the template WordPress renders this post through carry a design of
+     * its own, rather than the generic page/single template that only prints
+     * the body? Read from WordPress's own hierarchy: an assigned template, the
+     * posts page (always the posts listing, never its body), the front page's
+     * front-page template, or a page-{slug} / page-{id} template.
+     *
+     * @param int          $post_id
+     * @param WP_Post|null $post
+     * @return bool
+     */
+    private function template_renders_design( $post_id, $post ) {
+        if ( ! $post ) {
+            return false;
+        }
+        $assigned = (string) get_post_meta( $post_id, '_wp_page_template', true );
+        if ( '' !== $assigned && 'default' !== $assigned ) {
+            return true;
+        }
+        if ( 'page' !== $post->post_type ) {
+            return false;
+        }
+        $static = 'page' === get_option( 'show_on_front' );
+        if ( $static && (int) get_option( 'page_for_posts' ) === (int) $post_id ) {
+            return true;
+        }
+        $slugs = array( 'page-' . $post->post_name, 'page-' . (int) $post_id );
+        if ( $static && (int) get_option( 'page_on_front' ) === (int) $post_id ) {
+            array_unshift( $slugs, 'front-page' );
+        }
+        $block_theme = function_exists( 'wp_is_block_theme' ) && wp_is_block_theme();
+        foreach ( $slugs as $slug ) {
+            $ships = $block_theme
+                ? ( function_exists( 'get_block_template' ) && null !== get_block_template( get_stylesheet() . '//' . $slug, 'wp_template' ) )
+                : '' !== locate_template( $slug . '.php' );
+            if ( $ships ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A post's roles on the site: the front page, the posts page, in the
+     * navigation a visitor sees. Pure so it can be tested without WordPress.
+     *
+     * inNav matches by post id first (menu items of type post_type carry
+     * object_id, navigation links carry id). A URL counts only as the fallback
+     * for custom links, compared as the FULL key including the query, and only
+     * for a published post: a draft's permalink is `?page_id=N`, which the old
+     * host+path key reduced to the site root, so on demonicfeather (2026-09-30)
+     * draft page 3 matched the "Home" link and read inNav true. The bare root
+     * matches only the page whose permalink IS the root, the front page.
+     *
+     * @param int    $post_id
+     * @param string $post_type
+     * @param string $post_status
+     * @param string $url_key           nav_url_key() of the post's permalink.
+     * @param array  $reading           show_on_front, page_on_front, page_for_posts.
+     * @param array  $nav               ids (id => true), urls (key => true), allPages, unresolved.
+     * @param string $root_key          nav_url_key() of the home URL.
+     * @return array{frontPage:bool, postsPage:bool, inNav:bool|null}
+     */
+    public static function roles_from( $post_id, $post_type, $post_status, $url_key, $reading, $nav, $root_key ) {
+        $static     = isset( $reading['show_on_front'] ) && 'page' === $reading['show_on_front'];
+        $front      = $static && (int) $reading['page_on_front'] === (int) $post_id;
+        $published  = 'publish' === $post_status;
+        $by_url     = $published && '' !== $url_key && isset( $nav['urls'][ $url_key ] )
+            && ( $url_key !== $root_key || $front );
+        $in_nav     = isset( $nav['ids'][ (int) $post_id ] )
+            || $by_url
+            || ( ! empty( $nav['allPages'] ) && $published && 'page' === $post_type );
+        return array(
+            'frontPage' => $front,
+            'postsPage' => $static && (int) $reading['page_for_posts'] === (int) $post_id,
+            // null: a navigation block renders WordPress's own fallback, which
+            // could not be read, so membership is not known either way.
+            'inNav'     => $in_nav ? true : ( empty( $nav['unresolved'] ) ? false : null ),
+        );
+    }
+
+    /**
+     * One spelling per link target, so a custom nav URL and a permalink that
+     * name the same page compare equal: host + path + query, no scheme, no
+     * trailing slash, no fragment. The query stays: on plain permalinks it is
+     * the whole address (`/?page_id=3`), and dropping it made every such page
+     * key to the site root. Root-relative links resolve against the site. ''
+     * for anchors and anything without a host.
+     *
+     * @param string $url
+     * @param string $home_url The site's home URL.
+     * @return string
+     */
+    public static function nav_url_key( $url, $home_url ) {
+        $url = trim( (string) $url );
+        if ( '' === $url || '#' === $url[0] ) {
+            return '';
+        }
+        if ( '/' === $url[0] && ( ! isset( $url[1] ) || '/' !== $url[1] ) ) {
+            $url = rtrim( (string) $home_url, '/' ) . $url;
+        }
+        $host = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
+        if ( '' === $host ) {
+            return '';
+        }
+        $query = (string) parse_url( $url, PHP_URL_QUERY );
+        return $host . rtrim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) . ( '' !== $query ? '?' . $query : '' );
+    }
+
+    /**
+     * Read the current SEO meta from whichever SEO plugin is active. Yoast and
+     * RankMath cover the overwhelming majority of installs; neither present
+     * returns empty strings + plugin='none'.
+     *
+     * Public since 2.1.182: the front-end SEO renderer (BitBot::render_seo_head)
+     * reads the same fields, so there is exactly ONE key map.
+     *
+     * @since 2.1.47
+     * @param int $post_id
+     * @return array{title:string, description:string, focusKeyphrase:string, plugin:string}
+     */
+    public function read_seo_meta( $post_id ) {
+        $maps    = $this->seo_key_maps();
+        $primary = $maps['primary'];
+        $legacy  = $maps['legacy'];
+
+        // Primary family wins per FIELD; a field the primary never held falls
+        // back to the legacy family so pre-migration values stay visible.
+        // (The old whole-family precedence — Yoast wins if ANY Yoast key has
+        // a value — let one stale legacy field shadow an entire post's fresh
+        // meta: reads/renders served one family while writes filled the
+        // other. Per-field, deterministic, same decision as the writer.)
+        $read = function ( $field ) use ( $post_id, $primary, $legacy ) {
+            $v = (string) get_post_meta( $post_id, $primary[ $field ], true );
+            if ( '' === $v ) {
+                $v = (string) get_post_meta( $post_id, $legacy[ $field ], true );
+            }
+            return $v;
+        };
+
+        $plugin = 'none';
+        if ( defined( 'WPSEO_VERSION' ) ) {
+            $plugin = 'yoast';
+        } elseif ( defined( 'RANK_MATH_VERSION' ) ) {
+            $plugin = 'rankmath';
+        }
+
+        return array(
+            'title'          => $read( 'title' ),
+            'description'    => $read( 'description' ),
+            'focusKeyphrase' => $read( 'focusKeyphrase' ),
+            'plugin'         => $plugin,
+        );
+    }
+
+    /**
+     * The ONE decision for which SEO key family this site uses — shared by
+     * the writer, the reader, the sync gather and the front-end renderer so
+     * they can never diverge. Yoast's family when Yoast is active; the
+     * Rank Math family otherwise (also the storage format for plugin-less
+     * sites, so a later-installed suite adopts the fields).
+     *
+     * @since 2.1.184
+     * @return array{primary: array<string,string>, legacy: array<string,string>}
+     */
+    public function seo_key_maps() {
+        $yoast    = array( 'title' => '_yoast_wpseo_title', 'description' => '_yoast_wpseo_metadesc', 'focusKeyphrase' => '_yoast_wpseo_focuskw' );
+        $rankmath = array( 'title' => 'rank_math_title', 'description' => 'rank_math_description', 'focusKeyphrase' => 'rank_math_focus_keyword' );
+        return defined( 'WPSEO_VERSION' )
+            ? array( 'primary' => $yoast, 'legacy' => $rankmath )
+            : array( 'primary' => $rankmath, 'legacy' => $yoast );
     }
 
     /**
@@ -896,6 +1434,9 @@ class BitBot_API_Client {
             'pages'        => $pages,
             'batchIndex'   => (int) $batch_index,
             'totalBatches' => (int) $total_batches,
+            // Phase 3: site-level look-and-feel snapshot (theme + current custom
+            // CSS) so the agent can see what it's styling. Small; sent each batch.
+            'styleSnapshot' => $this->get_style_snapshot(),
             // This sender is reached ONLY via start_background_sync, which only
             // the "Sync now" button calls. Flagging the run manual tells the
             // backend to force a full re-probe of sitemap + manual URLs (refresh
@@ -955,8 +1496,9 @@ class BitBot_API_Client {
      * @param string $visitor_ip Visitor IP address.
      * @return array API response.
      */
-    public function chat( $message, $history = array(), $session_id = '', $visitor_ip = '', $site_language = 'en', $visitor_id = '', $visitor_timezone = '' ) {
+    public function chat( $message, $history = array(), $session_id = '', $visitor_ip = '', $site_language = 'en', $visitor_id = '', $visitor_timezone = '', $preferred_language = '' ) {
         return $this->rpc( 'Chat', array(
+            'preferredLanguage' => sanitize_text_field( $preferred_language ),
             'message'         => sanitize_text_field( $message ),
             'history'         => array_map( function( $msg ) {
                 return array(
@@ -1380,21 +1922,27 @@ class BitBot_API_Client {
     }
 
     /**
-     * Sync a single page's content to the backend (used by save_post hook)
+     * Sync ONE post to the backend through the SAME enriched gather the bulk
+     * sync uses — wpPostId, editor type, post status, SEO meta, raw editable
+     * source, the lot. One gather, every path: the old hand-rolled
+     * url/title/content variant ingested rows WITHOUT their WordPress
+     * identity (wp_post_id null), leaving every post published between bulk
+     * syncs invisible to the agent's editing and inventory surfaces.
      *
-     * @since 1.5.2
-     * @param string $url     Page URL.
-     * @param string $title   Page title.
-     * @param string $content Rendered page content.
+     * @since 2.1.173
+     * @param int $post_id Post ID (must be a published, syncable post).
      * @return array API response.
      */
-    public function sync_single_page( $url, $title, $content ) {
+    public function sync_post( $post_id ) {
+        $pages = $this->gather_content_for_ids( array( (int) $post_id ) );
+        if ( empty( $pages ) ) {
+            return array(
+                'success' => false,
+                'error'   => __( 'Post is not published or not a syncable type', 'bitbot' ),
+            );
+        }
         return $this->rpc( 'SyncContent', array(
-            'pages'        => array( array(
-                'url'     => esc_url_raw( $url ),
-                'title'   => sanitize_text_field( $title ),
-                'content' => $content,
-            ) ),
+            'pages'        => $pages,
             'batchIndex'   => 0,
             'totalBatches' => 1,
         ), 120 );
@@ -1451,7 +1999,7 @@ class BitBot_API_Client {
      * @param string $message Lead message (optional).
      * @return array API response.
      */
-    public function submit_form( $form_id, $name, $email, $phone = '', $message = '', $ip_address = '', $session_id = '', $answers = array() ) {
+    public function submit_form( $form_id, $name, $email, $phone = '', $message = '', $ip_address = '', $session_id = '', $answers = array(), $submission_key = '' ) {
         $payload = array(
             'formId' => sanitize_text_field( $form_id ),
             'name'   => sanitize_text_field( $name ),
@@ -1473,6 +2021,10 @@ class BitBot_API_Client {
         // REST handler; pass through as an object so the RPC stores them.
         if ( ! empty( $answers ) && is_array( $answers ) ) {
             $payload['answers'] = $answers;
+        }
+        // Idempotency key: the API stores one submission per key.
+        if ( '' !== $submission_key ) {
+            $payload['submissionKey'] = sanitize_text_field( $submission_key );
         }
         return $this->rpc( 'SubmitForm', $payload );
     }
@@ -1604,16 +2156,216 @@ class BitBot_API_Client {
         return $this->rpc( 'GetForms' );
     }
 
+    /**
+     * Phase 3 — current look-and-feel snapshot for the agent's stylist.
+     * Theme name, whether it's a block theme, current Additional CSS, the site
+     * identity (title + tagline), and — for block themes — the current global
+     * styles JSON (colours + typography), so the agent can see exactly what it
+     * would change.
+     *
+     * @since 2.1.49
+     * @return array
+     */
+    /**
+     * Push a fresh look-and-feel snapshot to the backend on its own — used on
+     * theme switch so the agent never styles a theme that's no longer active.
+     * (Normally the snapshot rides along with content syncs.)
+     *
+     * @since 2.1.80
+     * @return array RPC response.
+     */
+    public function push_style_snapshot() {
+        return $this->rpc( 'PushStyleSnapshot', array(
+            'styleSnapshot' => $this->get_style_snapshot(),
+        ) );
+    }
+
+    /**
+     * Tell the backend the theme changed so the agent can proactively give
+     * the site a once-over on the new theme (Pro+ only; the backend no-ops
+     * on lower plans). Returns the RPC response.
+     *
+     * @since 2.1.87
+     * @param string $from Previous theme stylesheet/name.
+     * @param string $to   New theme stylesheet/name.
+     * @return array
+     */
+    public function notify_theme_switch( $from, $to ) {
+        return $this->rpc( 'NotifyThemeSwitch', array(
+            'from' => sanitize_text_field( (string) $from ),
+            'to'   => sanitize_text_field( (string) $to ),
+        ) );
+    }
+
+    public function get_style_snapshot() {
+        $theme = wp_get_theme();
+        $is_block = function_exists( 'wp_is_block_theme' ) ? (bool) wp_is_block_theme() : false;
+        // Is the STORE hidden from the public right now? WooCommerce's
+        // coming-soon mode serves a placeholder instead of the real page, so a
+        // product the agent just rewrote correctly is invisible to visitors —
+        // and nothing told the agent that. Observed live: it rewrote a product,
+        // reported honestly that the change was "saved but not visible", then
+        // GUESSED at the cause and blamed the theme's product template.
+        //
+        // Not readable from the Woo REST API — `wc/v3/settings/site-visibility`
+        // returns an empty array because the flag lives in options, not a
+        // settings field. So the plugin is the only thing that can see it.
+        $coming_soon = false;
+        $coming_soon_scope = '';
+        if ( class_exists( 'WooCommerce' ) && 'yes' === get_option( 'woocommerce_coming_soon', 'no' ) ) {
+            $coming_soon = true;
+            // "Store pages only" hides the shop, products, cart and checkout
+            // while the rest of the site stays public — which is why the blog
+            // rendered fine and the product did not.
+            $coming_soon_scope = ( 'yes' === get_option( 'woocommerce_store_pages_only', 'no' ) )
+                ? 'store-pages-only'
+                : 'whole-site';
+        }
+
+        return array(
+            'themeName'    => $theme ? (string) $theme->get( 'Name' ) : '',
+            'stylesheet'   => get_stylesheet(),
+            'isBlockTheme' => $is_block,
+            'storeComingSoon'      => $coming_soon,
+            'storeComingSoonScope' => $coming_soon_scope,
+            // The agent's own CSS channel (bitbot_custom_css option, printed by
+            // render_site_css). Proposals REPLACE this document, so the snapshot
+            // must read the same channel the apply writes — reading the theme's
+            // Customizer CSS here would make the agent copy the owner's own CSS
+            // into our option on its next edit.
+            'customCss'    => (string) get_option( 'bitbot_custom_css', '' ),
+            'siteTitle'    => (string) get_option( 'blogname', '' ),
+            'tagline'      => (string) get_option( 'blogdescription', '' ),
+            // Only block themes have editable global styles; classic themes get ''.
+            'globalStyles' => $is_block ? $this->get_user_global_styles_json() : '',
+            // The overlay manifest: per-theme styling layers + the full trace
+            // (theme switches, layers archived/restored, overrides created).
+            // This is the agent's styling MEMORY — it always knows which theme
+            // it is dressing, what it applied before, and what is suspended
+            // where, so on a theme change it re-fits instead of assuming.
+            'overlay'      => class_exists( 'BitBot' ) && method_exists( BitBot::get_instance(), 'get_overlay_manifest' )
+                ? BitBot::get_instance()->get_overlay_manifest()
+                : array(),
+        );
+    }
+
+    /**
+     * Read the active block theme's USER global styles (the Site Editor's
+     * customisations) as a JSON string. Empty string when the site hasn't
+     * customised yet (no wp_global_styles post) or on a classic theme.
+     *
+     * @since 2.1.51
+     * @return string
+     */
+    private function get_user_global_styles_json() {
+        $post = $this->get_user_global_styles_post();
+        if ( ! $post || '' === trim( (string) $post->post_content ) ) {
+            return '';
+        }
+        return (string) $post->post_content;
+    }
+
+    /**
+     * Find the wp_global_styles CPT post that stores the active theme's user
+     * global styles. WordPress names it `wp-global-styles-<stylesheet>` and
+     * associates it with the theme via the wp_theme taxonomy. Returns null if
+     * it doesn't exist yet (theme never customised).
+     *
+     * @since 2.1.51
+     * @return WP_Post|null
+     */
+    public function get_user_global_styles_post() {
+        $stylesheet = get_stylesheet();
+        // Query by the wp_theme TERM — the same way WordPress's own resolver
+        // looks up the user global styles the front end applies. (Querying by
+        // slug can find an orphan post that the front end ignores.) We do NOT
+        // create one here: reads/snapshots must be side-effect free.
+        $posts = get_posts( array(
+            'post_type'        => 'wp_global_styles',
+            'post_status'      => array( 'publish', 'draft', 'auto-draft' ),
+            'numberposts'      => 1,
+            'no_found_rows'    => true,
+            'suppress_filters' => false,
+            'tax_query'        => array(
+                array(
+                    'taxonomy' => 'wp_theme',
+                    'field'    => 'name',
+                    'terms'    => $stylesheet,
+                ),
+            ),
+        ) );
+        return $posts ? $posts[0] : null;
+    }
+
+    /**
+     * Phase 2 (Resident AI) — content edit proposals (apply channel).
+     *
+     * Fetch pending/history proposals, or a single proposal by id (the apply
+     * handler pulls one by id before writing to WP).
+     *
+     * @since 2.1.47
+     * @param string|null $status Filter: pending|applied|rejected|reverted|failed.
+     * @param string|null $id     Fetch one proposal by id.
+     * @return array RPC response { proposals: [...], total }.
+     */
+    public function get_content_edit_proposals( $status = null, $id = null, $auto = false ) {
+        $payload = array();
+        if ( $status ) {
+            $payload['status'] = sanitize_text_field( $status );
+        }
+        if ( $id ) {
+            $payload['id'] = sanitize_text_field( $id );
+        }
+        if ( $auto ) {
+            $payload['auto'] = true;
+        }
+        return $this->rpc( 'GetContentEditProposals', $payload );
+    }
+
+    /**
+     * Report a proposal's new status back to the backend after the plugin has
+     * applied / reverted it in WordPress (or the owner rejected it).
+     *
+     * @since 2.1.47
+     * @param string   $proposal_id
+     * @param string   $status         applied|rejected|reverted|failed.
+     * @param int|null $wp_revision_id Revision created on apply (revert target).
+     * @param string|null $apply_error For status='failed'.
+     * @return array RPC response.
+     */
+    public function update_content_edit_status( $proposal_id, $status, $wp_revision_id = null, $apply_error = null, $before_value = null ) {
+        $payload = array(
+            'proposalId' => sanitize_text_field( $proposal_id ),
+            'status'     => sanitize_text_field( $status ),
+        );
+        if ( null !== $wp_revision_id ) {
+            $payload['wpRevisionId'] = (int) $wp_revision_id;
+        }
+        if ( null !== $apply_error ) {
+            $payload['applyError'] = sanitize_text_field( $apply_error );
+        }
+        // Prior value captured at apply time (e.g. previous theme), so revert
+        // is reliable regardless of snapshot freshness.
+        if ( null !== $before_value ) {
+            $payload['beforeValue'] = $before_value;
+        }
+        return $this->rpc( 'UpdateContentEditStatus', $payload );
+    }
+
     public function get_form( $form_id ) {
         return $this->rpc( 'GetForm', array( 'formId' => sanitize_text_field( $form_id ) ) );
     }
 
-    public function create_form( $name, $description, $fields ) {
-        return $this->rpc( 'CreateForm', array(
+    public function create_form( $name, $description, $fields, $success_message = '' ) {
+        $payload = array(
             'name'        => sanitize_text_field( $name ),
             'description' => sanitize_text_field( $description ),
             'fields'      => $fields,
-        ) );
+        );
+        if ( '' !== trim( (string) $success_message ) ) {
+            $payload['successMessage'] = sanitize_text_field( $success_message );
+        }
+        return $this->rpc( 'CreateForm', $payload );
     }
 
     public function update_form( $form_id, $data ) {
@@ -1621,6 +2373,7 @@ class BitBot_API_Client {
         if ( isset( $data['name'] ) )    $payload['name']    = sanitize_text_field( $data['name'] );
         if ( isset( $data['fields'] ) )  $payload['fields']  = $data['fields'];
         if ( isset( $data['enabled'] ) ) $payload['enabled'] = (bool) $data['enabled'];
+        if ( isset( $data['success_message'] ) ) $payload['successMessage'] = sanitize_text_field( $data['success_message'] );
         return $this->rpc( 'UpdateForm', $payload );
     }
 
@@ -1680,7 +2433,8 @@ class BitBot_API_Client {
      * @param string $draft_id Draft ID.
      * @return array Response with post_id/edit_url/view_url or error.
      */
-    public function create_wp_post_from_draft( $draft_id ) {
+    public function create_wp_post_from_draft( $draft_id, $post_status = 'draft' ) {
+        $post_status = in_array( $post_status, array( 'draft', 'publish', 'private' ), true ) ? $post_status : 'draft';
         $result = $this->get_draft( $draft_id );
 
         if ( ! $result['success'] ) {
@@ -1690,9 +2444,22 @@ class BitBot_API_Client {
         $draft = $result['data'];
         $seo   = $draft['seoMeta'] ?? array();
 
+        // Single source of truth: once a draft is linked to WordPress its body
+        // is nulled on the backend — WordPress owns it from then on. Publishing
+        // such a row again would insert an EMPTY post; refuse with the pointer.
+        $content = (string) ( $draft['content'] ?? '' );
+        if ( '' === trim( $content ) ) {
+            $wp_id = (int) ( $draft['wpPostId'] ?? 0 );
+            return array(
+                'success' => false,
+                'error'   => $wp_id > 0
+                    ? sprintf( 'This post is already in WordPress (post %d) — edit it there; its body no longer lives in the drafts bench.', $wp_id )
+                    : 'This draft has no content to publish.',
+            );
+        }
+
         // Free plan: append a subtle "Draft by BitBot →" footer to the post body.
         // Any paying tier (Pro or Pro+) leaves the content untouched.
-        $content     = $draft['content'];
         $plan_status = $this->get_plan_status();
         $plan        = ! empty( $plan_status['success'] ) ? ( $plan_status['data']['plan'] ?? null ) : null;
         $is_pro      = BitBot_Plan::is_paid( $plan );
@@ -1708,10 +2475,21 @@ class BitBot_API_Client {
         $post_data = array(
             'post_title'   => sanitize_text_field( $draft['title'] ),
             'post_content' => wp_kses_post( $content ),
-            'post_status'  => 'draft',
+            'post_status'  => $post_status,
             'post_type'    => 'post',
             'post_name'    => sanitize_title( $draft['slug'] ?? $draft['title'] ),
         );
+        // The auto-apply poller publishes via an UNAUTHENTICATED server-to-
+        // server REST call (current user 0) — without an explicit author the
+        // post lands authorless (post_author=0): no byline, no author archive,
+        // and machine-read as anonymous content. Attribute to the site's first
+        // administrator.
+        if ( 0 === get_current_user_id() ) {
+            $admins = get_users( array( 'role' => 'administrator', 'orderby' => 'ID', 'order' => 'ASC', 'number' => 1, 'fields' => 'ID' ) );
+            if ( ! empty( $admins ) ) {
+                $post_data['post_author'] = (int) $admins[0];
+            }
+        }
 
         $post_id = wp_insert_post( $post_data, true );
 
@@ -1722,15 +2500,19 @@ class BitBot_API_Client {
             );
         }
 
-        // Add SEO meta if Yoast or similar is available
+        // SEO meta via the ONE key-family decision (seo_key_maps) — this
+        // function carried its own duplicated map, the exact drift class that
+        // produced the read/write split-brain elsewhere.
+        $seo_keys = $this->seo_key_maps();
+
         if ( ! empty( $seo['metaTitle'] ) ) {
-            update_post_meta( $post_id, '_yoast_wpseo_title', sanitize_text_field( $seo['metaTitle'] ) );
+            update_post_meta( $post_id, $seo_keys['primary']['title'], sanitize_text_field( $seo['metaTitle'] ) );
         }
         if ( ! empty( $seo['metaDescription'] ) ) {
-            update_post_meta( $post_id, '_yoast_wpseo_metadesc', sanitize_text_field( $seo['metaDescription'] ) );
+            update_post_meta( $post_id, $seo_keys['primary']['description'], sanitize_text_field( $seo['metaDescription'] ) );
         }
         if ( ! empty( $seo['focusKeyphrase'] ) ) {
-            update_post_meta( $post_id, '_yoast_wpseo_focuskw', sanitize_text_field( $seo['focusKeyphrase'] ) );
+            update_post_meta( $post_id, $seo_keys['primary']['focusKeyphrase'], sanitize_text_field( $seo['focusKeyphrase'] ) );
         }
 
         if ( ! empty( $seo['keywords'] ) && is_array( $seo['keywords'] ) ) {
@@ -1743,13 +2525,19 @@ class BitBot_API_Client {
         // trash) back to the dashboard without polling.
         update_post_meta( $post_id, '_bitbot_draft_id', sanitize_text_field( $draft_id ) );
 
+        // READ-BACK, never echo: the reported status/title come from fetching
+        // the post we just created, so a claim of "published" downstream is
+        // grounded in what WordPress actually holds — not in what was asked.
+        $created = get_post( $post_id );
+
         return array(
             'success' => true,
             'data'    => array(
-                'post_id'  => (int) $post_id,
-                'status'   => 'draft',
-                'edit_url' => get_edit_post_link( $post_id, 'raw' ),
-                'view_url' => get_permalink( $post_id ),
+                'post_id'        => (int) $post_id,
+                'status'         => $created ? $created->post_status : 'missing',
+                'verified_title' => $created ? $created->post_title : '',
+                'edit_url'       => get_edit_post_link( $post_id, 'raw' ),
+                'view_url'       => get_permalink( $post_id ),
             ),
         );
     }

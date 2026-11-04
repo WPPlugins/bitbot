@@ -1,163 +1,127 @@
-=== BitBot - AI Chatbot, Content Generator, Forms & Leads ===
+=== BitBot - AI Chat, Voice Calls, WhatsApp, Forms & Leads ===
 Contributors: youamibot
 Donate link: https://youami.ai
-Tags: chatbot, ai, live chat, contact form, lead generation
+Tags: chatbot, ai, voice, whatsapp, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.1.1
+Stable tag: 2.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Free AI chatbot, content generator, forms, and a leads inbox for WordPress. No API keys, no per-token billing. Install and go in two minutes.
+Visitors ask by text or voice, get answers from your own pages, and leave their details. Free to start, set up in two minutes.
 
 == Description ==
 
-**One install, four AI tools.** Your WordPress site writes content, answers visitor questions, captures leads, and on Pro+ becomes a real agent that talks to your store and your CRM. All from one plugin.
+**Your site, answering questions day and night.** BitBot reads your public pages and answers visitors from them, with a link to the page it used. When someone wants a person, it collects their name and email, or hands them to your WhatsApp.
 
-BitBot indexes every page and post on your site. Visitors ask questions in 100+ languages and get accurate answers with clickable citations back to the source page. Form submissions and chat emails land in a single leads inbox. The content generator turns a topic, URL, or uploaded document into an SEO-optimised draft you can preview and publish in one click.
+No API keys, no separate dashboard. Install, activate, and the chat is live. Everything is managed inside WordPress.
 
-No API keys to manage. No per-token billing. The Free tier covers small sites; Pro removes the caps; Pro+ turns the chatbot into a real agent that searches your WooCommerce catalogue, creates draft orders with a one-click checkout link, looks up order status, and connects your CRM.
+= Talk, not just type =
 
-[See it live on PolishingRocks.com](https://polishingrocks.com) — ask the chatbot anything about rock tumbling.
+* **Voice calls from the widget.** A visitor taps Call and talks to your site. Pick the voice that suits your brand. Assistant and Agent plans.
+* **WhatsApp button.** Add your number and visitors can carry on the conversation with you in WhatsApp, on any plan.
+* **Chat in their language.** Offer the languages you serve. BitBot replies in the visitor's language and you edit the welcome copy for each one.
 
-= AI Chatbot =
+= Never lose an enquiry =
 
-* Indexes every page and post automatically — auto-syncs on publish, update, or delete
-* Answers from your content with citations linking back to the source page and section
-* 100+ languages with automatic detection — visitor asks in Hindi, bot answers in Hindi, even if your site is in English
-* Detects emails in conversation and creates a lead with the full chat transcript attached
-* Mobile-responsive widget, customisable colours and corner offset
-* Loads asynchronously — zero impact on page speed
-* Auto-stacks gracefully when other floating widgets (WhatsApp, accessibility menus) are present
+* **Ask for details before the first reply.** Turn on the pre-chat form and every chat starts with a name and an email.
+* **Forms on your pages.** Build a form in minutes, or let BitBot draft one for you, and embed it anywhere with a shortcode.
+* **One inbox.** Every lead, with what they asked, lands in BitBot inside WordPress.
+* **Follow up faster.** BitBot researches the lead and drafts the reply for you.
 
-= AI Content Generator =
+= Keep your content working =
 
-* Discover Topics — surfaces gaps in what you've already published, suggests SEO-shaped angles to fill them
-* Generate from a prompt, a URL, or an uploaded PDF / image
-* Knows your existing content and avoids duplicates
-* SEO metadata generated automatically (title, description, focus keywords)
-* Preview and edit before publishing — drafts open in the WordPress block editor
+* **Always in sync.** Publish or edit a page and BitBot learns it.
+* **See what visitors ask that you have not written.** Coverage gaps and topic ideas, straight from real questions.
+* **Draft posts from a topic, a link or a document.** Review text, images and SEO details, then publish.
 
-= Form Builder =
+= Agent: let it run the site =
 
-* Describe a form in plain English — BitBot generates fields, types, and validation
-* Or start with basic fields and customise manually
-* Drag-to-reorder fields
-* Embed anywhere with `[bitbot_form id="…"]` — works inside Gutenberg, Classic, page builders
-* Rate limiting and spam protection built in (per-IP burst guard, per-email cooldown)
+* **Create and edit.** New pages and homepages from your own theme, and changes to any post or page, by asking for them.
+* **Design and SEO.** The look, the CSS, titles, descriptions, broken links and site audits, with the fixes applied.
+* **Run it.** Posts written and published, recurring jobs on a schedule, WooCommerce, Search Console, Zoho and Pipedrive used on your behalf.
 
-= Leads Inbox =
+= Plans =
 
-* Every form submission and chat email becomes a lead
-* Stage tracking: New → Contacted → Qualified → Won / Lost
-* Geolocation — country and city for every lead
-* Activity timeline — notes, stage changes, AI research, sent emails
-* Unread badge on the BitBot menu drops as you open each lead
-* Search and filter by stage, name, or email — paginated cleanly past 1,000 leads
+**Free.** Text chat, your newest conversation in full, every lead with their message, two forms, three topic searches, one site scan, and the WhatsApp button.
 
-= Pro: Lead Research & Follow-up =
+**Assistant, $20 USD a month.** Everything in Free, plus voice calls, every transcript, form answers, lead research and follow-up drafts, post generation, AI-built forms, lead emails.
 
-* AI Lead Research — scrapes the lead's domain, searches the web, reads the full chat conversation, returns a who-they-are / what-they-need summary with a suggested next step
-* AI-drafted follow-up emails — copy to clipboard, paste into your mail client
-* Email notifications — get pinged the moment a visitor turns into a lead
-* Removes "Powered by BitBot" footer link from the widget
-* Topic Discovery and Style Analysis on the Content Generator
-* AI form-field generation in the Form Builder
-
-= Pro+: The Agent =
-
-Pro+ upgrades the chatbot from a Q&A assistant into a real agent. Skills are modular capabilities the agent activates when a visitor's intent matches — running on real tools, not scripts:
-
-* **Product recommendations** — searches your WooCommerce catalogue live and renders visual product cards in chat (image, price, sale strikethrough, stock)
-* **Add to cart / draft order** — agent confirms the exact item and quantity with the visitor, OTP-verifies their email, creates a real pending WooCommerce order, hands them a one-click checkout link
-* **Order enquiries** — OTP-verifies the visitor owns the order, then looks up status, tracking, delivery ETA. Never exposes another customer's order
-* **Live handover** — if you're online (heartbeat seen in the last 5 minutes), the chat flips to you directly in the Live Chats dashboard. If not, a handover email goes out and a lead is created
-
-The Live Chats dashboard shows every active conversation in real time with PRESENT / IDLE / LEFT presence pills, so you can jump into any thread the moment you want to take over.
-
-= Pricing =
-
-**Free** — 100 chat messages/month, 3 AI blog posts/month (24h cooldown), 1 contact form, up to 10 stored leads, multilingual chatbot, full content indexing. Free forever, no credit card.
-
-**Pro — $20/month** — Unlimited chat, unlimited posts (prompt / URL / PDF), unlimited forms, unlimited leads, AI Lead Research, drafted follow-up emails, email notifications, Topic Discovery, Style Analysis, AI form generation. Removes BitBot branding. Fair-use applies. Cancel anytime.
-
-**Pro+ — $49/month** — Everything in Pro, plus the Agent: a chatbot that actually does things, using a growing list of integrations (WooCommerce, Zoho, Pipedrive, Google Search Console, and more) to meet your business where it already runs, without disrupting your flow. Cancel anytime.
+**Agent, $49 USD a month.** Everything in Assistant, plus your own website manager: an agent that looks after your site, builds pages or a whole site from scratch, uses your connected business tools and runs the recurring work on a schedule.
 
 == Installation ==
 
-1. Install BitBot from Plugins → Add New, or upload the `bitbot.zip`.
-2. Activate the plugin.
-3. Open the **BitBot** menu in your WordPress sidebar — your site auto-registers and starts indexing.
-4. Wait ~2 minutes for the first content sync to complete.
-5. The chat widget appears on your site automatically.
-
-That's it. No API keys, no SaaS dashboard to log into.
+1. Plugins, Add New, search for BitBot, install and activate.
+2. Open BitBot in your WordPress menu. Your site registers itself and starts reading your pages.
+3. The chat widget is live on your site. Watch the sync finish, then ask it something.
 
 == Frequently Asked Questions ==
 
-= Do I need an OpenAI or Anthropic API key? =
+= Do I need an AI account or API key? =
 
-No. BitBot includes the AI service — chat, content generation, embeddings, lead research, and the Pro+ agent all run on infrastructure we operate. No API keys to manage, no per-token billing surprises.
+No. Everything runs through the youami.ai service and is included in your plan.
 
-= How long does the chatbot take to learn my site? =
+= Can visitors call my site? =
 
-The first sync usually completes in under 2 minutes for a typical site (under 200 pages). Larger sites may take a few minutes. Once it's done, BitBot re-indexes automatically when you publish, update, or delete content.
+Yes, on Assistant and Agent. Turn on calls in BitBot, pick a voice, and a Call button appears in the widget.
 
-= Will the chatbot make things up? =
+= How does the WhatsApp button work? =
 
-No. BitBot answers only from your indexed content and includes a citation linking back to the source page and section for every answer. If it can't find the answer in your content it says so and offers to capture the visitor's email so you can follow up.
+Add your WhatsApp number in BitBot and a WhatsApp button appears in the widget. Tapping it opens a chat with you in WhatsApp. No WhatsApp account connection is needed, and it works on every plan.
 
-= Does it work in languages other than English? =
+= What does Free include? =
 
-Yes. The chatbot detects the visitor's language and answers in the same language — including the product cards on Pro+. We've tested English, Hindi, Spanish, Arabic, French, German, Portuguese, Chinese, Japanese, Korean, and Russian; the underlying model handles 100+ more.
+Text chat, your newest conversation in full, every captured lead with their message, two forms, three topic searches and one site scan. Transcripts, form answers, research and follow-ups are on Assistant.
+
+= Does it speak other languages? =
+
+Yes. Offer the languages you serve and BitBot replies in the visitor's language. You can edit the welcome copy for each one.
 
 = Will it work with WooCommerce? =
 
-Yes. The chatbot indexes your product pages on the Free and Pro tiers. On Pro+, the dedicated WooCommerce skill goes further: live catalogue search, visual product cards in chat, draft-order creation with checkout links, and OTP-verified order enquiries. Configure WooCommerce REST API keys in BitBot → Settings → WooCommerce Integration.
+Yes. BitBot answers from your product pages on every plan. Agent adds live product cards, checkout links and verified order answers in the chat.
 
-= Does it slow down my site? =
+= Will it slow my site down? =
 
-No. The widget loads asynchronously after the page renders. Works with caching plugins, page builders, and CDNs. The widget detects other floating buttons (WhatsApp, accessibility menus) and auto-stacks above them so it never overlaps.
+No. The widget loads after your page, and the thinking happens on our service.
 
-= How does lead capture work? =
+= Can BitBot get things wrong? =
 
-Two paths. Drop `[bitbot_form id="…"]` on any page for a traditional form, or let the chatbot capture leads conversationally — when the bot can't fully answer a question or the visitor mentions wanting to be contacted, it asks for an email and creates a lead with the full conversation transcript attached.
+Yes, like any AI. It answers from your pages and tells visitors when it does not know. Review generated posts and agent changes before you rely on them.
 
-= What happens when I hit the Free tier limits? =
+= Where is my data? =
 
-The chatbot shows the visitor a friendly cap message in their language ("we're at capacity for new contact requests right now — please email us directly"). The admin sees a banner on the Leads page with an Upgrade button. Nothing breaks; nothing is lost. Existing chats and leads remain readable.
+Processed by the youami.ai service to provide the features you use. See https://youami.ai/privacy, or email support@youami.ai to delete it.
 
-= Can I export my leads? =
+= Can I cancel? =
 
-Leads are stored in your dashboard. Bulk CSV export is on the roadmap. In the meantime each lead has a stable URL you can bookmark or share with your team.
-
-= How is my data handled? =
-
-Your content is stored on infrastructure operated by youami.ai (US-based, encrypted at rest). It is used only to answer your visitors' questions and is never used to train AI models. Email support@youami.ai to request deletion at any time.
-
-= What's the difference between Pro and Pro+? =
-
-Pro removes the Free-tier caps and unlocks AI Lead Research, drafted follow-up emails, and email notifications. Pro+ adds the **agent**: a chatbot that takes real actions for your visitors using a growing list of integrations (live WooCommerce product search, draft orders with checkout, order lookups, live human handover, and more), meeting your business where it already runs. If you want conversations that do things, not just answer, Pro+ is what you want.
+Yes, inside WordPress, any time. Your plan stays active until the end of the billing period.
 
 == Screenshots ==
 
-1. Your whole bot at a glance. Top cited pages, the questions visitors actually ask, coverage gaps to fix, where visitors are from, and how many turn into leads.
-2. Visitors browse your WooCommerce catalogue inside the chat — image, price, sale strikethrough, stock — without leaving the page.
-3. Every form submission and chat email lands in a single inbox. Stage tracking, location, source, and an unread badge on the BitBot menu.
-4. One-click AI research on any lead — pulls from the chatbot's full conversation and the open web, returns a who-they-are summary with a suggested next step.
-5. Discover Topics surfaces gaps in what you've already published, suggests SEO-shaped angles, and generates the draft for any one of them in a couple of clicks.
-6. Turn on the tools you already use and the agent acts inside the conversation. WooCommerce, Zoho, Pipedrive, Search Console and a growing list, with more shipping every sprint.
-7. Describe a form in plain English — BitBot generates the fields, gives you a live preview, and a shortcode you can drop on any page.
-8. When the chatbot hands off to a human, the visitor sees a clear "Live: you're now chatting with someone from the team" banner. Their next message lands directly in your Live Chats dashboard.
-9. The visitor writes in Hindi, the bot replies in Hindi. Tested across English, Hindi, Spanish, Arabic, French, German and more.
+1. Your chat answers right away, with a Call button for voice and a WhatsApp button to continue with you.
+2. Ask for a name and email before the first reply, so every chat starts with a lead.
+3. Every conversation in one place, with a flag next to each visitor and the transcript beside it.
+4. Open a lead and BitBot researches who they are and suggests the next step.
+5. Visitors browse product cards from your store without leaving the chat.
+6. What visitors ask, which pages answered, and what your site still needs to cover.
+7. Turn the pre-chat form on in one switch and see exactly what visitors will see.
+8. Offer the chat in the languages you serve, with the welcome copy for each.
+9. Build a form in minutes and embed it anywhere with a shortcode.
 
 == Changelog ==
 
-= 2.1.1 =
-*Release Date - 23 June 2026*
+= 2.2.0 =
 
-* Clearer pre-chat form setup for capturing visitor details, plus admin and reliability improvements.
+* Voice calls on paid plans. Pick a voice and visitors can call your site from the widget.
+* WhatsApp button in the widget.
+* Pre-chat form: ask for a name and email before the first reply, with a live preview in the settings.
+* Every lead and your latest conversation on Free. Transcripts and follow-up tools on Assistant.
+* Country flags on conversations, one cleaner conversation view, and badges only when a thread needs you.
+* Forms: every submission is kept and emailed, repeat enquiries are never lost, closed forms stay closed.
+* Agent: site editing, scheduled work, site audits, support inbox, usage credits and top-ups.
+* Many fixes and speed improvements.
 
 = 2.1.0 =
 *Release Date - 21 June 2026*
@@ -285,6 +249,9 @@ Major release — BitBot grows from a chatbot into a full AI assistant for your 
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 2.2.0 =
+Voice calls, improved Agent tools and widget updates, plus reliability fixes.
 
 = 2.0.2 =
 Performance improvements for large page libraries, plus minor fixes.

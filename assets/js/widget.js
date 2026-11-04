@@ -22,8 +22,21 @@
     // scope through widgetRoot.getElementById(...) instead of document.
     let widget, widgetRoot, toggle, chat, messages, form, input;
     let chatHistory = [];
+    // Suggested-question chips: the owner's list and the bar in the DOM.
+    // Module level because the language control re-renders them from
+    // attachLanguage, outside init.
+    let suggestedQuestions = [];
+    let chipBar = null;
+    // Set by attachChatGate while the pre-chat gate is armed: takes a first message
+    // (typed or a suggestion chip) and returns true when it was held.
+    let chatGateHold = null;
+    // Set by attachChatGate: reopens or retries the gate after a reload.
+    let chatGateRestore = null;
     let isOpen = false;
     let isLoading = false;
+    // The bubble of the answer being streamed, and the text it shows so far.
+    let streamBubble = null;
+    let streamContent = null;
     let sessionId = null;
     let leadCapturedEmail = null; // Track if a lead was already captured this session
     // Live-handover mode (1.7.0): when the agent escalates to a human, the
@@ -522,24 +535,19 @@
         // with the admin's image when configured. The chat-header slot
         // also receives a small circular crop of the same image.
         //
-        // 2.0.2 (refactor): when a saved crop exists for the CURRENT FAB
-        // shape, render via background-image with computed bg-size +
-        // bg-position so the cropped region fills the FAB exactly —
-        // no brand-colour bleed regardless of pan/zoom. Fall back to
-        // <img object-fit:cover> when no transform / shape mismatch.
+        // Round launcher and header circle use the saved crop through a
+        // background-image; the Pill launcher shows the image as a small
+        // circle (object-fit cover, sized in CSS) with no crop maths.
         const avatarUrl = (config.avatarUrl || '').trim();
         const avatarTx  = config.avatarTransform || null;
         const widgetHost = document.getElementById('bitbot-widget');
-        const currentShape = widgetHost && widgetHost.getAttribute('data-shape') === 'pill'
-            ? 'pill'
-            : 'rounded';
+        const isPill = !!widgetHost && widgetHost.getAttribute('data-shape') === 'pill';
 
-        // Build a CSS background spec from a saved transform for the
-        // given target container size. Returns null when the transform
-        // is missing, shape-mismatched, or malformed.
-        function bgFromTransform(tx, targetShape, containerW, containerH) {
+        // Build a CSS background spec from a saved transform for a square
+        // target. Returns null when the transform is missing or malformed.
+        function bgFromTransform(tx, containerW, containerH) {
             if (!tx || !tx.cropW || !tx.cropH || !tx.sourceW || !tx.sourceH) return null;
-            if (tx.shape && tx.shape !== targetShape) return null;
+            if (tx.shape && tx.shape !== 'rounded') return null;
             var scaleX = containerW / tx.cropW;
             var scaleY = containerH / tx.cropH;
             return {
@@ -550,12 +558,20 @@
 
         if (avatarUrl) {
             // ── FAB launcher ──
-            // Real widget FAB: rounded = 56×56, pill = 112×28.
-            var fabW = currentShape === 'pill' ? 112 : 56;
-            var fabH = currentShape === 'pill' ?  28 : 56;
-            var fabBg = bgFromTransform(avatarTx, currentShape, fabW, fabH);
+            // Round launcher is 56x56; the pill takes no crop.
+            var fabBg = isPill ? null : bgFromTransform(avatarTx, 56, 56);
             var chatIcon = widgetRoot.querySelector('.bitbot-icon-chat');
-            if (chatIcon && chatIcon.parentNode) {
+            if (isPill && toggle) {
+                // Pill: the avatar is its own circle beside the text pill, not
+                // inside it. It is not .bitbot-icon-chat, so opening the chat
+                // leaves it visible.
+                var pillAvatar = document.createElement('img');
+                pillAvatar.src = avatarUrl;
+                pillAvatar.alt = '';
+                pillAvatar.className = 'bitbot-pill-avatar';
+                toggle.appendChild(pillAvatar);
+                toggle.classList.add('bitbot-has-avatar');
+            } else if (chatIcon && chatIcon.parentNode) {
                 var fabAvatar;
                 if (fabBg) {
                     // bg-image path
@@ -584,9 +600,8 @@
             }
 
             // ── Chat-header avatar slot ──
-            // Header avatar is a 36×36 circle in widget.css. Only
-            // 'rounded' crops apply here; pill crops fall back to cover.
-            var headerBg = bgFromTransform(avatarTx, 'rounded', 36, 36);
+            // Header avatar is a 36x36 circle in widget.css.
+            var headerBg = bgFromTransform(avatarTx, 36, 36);
             var headerSlot = widgetRoot.getElementById('bitbot-header-avatar');
             if (headerSlot) {
                 var hAvatar;
@@ -817,17 +832,19 @@
         // longer exposes the field. Stored values are ignored client-side.
         // PHP no longer sends pinnedMessage in the config object either.
 
-        // 2.1.x: chat-gate. When the admin has flipped on the chat-gate
-        // toggle for the default pre-chat form, the FIRST visitor
-        // message gets held client-side: not echoed into the thread,
-        // not POSTed to the bot. We render the form inline below the
-        // welcome bubble and only release the held message once the
-        // visitor submits. Cancel collapses the widget to the FAB.
-        //
-        // Per-session: once submitted, the gate stays open for the rest
-        // of the session. If the visitor cancels, we DON'T remember
-        // that — they'll see the form again on their next first
-        // message (intentional: re-prompt on re-open).
+        // Chat-gate. When the admin has flipped on the chat-gate toggle
+        // for the default pre-chat form, the FIRST visitor message is held
+        // client-side: not sent to the bot. It stays visible as a pending
+        // bubble above the form and is released only after a successful
+        // submission. States:
+        //   armed      the interceptor catches the next composer send (or chip click).
+        //   open       form shown; composer disabled; Back and Submit available.
+        //   submitting Submit and Back disabled; the request is in flight.
+        //   Back       drops the form and pending bubble, puts the text back in the
+        //              composer, returns to armed (nothing is lost).
+        //   success    flag set, interceptor removed, held message sent as normal.
+        // The interceptor never detaches before a successful submission, so
+        // closing and reopening the chat cannot bypass the gate.
         (function attachChatGate() {
             const gateFormId = (config.chatGateFormId || '').trim();
             const formSchema = config.chatGateForm || null;
@@ -836,249 +853,267 @@
                 if (sessionStorage.getItem('bitbot-chat-gate-done') === '1') return;
             } catch (e) {}
             if (!form || !input) return;
+            const F = window.BitBotForm;
+            if (!F) return;
 
-            function renderGate(heldMessage) {
+            // All visitor-facing gate copy lives here. The per-language copy
+            // table is owner text run through the translation pipeline, so these
+            // fixed strings are not in it yet (English only for now).
+            const GATE_COPY = {
+                heading: 'A few details first',
+                pendingLabel: 'Your message, sent once you share your details',
+                submit: 'Continue',
+                submitting: 'Sending...',
+                back: 'Back',
+                networkError: 'Network error. Please try again.',
+                genericError: 'Something went wrong. Please try again.'
+            };
+            const P = 'bitbot-chat-gate';
+            const GATE_STATE_KEY = 'bitbot_chat_gate_state';
+            const fields = F.normalizeFields(formSchema.fields);
+            let gateOpen = false;      // a form is showing (open or submitting)
+            let gateDone = false;      // successful submission happened
+
+            // Gate state survives a reload or navigation (sessionStorage, like the
+            // chat): { held, key, submitted, body }. submitted + body mean a
+            // submission was sent and its response may have been lost; on load it
+            // is retried with the same key (the API stores one submission per key).
+            function readGateState() {
+                try {
+                    const raw = sessionStorage.getItem(GATE_STATE_KEY);
+                    const s = raw ? JSON.parse(raw) : null;
+                    return s && typeof s.held === 'string' && typeof s.key === 'string' ? s : null;
+                } catch (e) { return null; }
+            }
+            function writeGateState(state) {
+                try { sessionStorage.setItem(GATE_STATE_KEY, JSON.stringify(state)); } catch (e) {}
+            }
+            function clearGateState() {
+                try { sessionStorage.removeItem(GATE_STATE_KEY); } catch (e) {}
+            }
+
+            function openGate(heldMessage, existingKey, retryBody) {
+                gateOpen = true;
+                setComposerLocked(true);
+                // One key per held message; reused for every retry of it.
+                const submissionKey = existingKey || F.newSubmissionKey();
+                writeGateState({ held: heldMessage, key: submissionKey, submitted: false, body: null });
+
+                const pending = document.createElement('div');
+                pending.className = 'bitbot-message bitbot-user bitbot-pending';
+                const pendingText = document.createElement('div');
+                pendingText.className = 'bitbot-message-content';
+                pendingText.textContent = heldMessage;
+                const pendingNote = document.createElement('div');
+                pendingNote.className = 'bitbot-pending-note';
+                pendingNote.textContent = GATE_COPY.pendingLabel;
+                pending.appendChild(pendingText);
+                pending.appendChild(pendingNote);
+                messages.appendChild(pending);
+
                 const wrap = document.createElement('div');
-                wrap.className = 'bitbot-chat-gate';
-                const heading = (formSchema && formSchema.name) || 'A few details first';
-                let fieldsHtml = '';
-                const fields = (formSchema && formSchema.fields) || [
-                    { name: 'name',  label: 'Full name', type: 'text',  required: true,  placeholder: 'Your name' },
-                    { name: 'email', label: 'Email',     type: 'email', required: true,  placeholder: 'you@example.com' },
-                ];
-                fields.forEach(function(f) {
-                    const ph = f.placeholder ? ' placeholder="' + String(f.placeholder).replace(/"/g, '&quot;') + '"' : '';
-                    const req = f.required ? ' required' : '';
-                    const type = f.type === 'email' ? 'email' : f.type === 'phone' ? 'tel' : 'text';
-                    fieldsHtml += ''
-                        + '<label class="bitbot-chat-gate-row">'
-                        +   '<span>' + escapeHtml(f.label) + (f.required ? ' *' : '') + '</span>'
-                        +   '<input data-field="' + escapeHtml(f.name) + '" type="' + type + '"' + ph + req + '>'
-                        + '</label>';
-                });
+                wrap.className = P;
+                wrap.setAttribute('role', 'group');
+                const headId = 'bitbot-gate-head';
+                wrap.setAttribute('aria-labelledby', headId);
                 wrap.innerHTML = ''
-                    + '<div class="bitbot-chat-gate-head">' + escapeHtml(heading) + '</div>'
-                    + '<form class="bitbot-chat-gate-form">'
-                    +   fieldsHtml
-                    +   '<div class="bitbot-chat-gate-actions">'
-                    +     '<button type="submit" class="bitbot-chat-gate-submit">Submit</button>'
-                    +     '<button type="button" class="bitbot-chat-gate-cancel">Cancel</button>'
+                    + '<div class="' + P + '-head" id="' + headId + '"></div>'
+                    + '<form class="' + P + '-form" novalidate>'
+                    +   F.renderFields(fields, { prefix: P, idPrefix: 'bitbot-gate' })
+                    +   '<div class="' + P + '-actions">'
+                    +     '<button type="submit" class="' + P + '-submit"></button>'
+                    +     '<button type="button" class="' + P + '-back"></button>'
                     +   '</div>'
                     + '</form>';
+                // The form's name is the owner's label for it in the admin; the visitor gets one neutral line.
+                wrap.querySelector('.' + P + '-head').textContent = GATE_COPY.heading;
+                const submitBtn = wrap.querySelector('.' + P + '-submit');
+                const backBtn = wrap.querySelector('.' + P + '-back');
+                submitBtn.textContent = GATE_COPY.submit;
+                backBtn.textContent = GATE_COPY.back;
                 messages.appendChild(wrap);
-                scrollToBottom();
 
-                const gateForm  = wrap.querySelector('.bitbot-chat-gate-form');
-                const cancelBtn = wrap.querySelector('.bitbot-chat-gate-cancel');
+                const gateForm = wrap.querySelector('.' + P + '-form');
+                // The sticky action row must not hide the last field: the scroll
+                // area keeps room for it (padding and scroll-padding, see CSS).
+                const first = wrap.querySelector('[data-field]');
+                // The gate scrolls inside the panel; put the first field in view
+                // and focused (preventScroll, then an explicit scroll, so the
+                // mobile keyboard does not fight the browser's own jump).
+                if (first) {
+                    try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); }
+                }
+                // The card is a normal block in the conversation: the panel scrolls, the card never
+                // does. Show the whole card (fields and buttons); the held message sits just above it.
+                messages.scrollTop = messages.scrollHeight;
 
-                // 2.0.20: field-level error display. Earlier the form
-                // would silently re-enable Submit on a server reject
-                // (or accept "a@a" as an email because HTML5's regex
-                // is too permissive). Now each input can carry an
-                // error-row class + inline error span; typing in a
-                // field clears its own error on input.
-                function showFieldError(fieldName, message) {
-                    const row = wrap.querySelector('.bitbot-chat-gate-row [data-field="' + fieldName + '"]')?.closest('.bitbot-chat-gate-row');
-                    if (!row) return;
-                    row.classList.add('bitbot-chat-gate-row-error');
-                    let err = row.querySelector('.bitbot-chat-gate-row-msg');
-                    if (!err) {
-                        err = document.createElement('span');
-                        err.className = 'bitbot-chat-gate-row-msg';
-                        row.appendChild(err);
-                    }
-                    err.textContent = message;
+                function clearAll() {
+                    fields.forEach(function(f) { F.clearError(wrap, f.name, P); });
                 }
-                function clearFieldError(fieldName) {
-                    const row = wrap.querySelector('.bitbot-chat-gate-row [data-field="' + fieldName + '"]')?.closest('.bitbot-chat-gate-row');
-                    if (!row) return;
-                    row.classList.remove('bitbot-chat-gate-row-error');
-                    const err = row.querySelector('.bitbot-chat-gate-row-msg');
-                    if (err) err.remove();
-                }
-                function clearAllErrors() {
-                    wrap.querySelectorAll('.bitbot-chat-gate-row-error').forEach(function(r) {
-                        r.classList.remove('bitbot-chat-gate-row-error');
-                        const m = r.querySelector('.bitbot-chat-gate-row-msg');
-                        if (m) m.remove();
-                    });
-                }
-                // Tight email regex — stricter than HTML5 type=email but
-                // loose enough to accept any reasonable mailbox: requires
-                // at least one char before @, a dot in the domain, and
-                // at least two chars after the final dot.
-                const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-                wrap.querySelectorAll('input[data-field]').forEach(function(el) {
-                    el.addEventListener('input', function() {
-                        clearFieldError(el.getAttribute('data-field'));
-                    });
+                wrap.addEventListener('input', function(ev) {
+                    const name = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-field');
+                    if (name) F.clearError(wrap, name, P);
+                });
+                wrap.addEventListener('change', function(ev) {
+                    const name = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-field');
+                    if (name) F.clearError(wrap, name, P);
                 });
 
-                gateForm.addEventListener('submit', async function(ev) {
-                    ev.preventDefault();
-                    clearAllErrors();
-                    const submitBtn = wrap.querySelector('.bitbot-chat-gate-submit');
+                function setBusy(busy) {
+                    submitBtn.disabled = busy;
+                    backBtn.disabled = busy;
+                    submitBtn.textContent = busy ? GATE_COPY.submitting : GATE_COPY.submit;
+                    gateForm.setAttribute('aria-busy', busy ? 'true' : 'false');
+                }
+                function focusFirstError(errors) {
+                    const f = fields.filter(function(x) { return errors[x.name]; })[0];
+                    const el = f && wrap.querySelector('[data-field="' + f.name + '"]');
+                    if (el) el.focus();
+                }
+                function fail(fieldName, message) {
+                    setBusy(false);
+                    if (!F.showError(wrap, fieldName, message, P)) F.showError(wrap, 'email', message, P);
+                }
 
-                    const inputs = wrap.querySelectorAll('input[data-field]');
-                    const values = {};
-                    inputs.forEach(function(el) { values[el.getAttribute('data-field')] = (el.value || '').trim(); });
+                backBtn.addEventListener('click', function() {
+                    if (backBtn.disabled) return;
+                    wrap.remove();
+                    pending.remove();
+                    gateOpen = false;
+                    clearGateState();   // a resend gets a fresh key
+                    setComposerLocked(false);
+                    input.value = heldMessage;
+                    input.focus();
+                });
 
-                    // Everything beyond the four standard fields is a custom
-                    // answer; send it under `answers` keyed by field name so
-                    // the backend stores it and the Responses table can show it.
-                    const STANDARD_FIELDS = { name: 1, email: 1, phone: 1, message: 1 };
-                    const answers = {};
-                    Object.keys(values).forEach(function(k) {
-                        if (!STANDARD_FIELDS[k] && values[k]) answers[k] = values[k];
-                    });
-
-                    // Client-side gate: catch obvious bad input before
-                    // burning a server round-trip. Backend still
-                    // double-checks since the API is callable directly.
-                    if (!values.name) {
-                        showFieldError('name', 'Please enter your name.');
-                        return;
-                    }
-                    if (!values.email || !EMAIL_RE.test(values.email)) {
-                        showFieldError('email', 'Please enter a valid email address.');
-                        return;
-                    }
-
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Submitting…';
-
+                // POST the body and, on success, release the held message.
+                async function send(body) {
+                    setBusy(true);
+                    // Marked before the request: if the page dies mid-flight the
+                    // next load retries this exact body with the same key.
+                    writeGateState({ held: heldMessage, key: submissionKey, submitted: true, body: body });
                     try {
                         const res = await fetch(config.restUrl + '/form-submit', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                formId:    gateFormId,
-                                name:      values.name  || '',
-                                email:     values.email || '',
-                                phone:     values.phone || '',
-                                message:   heldMessage,
-                                // Visitor session — lets the backend
-                                // link this lead to the conversation
-                                // that the next sendMessage will
-                                // populate, so the lead detail panel
-                                // can render the chat transcript card.
-                                // Use getSessionId() not the bare var
-                                // — sessionId is lazily populated and
-                                // is null until the first chat-send
-                                // or this very call.
-                                sessionId: getSessionId(),
-                                answers: answers,
-                            }),
+                            body: JSON.stringify(body),
                         });
-                        const body = await res.json();
-                        if (!res.ok || (body && body.error)) {
-                            submitBtn.disabled = false;
-                            submitBtn.textContent = 'Submit';
-                            // Map server-side error to the offending
-                            // field if the response told us which one.
-                            // Falls back to the email row when shape
-                            // is missing because that's the only field
-                            // the server validates beyond "empty".
-                            const msg = (body && body.error) ? body.error : 'Something went wrong. Please try again.';
-                            const fieldName = (body && body.field) ? body.field : 'email';
-                            showFieldError(fieldName, msg);
+                        const resBody = await res.json();
+                        if (!res.ok || (resBody && resBody.error)) {
+                            // A real answer: nothing is in flight any more.
+                            writeGateState({ held: heldMessage, key: submissionKey, submitted: false, body: null });
+                            fail((resBody && resBody.field) ? resBody.field : 'email',
+                                (resBody && resBody.error) ? resBody.error : GATE_COPY.genericError);
                             return;
                         }
                     } catch (e) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Submit';
-                        showFieldError('email', 'Network error. Please try again.');
+                        // No answer: the marker stays so a reload retries with the same key.
+                        fail('email', GATE_COPY.networkError);
                         return;
                     }
 
-                    try { sessionStorage.setItem('bitbot-chat-gate-done', '1'); } catch (e) {}
+                    gateDone = true;
+                    chatGateHold = null;
+                    form.removeEventListener('submit', gateHandler, true);
                     wrap.remove();
-                    // Now release the held message: render it into the
-                    // visible thread and send it through the normal
-                    // chat path so the bot replies.
+                    pending.remove();
+                    gateOpen = false;
+                    setComposerLocked(false);
+                    // Release the held message: render it and send it through
+                    // the normal chat path so the bot replies. It is saved into
+                    // the chat transcript first; only then is the gate state
+                    // cleared, so a reload at any earlier point still has it.
                     addMessage(heldMessage, 'user');
                     chatHistory.push({ role: 'user', content: heldMessage });
+                    saveChatState();
+                    try { sessionStorage.setItem('bitbot-chat-gate-done', '1'); } catch (e) {}
+                    clearGateState();
                     sendMessage(heldMessage);
+                }
+
+                gateForm.addEventListener('submit', function(ev) {
+                    ev.preventDefault();
+                    if (submitBtn.disabled) return;
+                    clearAll();
+                    const values = F.readValues(wrap, fields);
+                    const check = F.validate(fields, values);
+                    if (!check.valid) {
+                        Object.keys(check.errors).forEach(function(n) { F.showError(wrap, n, check.errors[n], P); });
+                        focusFirstError(check.errors);
+                        return;
+                    }
+                    send(F.buildSubmitBody({
+                        formId: gateFormId,
+                        payload: F.toPayload(fields, values),
+                        heldMessage: heldMessage,
+                        // getSessionId(), not the bare var: it is lazily
+                        // populated, null until the first send or this call.
+                        sessionId: getSessionId(),
+                        submissionKey: submissionKey
+                    }));
                 });
 
-                cancelBtn.addEventListener('click', function() {
-                    // Cancel = collapse widget back to FAB. Held message
-                    // is dropped. Session flag stays unset so the gate
-                    // re-prompts on the visitor's next first message.
-                    wrap.remove();
-                    if (chat && chat.style.display !== 'none' && typeof toggleChat === 'function') {
-                        toggleChat();
-                    }
-                });
+                // Reload retry: the response to this body was lost, send it again.
+                if (retryBody) send(retryBody);
             }
 
-            // Intercept the first submit: capture the typed value before
-            // the normal handler echoes / sends it. We use capture-phase
-            // so we run before the inner submit handler.
-            form.addEventListener('submit', function gateHandler(ev) {
-                // Once the session has the gate-done flag, this listener
-                // is effectively inert because we exited up top. But we
-                // also self-detach after first use to be safe.
-                let done = false;
-                try { done = sessionStorage.getItem('bitbot-chat-gate-done') === '1'; } catch (e) {}
-                if (done) {
-                    form.removeEventListener('submit', gateHandler, true);
+            // Composer lock while the form is open: no second message can be
+            // typed or sent behind the gate.
+            function setComposerLocked(locked) {
+                input.disabled = locked;
+                const sendBtn = form.querySelector('button[type="submit"]');
+                if (sendBtn) sendBtn.disabled = locked;
+            }
+
+            // Hold a message (typed or a chip). Returns true when the gate took it.
+            function hold(text) {
+                if (gateDone) return false;
+                if (gateOpen) return true;  // swallow: a form is already waiting
+                openGate(text);
+                return true;
+            }
+            chatGateHold = hold;
+
+            // After a reload: reopen the gate with the same held message and
+            // key, or retry a submission whose response was lost. Called once
+            // the chat transcript has been rehydrated (that wipes the panel).
+            chatGateRestore = function() {
+                const state = readGateState();
+                if (!state || gateDone || gateOpen) return;
+                if (!isOpen) toggleChat();
+                openGate(state.held, state.key, state.submitted && state.body ? state.body : null);
+            };
+
+            // Capture phase, so this runs before the normal send handler.
+            function gateHandler(ev) {
+                if (gateDone) return;
+                const value = (input.value || '').trim();
+                if (gateOpen) {
+                    ev.preventDefault();
+                    ev.stopImmediatePropagation();
                     return;
                 }
-                const value = (input.value || '').trim();
-                if (!value) return;  // empty submit — let it fall through
+                if (!value) return;  // empty submit: let it fall through
                 ev.preventDefault();
                 ev.stopImmediatePropagation();
                 input.value = '';
-                form.removeEventListener('submit', gateHandler, true);
-                renderGate(value);
-            }, true);
-
-            function escapeHtml(s) {
-                return String(s == null ? '' : s)
-                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                hold(value);
             }
+            form.addEventListener('submit', gateHandler, true);
         })();
 
         // 1.9.0: suggested-question chips (8e). Render below welcome
         // message, hide on first visitor turn (whether they typed or
         // clicked a chip). Each click submits the chip's message as if
         // typed — same path as a normal send.
-        const suggestedQuestions = Array.isArray(config.suggestedQuestions) ? config.suggestedQuestions : [];
-        if (suggestedQuestions.length > 0 && messages) {
-            const chipBar = document.createElement('div');
-            chipBar.className = 'bitbot-chips';
-            chipBar.setAttribute('role', 'group');
-            chipBar.setAttribute('aria-label', 'Suggested questions');
-            suggestedQuestions.forEach(function(q) {
-                if (!q || (!q.label && !q.message)) return;
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'bitbot-chip';
-                btn.textContent = q.label || q.message;
-                btn.addEventListener('click', function() {
-                    // Hide entire chip bar on the first click.
-                    chipBar.style.display = 'none';
-                    const payload = (q.message || q.label || '').trim();
-                    if (payload) {
-                        addMessage(payload, 'user');
-                        chatHistory.push({ role: 'user', content: payload });
-                        sendMessage(payload);
-                    }
-                });
-                chipBar.appendChild(btn);
-            });
-            messages.appendChild(chipBar);
-
-            // Also hide on first typed-send (use the form submit listener
-            // already wired below by capturing here, not the cleanest but
-            // avoids cross-cutting state).
-            if (form) {
-                form.addEventListener('submit', function() {
-                    chipBar.style.display = 'none';
-                }, { once: true });
-            }
+        suggestedQuestions = Array.isArray(config.suggestedQuestions) ? config.suggestedQuestions : [];
+        renderChips(suggestedQuestions);
+        // Hide on first typed-send (cross-cutting state kept here, not in the
+        // form handler below).
+        if (form && chipBar) {
+            form.addEventListener('submit', function() {
+                if (chipBar) chipBar.style.display = 'none';
+            }, { once: true });
         }
 
         // 1.9.0: apply custom placeholder if admin has set one in Settings.
@@ -1106,6 +1141,10 @@
         if (form) {
             form.addEventListener('submit', handleSubmit);
         }
+
+        attachLanguage();
+        attachVoiceCall();
+        attachWhatsApp();
 
         // Close on escape
         document.addEventListener('keydown', function(e) {
@@ -1147,6 +1186,10 @@
                 toggleChat();
             }
         }
+
+        // A reload mid-form: bring the gate back (after the transcript replay
+        // above, which rebuilds the panel).
+        if (chatGateRestore) chatGateRestore();
 
         // Presence: heartbeat while visible + leave beacon on unload.
         // This only matters once there's a conversation (so we gate
@@ -1236,6 +1279,322 @@
         }
     }
 
+
+    /**
+     * Language picker. The globe shows only when the owner offers more than one
+     * language (config.languages). The pick is kept per visitor and sent with
+     * every chat message (the default reply language) and with a call start
+     * (binding). Logic lives in widget-language.js (unit tested).
+     */
+    var languageControl = null;
+    // The live voice call, so closing the chat can hang up (set in attachVoiceCall).
+    var voiceCall = null;
+
+    // Renders (or re-renders) the chip bar from a list of { label, message }.
+    // First paint uses the owner's list; a language pick calls this again
+    // with the picked language's questions.
+    function renderChips(list) {
+        if (chipBar && chipBar.parentNode) chipBar.parentNode.removeChild(chipBar);
+        chipBar = null;
+        if (!messages || !Array.isArray(list) || list.length === 0) return;
+        const bar = document.createElement('div');
+        bar.className = 'bitbot-chips';
+        bar.setAttribute('role', 'group');
+        bar.setAttribute('aria-label', 'Suggested questions');
+        list.forEach(function(q) {
+            if (!q || (!q.label && !q.message)) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'bitbot-chip';
+            btn.textContent = q.label || q.message;
+            btn.addEventListener('click', function() {
+                const payload = (q.message || q.label || '').trim();
+                // A chip is a first message too: the pre-chat gate takes it.
+                if (payload && chatGateHold && chatGateHold(payload)) return;
+                // Hide entire chip bar on the first click.
+                bar.style.display = 'none';
+                if (payload) {
+                    addMessage(payload, 'user');
+                    chatHistory.push({ role: 'user', content: payload });
+                    sendMessage(payload);
+                }
+            });
+            bar.appendChild(btn);
+        });
+        messages.appendChild(bar);
+        chipBar = bar;
+    }
+
+    function attachLanguage() {
+        const L = window.BitBotLanguage;
+        const wrap = widgetRoot.getElementById('bitbot-lang');
+        const btn = widgetRoot.getElementById('bitbot-lang-btn');
+        const menu = widgetRoot.getElementById('bitbot-lang-menu');
+        if (!L || !wrap || !btn || !menu) return;
+        let storage = null;
+        try { storage = window.localStorage; } catch (e) { storage = null; }
+        const control = L.createLanguageControl({
+            languages: config.languages,
+            siteCode: config.languageCode,
+            storage: storage
+        });
+        if (!control.isEnabled()) return;
+        languageControl = control;
+
+        // Title and welcome message follow the pick. The base text is what the
+        // page rendered; the welcome bubble only changes while nothing has
+        // been sent, so a running conversation is never rewritten.
+        const titleEl = widgetRoot.querySelector('.bitbot-title');
+        const pillLabelEl = widgetRoot.querySelector('.bitbot-pill-label');
+        const welcomeEl = widgetRoot.querySelector('.bitbot-welcome .bitbot-message-content');
+        const base = {
+            title: titleEl ? titleEl.textContent : '',
+            welcome: welcomeEl ? welcomeEl.textContent.trim() : '',
+            questions: suggestedQuestions.map(function (q) { return q && (q.label || q.message) || ''; }),
+            placeholder: input ? (input.getAttribute('placeholder') || '') : ''
+        };
+        function applyCopy() {
+            const c = L.copyFor(control.current(), config.copy, base);
+            if (titleEl && c.title) titleEl.textContent = c.title;
+            if (pillLabelEl && c.title) pillLabelEl.textContent = c.title;
+            if (input && c.placeholder) input.setAttribute('placeholder', c.placeholder);
+            if (welcomeEl && c.welcome && chatHistory.length === 0 && welcomeEl.isConnected) {
+                welcomeEl.textContent = c.welcome;
+            }
+            if (chatHistory.length === 0 && c.questions.length > 0) {
+                // Same renderer as first paint. A question equal to a base chip
+                // label keeps that chip's message; others send their own text.
+                renderChips(c.questions.map(function (text) {
+                    const hit = suggestedQuestions.filter(function (q) { return q && q.label === text; })[0];
+                    return hit || { label: text, message: text };
+                }));
+            }
+        }
+        applyCopy();
+
+        function setOpen(open) {
+            menu.hidden = !open;
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+
+        const codeEl = widgetRoot.getElementById('bitbot-lang-code');
+
+        function render() {
+            menu.textContent = '';
+            const active = control.current();
+            // The pill shows the current pick as its code (EN, HI); the menu
+            // carries the native names. A flag would be wrong: six of the
+            // languages on offer share one flag.
+            if (codeEl) codeEl.textContent = active.toUpperCase();
+            control.options().forEach(function (lang) {
+                const li = document.createElement('li');
+                li.setAttribute('role', 'presentation');
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'bitbot-lang-item';
+                item.setAttribute('dir', 'auto');
+                item.setAttribute('role', 'option');
+                item.setAttribute('aria-selected', lang.code === active ? 'true' : 'false');
+                item.lang = lang.code;
+                item.textContent = lang.native || lang.name || lang.code;
+                item.addEventListener('click', function () {
+                    control.pick(lang.code);
+                    applyCopy();
+                    render();
+                    btn.title = control.label(control.current());
+                    setOpen(false);
+                    btn.focus();
+                });
+                li.appendChild(item);
+                menu.appendChild(li);
+            });
+        }
+
+        render();
+        btn.title = control.label(control.current());
+        wrap.hidden = false;
+        btn.addEventListener('click', function () { setOpen(menu.hidden); });
+        // Click elsewhere in the chat, or Escape, closes the menu.
+        chat.addEventListener('click', function (e) {
+            if (!menu.hidden && !wrap.contains(e.target)) setOpen(false);
+        });
+        wrap.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !menu.hidden) {
+                e.stopPropagation();
+                setOpen(false);
+                btn.focus();
+            }
+        });
+        // The pick binds a call when it starts, so it cannot change mid-call.
+        languageLockHook = function (locked) {
+            btn.disabled = locked;
+            if (locked) setOpen(false);
+        };
+    }
+
+    var languageLockHook = null;
+
+    function currentLanguagePick() {
+        return languageControl ? languageControl.current() : '';
+    }
+
+    /**
+     * WhatsApp click-to-chat. The header button shows only when the owner set a
+     * number and turned the switch on (config.whatsappNumber, digits). The
+     * pre-filled text names the site. Logic lives in widget-whatsapp.js
+     * (unit tested).
+     */
+    function attachWhatsApp() {
+        const wa = widgetRoot.getElementById('bitbot-whatsapp');
+        const W = window.BitBotWhatsApp;
+        if (!wa || !W || !W.digitsOnly(config.whatsappNumber)) return;
+        wa.hidden = false;
+        wa.href = W.headerLink(config.whatsappNumber, config.siteName);
+    }
+
+    /** Add the inline WhatsApp button to the bot reply just rendered, when it applies. */
+    function maybeAddWhatsAppInline(visitorMessage, reply) {
+        const W = window.BitBotWhatsApp;
+        if (!W || !W.shouldOfferInline({
+            number: config.whatsappNumber,
+            suggestContact: !!reply.suggest_contact,
+            liveMode: !!reply.live_mode,
+            visitorMessage: visitorMessage,
+        })) return;
+        const last = messages.lastElementChild;
+        if (!last || !last.classList.contains('bitbot-bot')) return;
+        const a = document.createElement('a');
+        a.className = 'bitbot-whatsapp-inline';
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.href = W.questionLink(config.whatsappNumber, config.siteName, visitorMessage);
+        a.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm4.52 11.99c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.5.11-.11.25-.29.37-.43.12-.14.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.23.25-.87.85-.87 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.14-1.18-.06-.1-.23-.16-.48-.29z"/></svg><span>Chat with us on WhatsApp</span>';
+        last.appendChild(a);
+        scrollToBottom();
+    }
+
+    /**
+     * Voice calls (Habitat). Shown only when the site owner turned the
+     * "Voice calls" switch on (config.voiceCallsEnabled). The call logic lives
+     * in widget-voice.js (unit tested); this wires it to the widget's DOM and
+     * reuses addMessage() so call lines look like every other message.
+     */
+    function attachVoiceCall() {
+        const callBtn = widgetRoot.getElementById('bitbot-call');
+        const bar = widgetRoot.getElementById('bitbot-call-bar');
+        const statusEl = widgetRoot.getElementById('bitbot-call-status');
+        const hangupBtn = widgetRoot.getElementById('bitbot-hangup');
+        if (!config.voiceCallsEnabled || !window.BitBotVoice || !callBtn || !bar || !hangupBtn) return;
+
+        // 'thinking' is ours (widget-voice.js): the visitor has finished and the
+        // answer is on its way, so the caller can tell the turn has ended.
+        const STATE_WORDS = { connecting: 'Connecting...', listening: 'Listening', thinking: 'Thinking...', speaking: 'Talking' };
+        const lineEls = {};
+        const lineHistoryIdx = {};
+        const lineCitations = {};
+
+        function loadScript(url) {
+            return new Promise(function (resolve, reject) {
+                const el = document.createElement('script');
+                el.src = url;
+                el.async = true;
+                el.onload = function () { resolve(); };
+                el.onerror = function () { reject(new Error('voice script failed to load')); };
+                document.head.appendChild(el);
+            });
+        }
+
+        const call = window.BitBotVoice.createVoiceCall({
+            restUrl: config.restUrl,
+            getVisitorId: getVisitorId,
+            getLanguage: currentLanguagePick,
+            fetch: function (url, init) { return window.fetch(url, init); },
+            loadScript: loadScript,
+            getHabitatVoice: function () { return window.HabitatVoice; },
+            // Links of the answer just spoken, from the site's REST route. The
+            // caller treats any failure as "nothing to show".
+            fetchLinks: function (sessionId, afterTurnId) {
+                const url = config.restUrl.replace(/\/+$/, '') + '/voice-call/links?session=' + encodeURIComponent(sessionId) +
+                    (afterTurnId ? '&after=' + encodeURIComponent(afterTurnId) : '') +
+                    // A page cache must never replay an earlier (empty) reply for the same URL.
+                    '&_=' + Date.now();
+                return window.fetch(url, { cache: 'no-store' }).then(function (res) { return res.json(); }).then(function (json) {
+                    return json && json.success && json.data ? json.data : null;
+                });
+            },
+            // The welcome line for the visitor's language: the call opens by
+            // speaking it, and the bubble is already on screen.
+            getGreeting: function () {
+                const L = window.BitBotLanguage;
+                const welcomeEl = widgetRoot.querySelector('.bitbot-welcome .bitbot-message-content');
+                const shown = welcomeEl ? welcomeEl.textContent.trim() : '';
+                if (L && languageControl && config.copy) {
+                    const c = L.copyFor(languageControl.current(), config.copy, { welcome: shown });
+                    if (c && c.welcome) return c.welcome;
+                }
+                return shown;
+            },
+            ui: {
+                setState: function (state) { statusEl.textContent = STATE_WORDS[state] || ''; },
+                setInCall: function (inCall) {
+                    bar.hidden = !inCall;
+                    callBtn.disabled = inCall;
+                    if (languageLockHook) languageLockHook(inCall);
+                    if (!inCall) statusEl.textContent = '';
+                },
+                showError: function (text) { addMessage(text, 'bot'); },
+                upsertLine: function (key, role, text, final) {
+                    const sender = role === 'bot' ? 'bot' : 'user';
+                    let el = lineEls[key];
+                    if (!el) {
+                        addMessage(text, sender);
+                        el = messages.lastElementChild;
+                        lineEls[key] = el;
+                    } else {
+                        const content = el.querySelector('.bitbot-message-content');
+                        if (content) content.textContent = text;
+                        scrollToBottom();
+                    }
+                    if (el) el.classList.toggle('bitbot-interim', !final);
+                    if (final) {
+                        // A streamed answer finalises one sentence at a time under
+                        // the same key: the bubble and its history entry grow in
+                        // place rather than repeating.
+                        const entry = { role: sender === 'bot' ? 'assistant' : 'user', content: text };
+                        if (lineCitations[key]) entry.citations = lineCitations[key];
+                        if (lineHistoryIdx[key] !== undefined && chatHistory[lineHistoryIdx[key]]) {
+                            chatHistory[lineHistoryIdx[key]] = entry;
+                        } else {
+                            lineHistoryIdx[key] = chatHistory.push(entry) - 1;
+                        }
+                        saveChatState();
+                    }
+                },
+                attachCitations: function (key, citations) {
+                    const el = lineEls[key];
+                    if (!el || !citations || citations.length === 0) return;
+                    const old = el.querySelector('.bitbot-citations');
+                    if (old) old.remove();
+                    el.insertAdjacentHTML('beforeend', citationsHtml(citations));
+                    lineCitations[key] = citations;
+                    const idx = lineHistoryIdx[key];
+                    if (idx !== undefined && chatHistory[idx]) {
+                        chatHistory[idx] = Object.assign({}, chatHistory[idx], { citations: citations });
+                        saveChatState();
+                    }
+                    scrollToBottom();
+                }
+            }
+        });
+
+        voiceCall = call;
+        callBtn.hidden = false;
+        callBtn.addEventListener('click', function () { call.start(); });
+        hangupBtn.addEventListener('click', function () { call.hangUp(); });
+        // Leaving the page ends the call; do not leave a live mic behind.
+        window.addEventListener('pagehide', function () { if (call.isActive()) call.hangUp(); });
+    }
+
     /**
      * Toggle chat window
      */
@@ -1244,15 +1603,19 @@
 
         const iconChat = toggle.querySelector('.bitbot-icon-chat');
         const iconClose = toggle.querySelector('.bitbot-icon-close');
+        var stateRoot = widgetRoot.querySelector('.bitbot-widget');
+        if (stateRoot) stateRoot.classList.toggle('bitbot-open', isOpen);
 
         if (isOpen) {
             chat.style.display = 'flex';
-            if (iconChat) iconChat.style.display = 'none';
+            if (iconChat) iconChat.style.setProperty('display', 'none', 'important');
             if (iconClose) iconClose.style.display = 'block';
             if (input) input.focus();
         } else {
+            // Closing the chat ends a live call: a hidden widget must never keep a microphone open.
+            if (voiceCall && voiceCall.isActive()) voiceCall.hangUp();
             chat.style.display = 'none';
-            if (iconChat) iconChat.style.display = 'block';
+            if (iconChat) iconChat.style.removeProperty('display');
             if (iconClose) iconClose.style.display = 'none';
         }
 
@@ -1288,33 +1651,56 @@
         showTypingIndicator();
 
         try {
-            const response = await fetch(config.restUrl + '/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    message: message,
-                    history: chatHistory.slice(-CHAT_SEND_MAX),
-                    sessionId: getSessionId(),
-                    visitorId: getVisitorId(),
-                    // 1.7.0: visitor's IANA timezone so appointment slots +
-                    // confirmations render in their local time rather than the
-                    // site owner's.
-                    visitorTimezone: getVisitorTimezone(),
-                    siteLanguage: config.languageCode || 'en',  // Pass site language
-                    // 1.9.0 Feature 8i custom copy bundle (server-side
-                    // consumers). Empty strings tell the backend to use
-                    // built-in agent defaults. Backend ignores unknown
-                    // fields, so pre-1.9 deploys are forward-compatible.
-                    fallbackMessage: (config.fallbackMessage || '').trim(),
-                    leadCapturePrompt: (config.leadCapturePrompt || '').trim(),
-                })
-            });
+            const history = chatHistory.slice(-CHAT_SEND_MAX);
+            const common = {
+                message: message,
+                history: history,
+                sessionId: getSessionId(),
+                visitorId: getVisitorId(),
+                // 1.7.0: visitor's IANA timezone so appointment slots +
+                // confirmations render in their local time rather than the
+                // site owner's.
+                visitorTimezone: getVisitorTimezone(),
+                siteLanguage: config.languageCode || 'en',  // Pass site language
+                // The visitor's pick (only when the owner offers a choice):
+                // the default reply language. '' means no pick.
+                language: currentLanguagePick()
+            };
 
-            const data = await response.json();
+            // Streamed answer straight from the backend. Anything short of a
+            // settled answer (or a failure after text was shown) falls through
+            // to the REST call below, silently.
+            let data = null;
+            if (canStream()) {
+                const streamed = await streamChat(common);
+                if (streamed.kind === 'done') {
+                    data = { success: true, data: streamed.data };
+                } else if (streamed.kind === 'error') {
+                    data = { success: false, error: streamed.error };
+                }
+            }
+
+            if (!data) {
+                const response = await fetch(config.restUrl + '/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(Object.assign({}, common, {
+                        // 1.9.0 Feature 8i custom copy bundle (server-side
+                        // consumers). Empty strings tell the backend to use
+                        // built-in agent defaults. Backend ignores unknown
+                        // fields, so pre-1.9 deploys are forward-compatible.
+                        fallbackMessage: (config.fallbackMessage || '').trim(),
+                        leadCapturePrompt: (config.leadCapturePrompt || '').trim()
+                    }))
+                });
+
+                data = await response.json();
+            }
 
             hideTypingIndicator();
+            removeStreamBubble();
 
             if (data.success) {
                 // Only render an agent-side message if the backend actually
@@ -1322,6 +1708,10 @@
                 // because the agent stepped aside.
                 if (data.data.message && data.data.message.trim() !== '') {
                     addMessage(data.data.message, 'bot', data.data.citations, data.data.products);
+                    // WhatsApp: when the bot could not answer, the chat was handed
+                    // to a person, or the visitor asked for one, the reply carries
+                    // the same button, pre-filled with the visitor's own question.
+                    maybeAddWhatsAppInline(message, data.data);
                     // Persist citations + product cards alongside the
                     // text so back-nav rehydration restores the full
                     // bubble, not just the prose. Both fields are
@@ -1383,10 +1773,127 @@
             }
         } catch (error) {
             hideTypingIndicator();
+            removeStreamBubble();
             addMessage('Sorry, I couldn\'t connect to the server. Please try again later.', 'bot');
         }
 
         isLoading = false;
+    }
+
+    // ---- Streamed answers (logic in widget-stream.js) ----------------------
+
+    /** True when this browser and this config can take the streamed answer. */
+    function canStream() {
+        return !!(window.BitBotStream && config.streamUrl && config.streamTicket &&
+            typeof window.ReadableStream !== 'undefined' && typeof window.TextDecoder !== 'undefined');
+    }
+
+    /** Asks the uncacheable config endpoint for a fresh ticket. Resolves true when it got one. */
+    function refreshStreamTicket() {
+        var base = (config.restUrl || '').replace(/\/+$/, '');
+        if (!base) return Promise.resolve(false);
+        return fetch(base + '/widget-config?_=' + Date.now(), { cache: 'no-store', credentials: 'omit' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (fresh) {
+                if (!fresh || !fresh.streamTicket) return false;
+                config.streamTicket = fresh.streamTicket;
+                if (fresh.streamUrl) config.streamUrl = fresh.streamUrl;
+                return true;
+            })
+            .catch(function () { return false; });
+    }
+
+    /**
+     * Streams one answer. Resolves { kind: 'done', data } with the settled
+     * answer, { kind: 'error', error } when the turn failed after text was
+     * shown, or { kind: 'fallback' } when nothing was shown and the REST call
+     * should answer instead. An expired ticket is refreshed once first.
+     */
+    async function streamChat(common) {
+        var outcome = await streamOnce(common);
+        if (outcome.kind === 'expired') {
+            outcome = (await refreshStreamTicket()) ? await streamOnce(common) : outcome;
+        }
+        return outcome.kind === 'expired' ? { kind: 'fallback' } : outcome;
+    }
+
+    async function streamOnce(common) {
+        var Stream = window.BitBotStream;
+        var response;
+        try {
+            response = await fetch(config.streamUrl, {
+                method: 'POST',
+                mode: 'cors',
+                credentials: 'omit',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' },
+                body: JSON.stringify({
+                    ticket: config.streamTicket,
+                    message: common.message,
+                    history: common.history,
+                    sessionId: common.sessionId,
+                    visitorId: common.visitorId,
+                    visitorTimezone: common.visitorTimezone,
+                    language: common.language,
+                    siteLanguage: common.siteLanguage
+                })
+            });
+        } catch (e) {
+            return { kind: 'fallback' };
+        }
+        if (response.status === 401) return { kind: 'expired' };
+        if (!response.ok || !response.body || typeof response.body.getReader !== 'function' ||
+            !Stream.isNdjson(response.headers.get('Content-Type'))) {
+            return { kind: 'fallback' };
+        }
+
+        var assembler = Stream.createAssembler();
+        try {
+            await Stream.consume(response.body.getReader(), new TextDecoder(), function (record) {
+                var action = assembler.apply(record);
+                if (action === 'text') {
+                    showStreamText(assembler.state.text);
+                } else if (action === 'reset') {
+                    resetStreamBubble();
+                }
+            });
+        } catch (e) {
+            if (streamBubble) throw e;
+            return { kind: 'fallback' };
+        }
+
+        if (assembler.state.done) return { kind: 'done', data: assembler.state.data };
+        if (assembler.state.error !== null && streamBubble) return { kind: 'error', error: assembler.state.error };
+        if (streamBubble) throw new Error('stream ended early');
+        return { kind: 'fallback' };
+    }
+
+    /** Shows the text so far in the streaming bubble, creating it on the first text. */
+    function showStreamText(text) {
+        if (!streamBubble) {
+            hideTypingIndicator();
+            streamBubble = document.createElement('div');
+            streamBubble.className = 'bitbot-message bitbot-bot';
+            streamContent = document.createElement('div');
+            streamContent.className = 'bitbot-message-content';
+            // Plain text while it streams; the settled answer is rendered with markdown.
+            streamContent.style.whiteSpace = 'pre-wrap';
+            streamBubble.appendChild(streamContent);
+            messages.appendChild(streamBubble);
+        }
+        streamContent.textContent = text;
+        scrollToBottom();
+    }
+
+    /** The text so far is not the answer (the agent moved on to a tool): back to the typing dots. */
+    function resetStreamBubble() {
+        removeStreamBubble();
+        if (!widgetRoot.getElementById('bitbot-typing-indicator')) showTypingIndicator();
+    }
+
+    function removeStreamBubble() {
+        if (streamBubble && streamBubble.parentNode) streamBubble.parentNode.removeChild(streamBubble);
+        streamBubble = null;
+        streamContent = null;
     }
 
     /**
@@ -1515,6 +2022,28 @@
     }
 
     /**
+     * "Related pages" chips under a bot bubble. Shared by typed answers
+     * (addMessage) and spoken answers (voice attachCitations).
+     */
+    function citationsHtml(citations) {
+        if (!citations || citations.length === 0) return '';
+        let html = '<div class="bitbot-citations">';
+        html += '<div class="bitbot-citations-title">Related pages:</div>';
+
+        citations.forEach(function(citation) {
+            let url = citation.url;
+            if (citation.anchorId) {
+                url += '#' + citation.anchorId;
+            }
+            html += '<a href="' + escapeHtml(url) + '" class="bitbot-citation-link" target="_blank" rel="noopener noreferrer">';
+            html += escapeHtml(citation.title || citation.url);
+            html += '</a>';
+        });
+
+        return html + '</div>';
+    }
+
+    /**
      * Add message to chat
      */
     function addMessage(content, sender, citations, products) {
@@ -1536,22 +2065,7 @@
         let html = '<div class="bitbot-message-content">' + formattedContent + '</div>';
 
         // Add citations if present
-        if (citations && citations.length > 0) {
-            html += '<div class="bitbot-citations">';
-            html += '<div class="bitbot-citations-title">Related pages:</div>';
-
-            citations.forEach(function(citation) {
-                let url = citation.url;
-                if (citation.anchorId) {
-                    url += '#' + citation.anchorId;
-                }
-                html += '<a href="' + escapeHtml(url) + '" class="bitbot-citation-link" target="_blank" rel="noopener noreferrer">';
-                html += escapeHtml(citation.title || citation.url);
-                html += '</a>';
-            });
-
-            html += '</div>';
-        }
+        html += citationsHtml(citations);
 
         // Product cards from the Pro+ agent's `searchProducts` tool. Rendered
         // as a horizontal card strip so the visitor sees image + price + CTA
@@ -1674,7 +2188,14 @@
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (fresh) {
                 if (fresh && typeof fresh === 'object') {
-                    for (var k in fresh) { if (Object.prototype.hasOwnProperty.call(fresh, k)) config[k] = fresh[k]; }
+                    for (var k in fresh) {
+                        if (!Object.prototype.hasOwnProperty.call(fresh, k)) continue;
+                        // The page's own REST nonce stays: the runtime fetch is
+                        // anonymous (credentials omitted), so its nonce is the
+                        // logged-out one and would 403 an owner viewing their site.
+                        if (k === 'nonce' && config.nonce) continue;
+                        config[k] = fresh[k];
+                    }
                 }
             })
             .catch(function () { /* keep inlined config on any failure */ })
