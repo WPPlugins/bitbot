@@ -1504,6 +1504,13 @@
 
         const call = window.BitBotVoice.createVoiceCall({
             restUrl: config.restUrl,
+            // Direct start on the API with the page's stream ticket (same credential
+            // as streamed answers); the REST route is the fallback.
+            startUrl: config.streamUrl ? String(config.streamUrl).replace(/\?mode=widget$/, '?mode=voice-start') : '',
+            joinedUrl: config.streamUrl ? String(config.streamUrl).replace(/\?mode=widget$/, '?mode=voice-joined') : '',
+            getTicket: function () { return config.streamTicket || ''; },
+            refreshTicket: refreshStreamTicket,
+            getSiteLanguage: function () { return config.languageCode || ''; },
             getVisitorId: getVisitorId,
             getLanguage: currentLanguagePick,
             fetch: function (url, init) { return window.fetch(url, init); },
@@ -1541,6 +1548,13 @@
                     if (!inCall) statusEl.textContent = '';
                 },
                 showError: function (text) { addMessage(text, 'bot'); },
+                // A non-final line that is over (the silence countdown once someone speaks).
+                removeLine: function (key) {
+                    const el = lineEls[key];
+                    if (!el) return;
+                    el.remove();
+                    delete lineEls[key];
+                },
                 upsertLine: function (key, role, text, final) {
                     const sender = role === 'bot' ? 'bot' : 'user';
                     let el = lineEls[key];

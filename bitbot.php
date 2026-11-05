@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI text chat, voice calls, content tools and a leads inbox for your WordPress site.
- * Version:           2.2.1
+ * Version:           2.2.2
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -52,7 +52,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.2.1' );
+define( 'BITBOT_VERSION', '2.2.2' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.

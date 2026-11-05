@@ -5,7 +5,7 @@ Tags: chatbot, ai, voice, whatsapp, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.1
+Stable tag: 2.2.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,11 @@ Yes, inside WordPress, any time. Your plan stays active until the end of the bil
 9. Build a form in minutes and embed it anywhere with a shortcode.
 
 == Changelog ==
+
+= 2.2.2 =
+
+* Voice calls connect faster: the widget starts the call directly, and a call that was started but never joined no longer blocks the line.
+* A quiet call shows a countdown from 30 seconds and ends at 60, and ends on its own after a goodbye or a "thank you".
 
 = 2.2.1 =
 
@@ -255,6 +260,9 @@ Major release — BitBot grows from a chatbot into a full AI assistant for your 
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 2.2.2 =
+Faster voice call connection and cleaner call endings.
 
 = 2.2.1 =
 Invitation bubble and WhatsApp fixes, smoother Agent replies.

@@ -22,14 +22,16 @@
     // After the last final bot sentence, wait this long before asking for links.
     var LINKS_SETTLE_MS = 1500;
 
-    // A call with no sound either way: caption at 45 s, hang up at 75 s.
-    var IDLE_PROMPT_MS = 45000;
-    var IDLE_HANGUP_MS = 75000;
+    // A call with no sound either way: a counting-down caption from 30 s of
+    // silence, hang up at 60 s (owner, 2026-11-05). Speech from either side
+    // clears the caption and restarts the clock.
+    var IDLE_PROMPT_MS = 30000;
+    var IDLE_HANGUP_MS = 60000;
     var IDLE_TICK_MS = 1000;
     var IDLE_INTERIM_MIN_CHARS = 12;
 
     var MESSAGES = {
-        stillThere: 'Still there? The call ends in 30 seconds if it stays quiet.',
+        stillThere: 'Still there? The call ends in {n} {unit} if it stays quiet.',
         idleEnded: 'The call ended because it went quiet.',
         busy: 'Call lines are busy, try again shortly.',
         unavailable: 'Voice calls are not available right now.',
@@ -38,6 +40,11 @@
         interrupted: 'The call was interrupted. Please try again.',
         micDenied: 'Microphone access is needed for a call. Allow it in your browser and try again.'
     };
+
+    // The caption with the seconds left, re-drawn every second while quiet.
+    function stillThereText(secondsLeft) {
+        return MESSAGES.stillThere.replace('{n}', String(secondsLeft)).replace('{unit}', secondsLeft === 1 ? 'second' : 'seconds');
+    }
 
     function errorTextFor(code) {
         switch (code) {
@@ -139,6 +146,7 @@
 
         function markActivity(c) {
             c.lastActivityAt = nowMs();
+            if (c.idlePrompted && typeof deps.ui.removeLine === 'function') deps.ui.removeLine('idle-' + c.id);
             c.idlePrompted = false;
         }
 
@@ -155,9 +163,10 @@
                     deps.ui.showError(MESSAGES.idleEnded);
                     return;
                 }
-                if (quiet >= IDLE_PROMPT_MS && !c.idlePrompted && c.rawState === 'listening' && !c.awaiting) {
+                if (quiet >= IDLE_PROMPT_MS && c.rawState === 'listening' && !c.awaiting) {
+                    // Not final: the caption is a live countdown, never part of the transcript.
                     c.idlePrompted = true;
-                    deps.ui.upsertLine('idle-' + c.id, 'bot', MESSAGES.stillThere, true);
+                    deps.ui.upsertLine('idle-' + c.id, 'bot', stillThereText(Math.max(1, Math.ceil((IDLE_HANGUP_MS - quiet) / 1000))), false);
                 }
             }
             c.idleTimer = setTimer(function () { idleTick(c); }, IDLE_TICK_MS);
@@ -173,6 +182,9 @@
         function endCall(c) {
             if (cur !== c) return false;
             if (c.idleTimer) { clearTimer(c.idleTimer); c.idleTimer = null; }
+            // The countdown is a live caption; it leaves with the call.
+            if (c.idlePrompted && typeof deps.ui.removeLine === 'function') deps.ui.removeLine('idle-' + c.id);
+            c.idlePrompted = false;
             flushLinks(c);
             cur = null;
             deps.ui.setInCall(false);
@@ -189,6 +201,78 @@
             var language = typeof deps.getLanguage === 'function' ? deps.getLanguage() : '';
             if (language) body.language = language;
             return body;
+        }
+
+        // The session request. Direct to the API with the page's ticket when the
+        // config carries one (deps.startUrl + deps.getTicket): no hop through the
+        // site's WordPress, which cost 3 to 4 s on cheap hosts. Anything that is
+        // not a JSON answer from that route, or an invalid ticket, falls back to
+        // the site's REST route; an expired ticket is refreshed once first.
+        function viaRest(body) {
+            return deps.fetch(deps.restUrl.replace(/\/+$/, '') + '/voice-call/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function (res) { return res.json(); });
+        }
+        function viaDirect(body, retried) {
+            var payload = { ticket: deps.getTicket() };
+            for (var k in body) if (Object.prototype.hasOwnProperty.call(body, k)) payload[k] = body[k];
+            // The REST route builds the greeting on the server; here the widget sends
+            // the welcome line already on screen and the language it is in.
+            var greeting = typeof deps.getGreeting === 'function' ? deps.getGreeting() : '';
+            if (greeting) payload.greeting = greeting;
+            var greetingLanguage = body.language || (typeof deps.getSiteLanguage === 'function' ? deps.getSiteLanguage() : '');
+            if (greetingLanguage) payload.greetingLanguage = greetingLanguage;
+            var request;
+            try {
+                request = deps.fetch(deps.startUrl, {
+                    method: 'POST',
+                    mode: 'cors',
+                    credentials: 'omit',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (e) {
+                return viaRest(body);
+            }
+            return Promise.resolve(request)
+                .then(function (res) {
+                    return Promise.resolve(res.json()).then(function (json) { return { status: res.status, json: json }; });
+                })
+                .then(function (r) {
+                    if (r.status === 401) {
+                        var expired = r.json && r.json.code === 'ticket_expired';
+                        if (expired && !retried && typeof deps.refreshTicket === 'function') {
+                            return Promise.resolve(deps.refreshTicket()).then(function (ok) { return ok ? viaDirect(body, true) : viaRest(body); });
+                        }
+                        return viaRest(body);
+                    }
+                    return r.json;
+                }, function () { return viaRest(body); });
+        }
+        // Tells the API the browser is in the call (mode=voice-joined), so a
+        // caller who has joined but not spoken yet is never swept as abandoned.
+        // Fire-and-forget: nothing in the call waits on it.
+        function reportJoined(c) {
+            if (!c.sessionId || typeof deps.joinedUrl !== 'string' || !deps.joinedUrl || typeof deps.getTicket !== 'function') return;
+            var ticket = deps.getTicket();
+            if (!ticket) return;
+            try {
+                Promise.resolve(deps.fetch(deps.joinedUrl, {
+                    method: 'POST',
+                    mode: 'cors',
+                    credentials: 'omit',
+                    keepalive: true,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ticket: ticket, sessionId: c.sessionId })
+                })).catch(function () { /* best effort */ });
+            } catch (e) { /* best effort */ }
+        }
+        function requestSession() {
+            var body = startBody();
+            var direct = typeof deps.startUrl === 'string' && deps.startUrl && typeof deps.getTicket === 'function' && deps.getTicket();
+            return direct ? viaDirect(body, false) : viaRest(body);
         }
 
         function start() {
@@ -275,11 +359,7 @@
             var run = settled
                 .then(function () {
                     if (cur !== c) return null;
-                    return deps.fetch(deps.restUrl.replace(/\/+$/, '') + '/voice-call/start', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(startBody())
-                    }).then(function (res) { return res.json(); });
+                    return requestSession();
                 })
                 .then(function (json) {
                     if (cur !== c) return null;
@@ -314,6 +394,7 @@
                             c.joined = true;
                             // End arrived while the join was underway: release the mic now.
                             if (cur !== c) return leaveQuietly();
+                            reportJoined(c);
                         },
                         function (err) {
                             c.joining = false;
@@ -347,5 +428,5 @@
         return { start: start, hangUp: hangUp, isActive: function () { return cur !== null; } };
     }
 
-    return { createVoiceCall: createVoiceCall, errorTextFor: errorTextFor, MESSAGES: MESSAGES, LINKS_SETTLE_MS: LINKS_SETTLE_MS, IDLE_PROMPT_MS: IDLE_PROMPT_MS, IDLE_HANGUP_MS: IDLE_HANGUP_MS };
+    return { createVoiceCall: createVoiceCall, errorTextFor: errorTextFor, stillThereText: stillThereText, MESSAGES: MESSAGES, LINKS_SETTLE_MS: LINKS_SETTLE_MS, IDLE_PROMPT_MS: IDLE_PROMPT_MS, IDLE_HANGUP_MS: IDLE_HANGUP_MS };
 }));
