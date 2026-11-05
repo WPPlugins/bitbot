@@ -5,7 +5,7 @@ Tags: chatbot, ai, voice, whatsapp, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.0
+Stable tag: 2.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,12 @@ Yes, inside WordPress, any time. Your plan stays active until the end of the bil
 9. Build a form in minutes and embed it anywhere with a shortcode.
 
 == Changelog ==
+
+= 2.2.1 =
+
+* Invitation bubble: shows after the delay you set, slides in beside the chat button and gives it a short buzz. Pill style, no close button, fades out on its own.
+* WhatsApp: the opening message shows your site name correctly.
+* Agent: numbered lists render properly, replies format as they stream, and a reply no longer disappears while the agent is working.
 
 = 2.2.0 =
 
@@ -249,6 +255,9 @@ Major release — BitBot grows from a chatbot into a full AI assistant for your 
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 2.2.1 =
+Invitation bubble and WhatsApp fixes, smoother Agent replies.
 
 = 2.2.0 =
 Voice calls, improved Agent tools and widget updates, plus reliability fixes.

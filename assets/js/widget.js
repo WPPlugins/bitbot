@@ -632,12 +632,12 @@
         //     back to first page-aware rule or simpleText if backend errors)
         // One-shot per session; sessionStorage 'bitbot-nudge-shown'='1'.
         //
-        // 2.0.3: actually implement "inactivity" — the admin label promises
-        // "after N seconds of inactivity" but the original code was a flat
-        // setTimeout that fired regardless of what the visitor did, including
-        // opening the chat first. Now: reset the timer on user activity
-        // (mousemove, scroll, keydown, touch) and cancel it entirely once
-        // the chat opens. If the chat is already open at fire-time we skip.
+        // 2.2.4: the bubble shows N seconds after the visitor ARRIVES (the
+        // admin's "Show after"), whatever they are doing meanwhile. The 2.0.3
+        // "inactivity" reading reset the countdown on every mouse move and
+        // scroll, so a visitor reading the page never saw it (owner, 2026-11-05).
+        // It still never interrupts an open chat: cancelled the moment the
+        // chat opens, skipped if it is open at fire time. Once per session.
         (function attachNudge() {
             const nudge = config.nudge;
             if (!nudge || !nudge.enabled) return;
@@ -646,6 +646,8 @@
             } catch (e) {}
 
             const delayMs = (nudge.delaySeconds || 8) * 1000;
+            // How long an ignored bubble stays before it fades out.
+            const NUDGE_LINGER_MS = 12000;
             let timer = null;
             let cancelled = false;
             let currentBubble = null;
@@ -666,30 +668,43 @@
                     }
                 }
                 // simple OR rag-fallback OR page-aware-no-match
-                return nudge.simpleText || '';
+                // An enabled bubble with no message uses the default line the admin shows as its placeholder.
+                return nudge.simpleText || "Need a hand? I'm here to help.";
+            }
+
+            // The launcher buzzes as the bubble slides in beside it (class
+            // drives the keyframes in widget.css; removed when they end).
+            function buzzLauncher() {
+                if (!toggle) return;
+                toggle.classList.remove('bitbot-toggle-buzz');
+                void toggle.offsetWidth;
+                toggle.classList.add('bitbot-toggle-buzz');
+                toggle.addEventListener('animationend', function () { toggle.classList.remove('bitbot-toggle-buzz'); }, { once: true });
             }
 
             function showBubble(text) {
                 if (!text || !toggle) return;
                 try { sessionStorage.setItem('bitbot-nudge-shown', '1'); } catch (e) {}
+                buzzLauncher();
                 const bubble = document.createElement('div');
                 bubble.className = 'bitbot-nudge-bubble';
                 bubble.setAttribute('role', 'status');
-                bubble.textContent = text;
-                const close = document.createElement('button');
-                close.type = 'button';
-                close.className = 'bitbot-nudge-close';
-                close.setAttribute('aria-label', 'Dismiss');
-                close.textContent = '×';
-                close.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    bubble.remove();
-                });
+                // A pill holding just the line (no icon; owner, 2026-11-05).
+                const line = document.createElement('span');
+                line.className = 'bitbot-nudge-text';
+                line.textContent = text;
+                bubble.appendChild(line);
+                // No close button (owner, 2026-11-05): a click opens the chat,
+                // and an ignored bubble fades out by itself.
                 bubble.addEventListener('click', function() {
                     bubble.remove();
                     if (chat && chat.style.display === 'none') toggleChat();
                 });
-                bubble.appendChild(close);
+                setTimeout(function () {
+                    if (!bubble.isConnected) return;
+                    bubble.classList.add('bitbot-nudge-leaving');
+                    bubble.addEventListener('animationend', function () { bubble.remove(); }, { once: true });
+                }, NUDGE_LINGER_MS);
                 // 2.0.2: insert INSIDE the shadow root, not the light DOM.
                 // The previous "light DOM so the theme doesn't see inside
                 // the shadow root" comment had the encapsulation direction
@@ -717,32 +732,15 @@
                 // (via toggle, auto-open, or any programmatic path).
             }
 
-            function schedule() {
-                if (cancelled) return;
-                if (timer) clearTimeout(timer);
-                timer = setTimeout(fire, delayMs);
-            }
-
             function cancel(removeBubble) {
                 cancelled = true;
                 if (timer) { clearTimeout(timer); timer = null; }
-                document.removeEventListener('mousemove', schedule, true);
-                document.removeEventListener('scroll', schedule, true);
-                document.removeEventListener('keydown', schedule, true);
-                document.removeEventListener('touchstart', schedule, true);
                 if (chatObserver) { chatObserver.disconnect(); chatObserver = null; }
                 if (removeBubble && currentBubble) {
                     currentBubble.remove();
                     currentBubble = null;
                 }
             }
-
-            // Reset the countdown on any user activity — that's what
-            // "inactivity" actually means.
-            document.addEventListener('mousemove', schedule, { capture: true, passive: true });
-            document.addEventListener('scroll',    schedule, { capture: true, passive: true });
-            document.addEventListener('keydown',   schedule, { capture: true });
-            document.addEventListener('touchstart', schedule, { capture: true, passive: true });
 
             // Watch chat-panel display so we cancel/tear-down on ANY way
             // the chat opens — toggle click, auto-open delay/scroll/exit,
@@ -756,7 +754,7 @@
                 chatObserver.observe(chat, { attributes: true, attributeFilter: ['style'] });
             }
 
-            schedule();
+            timer = setTimeout(fire, delayMs);
         })();
 
         // 1.9.0: auto-open trigger (8g). Pro feature; opens the chat

@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI text chat, voice calls, content tools and a leads inbox for your WordPress site.
- * Version:           2.2.0
+ * Version:           2.2.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -52,7 +52,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.2.0' );
+define( 'BITBOT_VERSION', '2.2.1' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -2024,7 +2024,7 @@ class BitBot {
                 get_option( 'bitbot_whatsapp_number', '' ),
                 get_option( 'bitbot_whatsapp_enabled', '0' )
             ),
-            'siteName'             => wp_strip_all_tags( (string) get_option( 'blogname', '' ) ),
+            'siteName'             => wp_specialchars_decode( wp_strip_all_tags( (string) get_option( 'blogname', '' ) ), ENT_QUOTES ), // the option is stored HTML-escaped ("People&#039;s"); the widget uses this as plain text in the WhatsApp opening line '' ) ),
         ) );
     }
 
@@ -2315,7 +2315,7 @@ class BitBot {
             'enabled'      => true,
             'mode'         => (string) ( $cfg['mode'] ?? 'simple' ),
             'delaySeconds' => (int)    ( $cfg['delaySeconds'] ?? 8 ),
-            'simpleText'   => (string) ( $cfg['simpleText'] ?? $cfg['message'] ?? '' ),
+            'simpleText'   => (string) ( ( $cfg['simpleText'] ?? $cfg['message'] ?? '' ) !== '' ? ( $cfg['simpleText'] ?? $cfg['message'] ) : "Need a hand? I'm here to help." ),
             'pageRules'    => (string) ( $cfg['pageRules'] ?? '' ),
         );
     }
