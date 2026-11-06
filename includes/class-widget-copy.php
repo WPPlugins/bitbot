@@ -58,22 +58,147 @@ class BitBot_Widget_Copy {
      *
      * @param mixed $custom Option value.
      */
-    public static function base_title( $custom ) {
+    public static function base_title( $custom, $code = 'en' ) {
         $custom = trim( (string) $custom );
         if ( '' !== $custom ) {
             return $custom;
         }
-        $default = 'Chat with us';
-        return function_exists( '__' ) ? __( $default, 'bitbot' ) : $default;
+        return self::default_title( $code );
+    }
+
+    /** Languages written right to left: the widget lays itself out for them, not for the page. */
+    const RTL = array( 'ar', 'fa', 'he', 'ur', 'ps', 'sd', 'ug', 'yi', 'dv', 'ckb', 'ks' );
+
+    public static function is_rtl( $code ) {
+        return in_array( strtolower( substr( (string) $code, 0, 2 ) ), self::RTL, true );
     }
 
     /**
-     * The built-in input hint. Added languages are translated
-     * from this default, and the widget renders it when the owner set none.
+     * The built-in header title in the site's language where we have one (a
+     * Persian site opened with "Chat with us", 2026-11-06), else the cached
+     * machine translation the admin fetched once (site_defaults), else English.
+     *
+     * @param string $code Language code.
      */
-    public static function default_placeholder() {
-        $line = 'Type your message...';
-        return function_exists( '__' ) ? __( $line, 'bitbot' ) : $line;
+    public static function default_title( $code = 'en' ) {
+        $titles = array(
+            'en' => 'Chat with us',
+            'fa' => 'با ما گفتگو کنید',
+            'ar' => 'تحدث معنا',
+            'he' => 'דברו איתנו',
+            'ur' => 'ہم سے بات کریں',
+            'hi' => 'हमसे बात करें',
+            'es' => 'Chatea con nosotros',
+            'fr' => 'Discutez avec nous',
+            'de' => 'Chatten Sie mit uns',
+            'pt' => 'Fale conosco',
+            'it' => 'Chatta con noi',
+            'nl' => 'Chat met ons',
+            'pl' => 'Porozmawiaj z nami',
+            'tr' => 'Bizimle sohbet edin',
+            'ru' => 'Напишите нам',
+            'uk' => 'Напишіть нам',
+            'el' => 'Μιλήστε μαζί μας',
+            'zh' => '与我们聊天',
+            'ja' => 'チャットで相談',
+            'ko' => '채팅 문의',
+            'id' => 'Chat dengan kami',
+            'vi' => 'Trò chuyện với chúng tôi',
+            'th' => 'แชทกับเรา',
+            'bn' => 'আমাদের সাথে চ্যাট করুন',
+            'ta' => 'எங்களுடன் அரட்டையடிக்கவும்',
+            'pa' => 'ਸਾਡੇ ਨਾਲ ਚੈਟ ਕਰੋ',
+            'sv' => 'Chatta med oss',
+            'da' => 'Chat med os',
+            'no' => 'Chat med oss',
+            'fi' => 'Keskustele kanssamme',
+            'cs' => 'Napište nám',
+            'ro' => 'Discută cu noi',
+            'hu' => 'Írjon nekünk',
+            'ms' => 'Sembang dengan kami',
+            'sw' => 'Zungumza nasi',
+        );
+        $code = strtolower( substr( (string) $code, 0, 2 ) );
+        if ( isset( $titles[ $code ] ) ) {
+            return $titles[ $code ];
+        }
+        $cached = self::cached_site_defaults( $code );
+        return ( $cached && ! empty( $cached['title'] ) ) ? $cached['title'] : $titles['en'];
+    }
+
+    /**
+     * The built-in input hint in the site's language where we have one, else
+     * the cached translation, else English. Added languages are translated
+     * from the English line, and the widget renders it when the owner set none.
+     *
+     * @param string $code Language code.
+     */
+    public static function default_placeholder( $code = 'en' ) {
+        $lines = array(
+            'en' => 'Type your message...',
+            'fa' => 'پیام خود را بنویسید...',
+            'ar' => 'اكتب رسالتك...',
+            'he' => 'כתבו הודעה...',
+            'ur' => 'اپنا پیغام لکھیں...',
+            'hi' => 'अपना संदेश लिखें...',
+            'es' => 'Escribe tu mensaje...',
+            'fr' => 'Écrivez votre message...',
+            'de' => 'Nachricht eingeben...',
+            'pt' => 'Digite sua mensagem...',
+            'it' => 'Scrivi il tuo messaggio...',
+            'nl' => 'Typ uw bericht...',
+            'pl' => 'Napisz wiadomość...',
+            'tr' => 'Mesajınızı yazın...',
+            'ru' => 'Введите сообщение...',
+            'uk' => 'Введіть повідомлення...',
+            'el' => 'Γράψτε το μήνυμά σας...',
+            'zh' => '输入您的消息...',
+            'ja' => 'メッセージを入力...',
+            'ko' => '메시지를 입력하세요...',
+            'id' => 'Ketik pesan Anda...',
+            'vi' => 'Nhập tin nhắn của bạn...',
+            'th' => 'พิมพ์ข้อความของคุณ...',
+            'bn' => 'আপনার বার্তা লিখুন...',
+            'ta' => 'உங்கள் செய்தியை எழுதுங்கள்...',
+            'pa' => 'ਆਪਣਾ ਸੁਨੇਹਾ ਲਿਖੋ...',
+            'sv' => 'Skriv ditt meddelande...',
+            'da' => 'Skriv din besked...',
+            'no' => 'Skriv meldingen din...',
+            'fi' => 'Kirjoita viestisi...',
+            'cs' => 'Napište zprávu...',
+            'ro' => 'Scrieți mesajul...',
+            'hu' => 'Írja be üzenetét...',
+            'ms' => 'Taip mesej anda...',
+            'sw' => 'Andika ujumbe wako...',
+        );
+        $code = strtolower( substr( (string) $code, 0, 2 ) );
+        if ( isset( $lines[ $code ] ) ) {
+            return $lines[ $code ];
+        }
+        $cached = self::cached_site_defaults( $code );
+        return ( $cached && ! empty( $cached['placeholder'] ) ) ? $cached['placeholder'] : $lines['en'];
+    }
+
+    /** Option holding the one machine translation of the English defaults into a site language we have no built-in text for. */
+    const SITE_DEFAULTS_OPTION = 'bitbot_widget_site_defaults';
+
+    /** The cached translated defaults for this code, or null. */
+    public static function cached_site_defaults( $code ) {
+        if ( ! function_exists( 'get_option' ) ) {
+            return null;
+        }
+        $row = get_option( self::SITE_DEFAULTS_OPTION, array() );
+        if ( ! is_array( $row ) || empty( $row['code'] ) || $row['code'] !== $code ) {
+            return null;
+        }
+        return $row;
+    }
+
+    /** True when the built-in text exists for this code (no translation needed). */
+    public static function has_builtin_defaults( $code ) {
+        $code = strtolower( substr( (string) $code, 0, 2 ) );
+        $titles = array( 'en' );
+        return 'en' === $code || self::default_title( $code ) !== self::default_title( 'en' ) || in_array( $code, $titles, true );
     }
 
     /**
@@ -98,9 +223,37 @@ class BitBot_Widget_Copy {
             'ko' => '안녕하세요! 오늘 웹사이트 탐색에 어떻게 도움을 드릴까요?',
             'ar' => 'مرحباً! كيف يمكنني مساعدتك في تصفح موقعنا اليوم؟',
             'ru' => 'Привет! Как я могу помочь вам сегодня с навигацией по нашему сайту?',
+            'fa' => 'سلام! امروز چطور می‌توانم به شما در استفاده از وب‌سایت کمک کنم؟',
+            'he' => 'שלום! איך אוכל לעזור לכם למצוא את דרככם באתר היום?',
+            'ur' => 'سلام! آج ویب سائٹ پر آپ کی کیا مدد ہو سکتی ہے؟',
+            'it' => 'Ciao! Come posso aiutarti a navigare nel nostro sito oggi?',
+            'nl' => 'Hallo! Hoe kan ik u vandaag helpen op onze website?',
+            'pl' => 'Cześć! Jak mogę dziś pomóc w poruszaniu się po naszej stronie?',
+            'tr' => 'Merhaba! Bugün web sitemizde size nasıl yardımcı olabilirim?',
+            'uk' => 'Привіт! Чим можу допомогти вам на нашому сайті сьогодні?',
+            'el' => 'Γεια σας! Πώς μπορώ να σας βοηθήσω στον ιστότοπό μας σήμερα;',
+            'id' => 'Halo! Ada yang bisa saya bantu di situs kami hari ini?',
+            'vi' => 'Xin chào! Hôm nay tôi có thể giúp gì cho bạn trên trang web của chúng tôi?',
+            'th' => 'สวัสดี! วันนี้มีอะไรให้ช่วยบนเว็บไซต์ของเราไหม?',
+            'bn' => 'নমস্কার! আজ আমাদের ওয়েবসাইটে আপনাকে কীভাবে সাহায্য করতে পারি?',
+            'ta' => 'வணக்கம்! இன்று எங்கள் இணையதளத்தில் உங்களுக்கு எப்படி உதவலாம்?',
+            'pa' => 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਅੱਜ ਸਾਡੀ ਵੈੱਬਸਾਈਟ \'ਤੇ ਤੁਹਾਡੀ ਕੀ ਮਦਦ ਹੋ ਸਕਦੀ ਹੈ?',
+            'sv' => 'Hej! Hur kan jag hjälpa dig på vår webbplats idag?',
+            'da' => 'Hej! Hvordan kan jeg hjælpe dig på vores hjemmeside i dag?',
+            'no' => 'Hei! Hvordan kan jeg hjelpe deg på nettstedet vårt i dag?',
+            'fi' => 'Hei! Miten voin auttaa sinua sivustollamme tänään?',
+            'cs' => 'Dobrý den! Jak vám dnes mohu pomoci na našem webu?',
+            'ro' => 'Bună! Cu ce vă pot ajuta pe site-ul nostru astăzi?',
+            'hu' => 'Üdvözlöm! Miben segíthetek ma a weboldalunkon?',
+            'ms' => 'Hai! Bagaimana saya boleh membantu anda di laman web kami hari ini?',
+            'sw' => 'Habari! Nikusaidie vipi kwenye tovuti yetu leo?',
         );
         $code = strtolower( substr( (string) $code, 0, 2 ) );
-        return isset( $greetings[ $code ] ) ? $greetings[ $code ] : $greetings['en'];
+        if ( isset( $greetings[ $code ] ) ) {
+            return $greetings[ $code ];
+        }
+        $cached = self::cached_site_defaults( $code );
+        return ( $cached && ! empty( $cached['welcome'] ) ) ? $cached['welcome'] : $greetings['en'];
     }
 
     /**

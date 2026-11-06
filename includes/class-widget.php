@@ -92,7 +92,7 @@ class BitBot_Widget {
         // change. Sanitized at save time (sanitize_widget_title); we still
         // esc_html on render as defense in depth.
         $custom_title  = get_option( 'bitbot_widget_title', '' );
-        $widget_title  = BitBot_Widget_Copy::base_title( $custom_title );
+        $widget_title  = BitBot_Widget_Copy::base_title( $custom_title, substr( get_locale(), 0, 2 ) );
         ?>
         <?php
         // 1.8.2: widget is mounted in a shadow root so theme CSS targeting
@@ -121,7 +121,7 @@ class BitBot_Widget {
 
         $input_placeholder = trim( (string) get_option( 'bitbot_placeholder_text', '' ) );
         if ( '' === $input_placeholder ) {
-            $input_placeholder = BitBot_Widget_Copy::default_placeholder();
+            $input_placeholder = BitBot_Widget_Copy::default_placeholder( substr( get_locale(), 0, 2 ) );
         }
 
         $widget_style     = sprintf(

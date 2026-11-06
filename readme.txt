@@ -5,7 +5,7 @@ Tags: chatbot, ai, voice, whatsapp, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.2
+Stable tag: 2.2.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,12 @@ Yes, inside WordPress, any time. Your plan stays active until the end of the bil
 9. Build a form in minutes and embed it anywhere with a shortcode.
 
 == Changelog ==
+
+= 2.2.3 =
+
+* The settings page loads on hosts where the WordPress REST API is reached through ?rest_route= instead of /wp-json/.
+* The chat widget opens in your site's language, with its title, welcome and input hint built in for 35 languages, and lays itself out right-to-left for Arabic, Persian, Hebrew and Urdu.
+* Adding a widget language works on the Free plan.
 
 = 2.2.2 =
 
@@ -260,6 +266,9 @@ Major release — BitBot grows from a chatbot into a full AI assistant for your 
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 2.2.3 =
+Settings page fix for some hosts, widget in your site's language, language adding on Free.
 
 = 2.2.2 =
 Faster voice call connection and cleaner call endings.

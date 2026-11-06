@@ -1140,6 +1140,7 @@
             form.addEventListener('submit', handleSubmit);
         }
 
+        applyDirection(config.languageCode || 'en');
         attachLanguage();
         attachVoiceCall();
         attachWhatsApp();
@@ -1323,6 +1324,22 @@
         chipBar = bar;
     }
 
+    // The widget lays itself out for its own language. `direction` inherits
+    // across the shadow boundary, so a right-to-left page mirrored English copy
+    // (arkatech-co.ir, 2026-11-06) and a Persian pick on a left-to-right page
+    // would have stayed left-to-right.
+    function isRtlLanguage(code) {
+        const langs = Array.isArray(config.languages) ? config.languages : [];
+        for (let i = 0; i < langs.length; i++) {
+            if (langs[i] && langs[i].code === code) return !!langs[i].rtl;
+        }
+        if (code === (config.languageCode || 'en')) return !!config.rtl;
+        return /^(ar|fa|he|ur|ps|sd|ug|yi|dv|ckb|ks)$/i.test(String(code || '').slice(0, 2));
+    }
+    function applyDirection(code) {
+        const root = widgetRoot && widgetRoot.querySelector('.bitbot-widget');
+        if (root) root.setAttribute('dir', isRtlLanguage(code) ? 'rtl' : 'ltr');
+    }
     function attachLanguage() {
         const L = window.BitBotLanguage;
         const wrap = widgetRoot.getElementById('bitbot-lang');
@@ -1352,6 +1369,7 @@
             placeholder: input ? (input.getAttribute('placeholder') || '') : ''
         };
         function applyCopy() {
+            applyDirection(control.current());
             const c = L.copyFor(control.current(), config.copy, base);
             if (titleEl && c.title) titleEl.textContent = c.title;
             if (pillLabelEl && c.title) pillLabelEl.textContent = c.title;

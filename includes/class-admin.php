@@ -41,6 +41,46 @@ class BitBot_Admin {
      *
      * @return bool True when every asked row came back.
      */
+    /**
+     * Site language with no built-in default copy: translate the English
+     * defaults into it once and cache them (BitBot_Widget_Copy::SITE_DEFAULTS_OPTION).
+     * Retried a day later when the API did not answer. English sites and the
+     * languages with built-in text never call the API.
+     */
+    public function maybe_localize_site_defaults() {
+        $site_code = BitBot_Languages::site_code( get_locale() );
+        if ( '' === $site_code || 'en' === $site_code || BitBot_Widget_Copy::has_builtin_defaults( $site_code ) ) {
+            return;
+        }
+        $row = get_option( BitBot_Widget_Copy::SITE_DEFAULTS_OPTION, array() );
+        if ( is_array( $row ) && isset( $row['code'] ) && $row['code'] === $site_code && ! empty( $row['title'] ) ) {
+            return;
+        }
+        if ( is_array( $row ) && isset( $row['code'], $row['attempted_at'] ) && $row['code'] === $site_code && time() - (int) $row['attempted_at'] < DAY_IN_SECONDS ) {
+            return;
+        }
+        update_option( BitBot_Widget_Copy::SITE_DEFAULTS_OPTION, array( 'code' => $site_code, 'attempted_at' => time() ), false );
+        $tr = $this->api_client->translate_widget_copy(
+            BitBot_Widget_Copy::default_title( 'en' ),
+            BitBot_Widget_Copy::default_welcome( 'en' ),
+            'en',
+            array( $site_code ),
+            array(),
+            BitBot_Widget_Copy::default_placeholder( 'en' )
+        );
+        $copy = ( ! empty( $tr['success'] ) && isset( $tr['data']['copy'][ $site_code ] ) && is_array( $tr['data']['copy'][ $site_code ] ) ) ? $tr['data']['copy'][ $site_code ] : null;
+        if ( ! $copy || empty( $copy['title'] ) ) {
+            return;
+        }
+        update_option( BitBot_Widget_Copy::SITE_DEFAULTS_OPTION, array(
+            'code'         => $site_code,
+            'title'        => sanitize_text_field( (string) $copy['title'] ),
+            'welcome'      => wp_kses_post( (string) ( $copy['welcome'] ?? '' ) ),
+            'placeholder'  => sanitize_text_field( (string) ( $copy['placeholder'] ?? '' ) ),
+            'attempted_at' => time(),
+        ), false );
+    }
+
     public function regenerate_auto_copy() {
         $site_code = BitBot_Languages::site_code( get_locale() );
         $selection = BitBot_Languages::effective_selection( get_option( BitBot_Languages::OPTION, array() ), BitBot_Languages::detected(), BitBot_Languages::all() );
@@ -77,6 +117,9 @@ class BitBot_Admin {
 
         // Register settings
         add_action('admin_init', array($this, 'register_settings'));
+        // A site language we have no built-in widget text for gets the English
+        // defaults translated once (title, welcome, input hint) and cached.
+        add_action('admin_init', array($this, 'maybe_localize_site_defaults'), 20);
 
         // Redirect Sync Now menu to dashboard before headers are sent
         add_action('admin_init', array($this, 'handle_sync_redirect'));

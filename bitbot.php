@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI text chat, voice calls, content tools and a leads inbox for your WordPress site.
- * Version:           2.2.2
+ * Version:           2.2.3
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -52,7 +52,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.2.2' );
+define( 'BITBOT_VERSION', '2.2.3' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -205,6 +205,11 @@ class BitBot {
      * rest prefix (default `wp-json/`).
      */
     private function is_rest_url() {
+        // Plain permalinks, and hosts that answer 404 on /wp-json/ (arkatech-co.ir,
+        // 2026-11-06), reach the REST API as index.php?rest_route=/... instead:
+        // the admin handlers were not built for those and every admin route
+        // answered 500 rest_invalid_handler, so the Chatbot tab stayed blank.
+        if ( isset( $_GET['rest_route'] ) && '' !== $_GET['rest_route'] ) return true;
         if ( empty( $_SERVER['REQUEST_URI'] ) ) return false;
         $prefix = function_exists( 'rest_get_url_prefix' ) ? rest_get_url_prefix() : 'wp-json';
         return strpos( $_SERVER['REQUEST_URI'], '/' . $prefix . '/' ) !== false;
@@ -1925,7 +1930,7 @@ class BitBot {
     /** The input hint the widget shows: the owner's option, else the mode default. */
     private function base_placeholder() {
         $custom = trim( (string) get_option( 'bitbot_placeholder_text', '' ) );
-        return '' !== $custom ? $custom : BitBot_Widget_Copy::default_placeholder();
+        return '' !== $custom ? $custom : BitBot_Widget_Copy::default_placeholder( substr( get_locale(), 0, 2 ) );
     }
 
     /**
@@ -1957,7 +1962,7 @@ class BitBot {
             $codes,
             $site_code,
             BitBot_Widget_Copy::normalize( get_option( BitBot_Widget_Copy::OPTION, array() ) ),
-            BitBot_Widget_Copy::base_title( get_option( 'bitbot_widget_title', '' ) ),
+            BitBot_Widget_Copy::base_title( get_option( 'bitbot_widget_title', '' ), substr( get_locale(), 0, 2 ) ),
             $base_welcome,
             BitBot_Widget_Copy::base_questions( get_option( 'bitbot_suggested_questions', '' ) ),
             $this->base_placeholder()
@@ -1973,7 +1978,7 @@ class BitBot {
         // Normalise the welcome on read: get_option()'s default only fires when the
         // option is ABSENT, so a cleared-and-saved value (empty string) would render
         // a blank bubble. Fall back to the default whenever it's blank/whitespace.
-        $default_welcome = __( 'Hi! How can I help you?', 'bitbot' );
+        $default_welcome = BitBot_Widget_Copy::default_welcome( $language_code );
         $welcome_message = trim( (string) get_option( 'bitbot_welcome_message', $default_welcome ) );
         if ( '' === $welcome_message ) {
             $welcome_message = $default_welcome;
@@ -1986,6 +1991,8 @@ class BitBot {
             'primaryColor'         => sanitize_hex_color( get_option( 'bitbot_primary_color', '#0073aa' ) ),
             'welcomeMessage'       => wp_kses_post( $welcome_message ),
             'languageCode'         => sanitize_text_field( $language_code ),
+            // The widget lays itself out for ITS language, not the page's (a Persian page mirrored English copy).
+            'rtl'                  => BitBot_Widget_Copy::is_rtl( $language_code ),
             'cssUrl'               => esc_url_raw( $widget_css_url ),
             'placeholderText'      => (string) get_option( 'bitbot_placeholder_text', '' ),
             'typingIndicatorText'  => (string) get_option( 'bitbot_typing_indicator_text', '' ),
@@ -2775,6 +2782,12 @@ class BitBot {
      * @since 1.0.0
      */
     public function register_rest_routes() {
+        // rest_api_init runs once WordPress knows this is a REST request, whatever
+        // the URL form; the admin handlers must exist before their routes are
+        // registered or WordPress sees array(null, 'method') and answers 500.
+        if ( ! $this->admin ) {
+            $this->admin = new BitBot_Admin( $this->api_client );
+        }
         // Widget config — deliberately uncacheable. widget.js fetches this on
         // load (cache-busted) and overrides the inlined bitbotConfig, so a
         // settings change shows immediately even when the page itself is

@@ -17,7 +17,7 @@
        a theme with `text-align: center` on its content wrapper would center
        every bubble's text. Reset it at the boundary; bubble-row alignment
        (user right / bot left) is handled by flex layout, not text-align. */
-    text-align: left;
+    text-align: start;
 }
 
 :host(.bitbot-bottom-right) {
@@ -29,6 +29,8 @@
 }
 
 .bitbot-widget {
+    /* Laid out for the widget's own language (widget.js sets dir), never the page's. */
+    direction: ltr;
     --bitbot-text: #333;
     --bitbot-bg: #fff;
     --bitbot-border: #e0e0e0;
@@ -47,7 +49,10 @@
        An explicit value on an inner shadow element the outer page can't
        target always beats that inherited value. (Font is intentionally NOT
        pinned here — the widget inherits/adopts the host theme's font.) */
-    text-align: left;
+    text-align: start;
+}
+.bitbot-widget[dir="rtl"] {
+    direction: rtl;
 }
 
 .bitbot-widget * {

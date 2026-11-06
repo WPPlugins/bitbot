@@ -13,6 +13,9 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+// Widget copy owns the right-to-left list the language rows carry.
+require_once __DIR__ . '/class-widget-copy.php';
+
 class BitBot_Languages {
 
     /** Option holding the saved list of codes (site language first), or empty. */
@@ -157,11 +160,13 @@ class BitBot_Languages {
                     'code'   => $code,
                     'name'   => $by_code[ $code ]['name'],
                     'native' => $by_code[ $code ]['native'],
+                    'rtl'    => BitBot_Widget_Copy::is_rtl( $code ),
                 )
                 : array(
                     'code'   => $code,
                     'name'   => $code,
                     'native' => $code,
+                    'rtl'    => BitBot_Widget_Copy::is_rtl( $code ),
                 );
         }
         return $rows;
