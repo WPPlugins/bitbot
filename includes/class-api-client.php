@@ -757,11 +757,23 @@ class BitBot_API_Client {
             'update_post_term_cache' => false,
         ) );
 
+        // Gather v2 (pass 1): extra structured fields, only once the backend has
+        // switched it on for this site. Off: the payload is exactly as before.
+        $v2 = class_exists( 'BitBot_Gather_V2' ) && BitBot_Gather_V2::enabled();
+
         if ( $query->have_posts() ) {
             while ( $query->have_posts() ) {
                 $query->the_post();
                 $content = apply_filters( 'the_content', get_the_content() );
                 $post_id = get_the_ID();
+                $v2_fields = array();
+                if ( $v2 ) {
+                    try {
+                        $v2_fields = BitBot_Gather_Fields::for_post( get_post( $post_id ), $content, $this->detect_built_with( $post_id, get_post( $post_id ) ) );
+                    } catch ( \Throwable $e ) {
+                        $v2_fields = array();
+                    }
+                }
                 $pages[] = array_merge(
                     array(
                         'url'     => get_permalink(),
@@ -771,7 +783,8 @@ class BitBot_API_Client {
                     // Phase 2 (Resident AI): editor-agnostic edit metadata so
                     // the backend agent can see each real post and propose SEO
                     // edits against it. Cheap per-post reads; no extra queries.
-                    $this->gather_editable_meta( $post_id )
+                    $this->gather_editable_meta( $post_id ),
+                    $v2_fields
                 );
             }
             wp_reset_postdata();
@@ -1351,6 +1364,10 @@ class BitBot_API_Client {
                 $payload['allUrls'] = $all_urls;
             }
 
+            if ( class_exists( 'BitBot_Gather_V2' ) && BitBot_Gather_V2::enabled() ) {
+                $payload['siteFingerprint'] = BitBot_Gather_Fields::site_fingerprint();
+            }
+
             $result = $this->rpc( 'SyncContent', $payload, 300, ! $async );
 
             // Free this batch's content before the next iteration.
@@ -1449,7 +1466,44 @@ class BitBot_API_Client {
             $payload['allUrls'] = $all_urls;
         }
 
+        // Gather v2 pass 1: lets the backend reset its render-type decisions when
+        // the theme or the active plugins change. Only when v2 is on.
+        if ( class_exists( 'BitBot_Gather_V2' ) && BitBot_Gather_V2::enabled() ) {
+            $payload['siteFingerprint'] = BitBot_Gather_Fields::site_fingerprint();
+        }
+
         return $this->rpc( 'SyncContent', $payload, 300 );
+    }
+
+    /**
+     * Gather v2, pass 2: send rendered pages. Same SyncContent RPC, pass "render":
+     * the backend only updates the pages listed (no completion or prune logic).
+     *
+     * @param array $pages Page items with a `rendered` block.
+     * @param int   $seq   Render tick counter (batchIndex).
+     * @param bool  $final True on the last render batch of the run.
+     * @return array RPC response.
+     */
+    public function sync_render_batch( $pages, $seq = 0, $final = false ) {
+        // No totalBatches: the number of render batches is not known up front.
+        // `final` marks the last batch of the run (the backend completes on it).
+        return $this->rpc( 'SyncContent', array(
+            'pass'       => 'render',
+            'pages'      => $pages,
+            'batchIndex' => (int) $seq,
+            'final'      => (bool) $final,
+        ), 120 );
+    }
+
+    /**
+     * Gather v2: image bytes the backend could not fetch itself (base64, at
+     * most 5 MB each, at most 5 per call).
+     *
+     * @param array $images [ { url, wpPostId, mime, b64 } ]
+     * @return array RPC response.
+     */
+    public function upload_page_images( $images ) {
+        return $this->rpc( 'UploadPageImages', array( 'images' => array_values( $images ) ), 120 );
     }
 
     /**
@@ -1941,11 +1995,15 @@ class BitBot_API_Client {
                 'error'   => __( 'Post is not published or not a syncable type', 'bitbot' ),
             );
         }
-        return $this->rpc( 'SyncContent', array(
+        $payload = array(
             'pages'        => $pages,
             'batchIndex'   => 0,
             'totalBatches' => 1,
-        ), 120 );
+        );
+        if ( class_exists( 'BitBot_Gather_V2' ) && BitBot_Gather_V2::enabled() ) {
+            $payload['siteFingerprint'] = BitBot_Gather_Fields::site_fingerprint();
+        }
+        return $this->rpc( 'SyncContent', $payload, 120 );
     }
 
     /**

@@ -18,6 +18,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BitBot_Widget_Copy {
 
     const OPTION      = 'bitbot_widget_copy';
+
+    /**
+
+     * The API's translation rules an automatic row was made under. Bumped when
+
+     * the TranslateWidgetCopy prompt changes in a way old rows must follow:
+
+     * 2 = the welcome line is written without the speaker's gender (a female
+
+     * voice was reading "मदद कर सकता हूं", 2026-11-09). An auto row made under
+
+     * older rules is remade on the next settings read or save.
+
+     */
+
+    const AUTO_RULES = 2;
     const TITLE_MAX   = 60;
     const WELCOME_MAX = 400;
     const PLACEHOLDER_MAX = 50;
@@ -323,7 +339,8 @@ class BitBot_Widget_Copy {
                 self::clean_placeholder( isset( $row['placeholder'] ) ? $row['placeholder'] : '' ),
                 ! empty( $row['auto'] ),
                 ! empty( $row['needs_review'] ),
-                ! empty( $row['failed'] )
+                ! empty( $row['failed'] ),
+                isset( $row['rules'] ) ? (int) $row['rules'] : 0
             );
         }
         return $out;
@@ -377,10 +394,36 @@ class BitBot_Widget_Copy {
                 continue;
             }
             $row = $stored[ $code ];
+            if ( (int) $row['rules'] !== self::AUTO_RULES ) {
+                // Made under older translation rules: remade.
+                $out[] = $code;
+                continue;
+            }
             if ( ( '' !== (string) $title && '' === $row['title'] )
                 || ( '' !== (string) $welcome && '' === $row['welcome'] )
                 || ( ! empty( $questions ) && empty( $row['questions'] ) )
                 || ( '' !== (string) $placeholder && '' === $row['placeholder'] ) ) {
+                $out[] = $code;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Auto rows in the selection made under older translation rules (owner
+     * rows and the site language never). What a settings read remakes.
+     *
+     * @param array  $selection Effective codes.
+     * @param string $site_code Site language.
+     * @param array  $stored    Normalized rows.
+     */
+    public static function stale_auto_codes( $selection, $site_code, $stored ) {
+        $out = array();
+        foreach ( (array) $selection as $code ) {
+            if ( ! is_string( $code ) || $code === $site_code || in_array( $code, $out, true ) || ! isset( $stored[ $code ] ) ) {
+                continue;
+            }
+            if ( ! empty( $stored[ $code ]['auto'] ) && (int) $stored[ $code ]['rules'] !== self::AUTO_RULES ) {
                 $out[] = $code;
             }
         }
@@ -440,13 +483,13 @@ class BitBot_Widget_Copy {
             if ( '' === $title && '' === $welcome && empty( $questions ) && '' === $placeholder ) {
                 continue;
             }
-            $stored[ $code ] = self::row( $title, $welcome, $questions, $placeholder, true, false, false );
+            $stored[ $code ] = self::row( $title, $welcome, $questions, $placeholder, true, false, false, self::AUTO_RULES );
         }
         return $stored;
     }
 
     /** A complete row. */
-    private static function row( $title, $welcome, $questions, $placeholder, $auto, $needs_review, $failed ) {
+    private static function row( $title, $welcome, $questions, $placeholder, $auto, $needs_review, $failed, $rules = 0 ) {
         return array(
             'title'        => $title,
             'welcome'      => $welcome,
@@ -455,6 +498,8 @@ class BitBot_Widget_Copy {
             'auto'         => (bool) $auto,
             'needs_review' => (bool) $needs_review,
             'failed'       => (bool) $failed,
+            // Translation rules the row was made under (auto rows); 0 = unknown or an owner row.
+            'rules'        => (int) $rules,
         );
     }
 
@@ -534,7 +579,7 @@ class BitBot_Widget_Copy {
                 $stored = self::mark_failed( $stored, array( $code ) );
                 continue;
             }
-            $stored[ $code ] = self::row( $title, $welcome, $questions, $placeholder, true, false, false );
+            $stored[ $code ] = self::row( $title, $welcome, $questions, $placeholder, true, false, false, self::AUTO_RULES );
         }
         return $stored;
     }

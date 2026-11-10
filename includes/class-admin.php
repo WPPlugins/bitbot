@@ -81,6 +81,47 @@ class BitBot_Admin {
         ), false );
     }
 
+    /**
+     * Automatic translations made under older rules (BitBot_Widget_Copy::AUTO_RULES)
+     * are remade when the settings screen is read, once an hour at most on
+     * failure, so a rule change (the gender-free welcome, 2026-11-09) reaches
+     * every site without an owner action. Owner rows are never touched.
+     */
+    public function refresh_stale_auto_copy() {
+        $site_code = BitBot_Languages::site_code( get_locale() );
+        $selection = BitBot_Languages::effective_selection( get_option( BitBot_Languages::OPTION, array() ), BitBot_Languages::detected(), BitBot_Languages::all() );
+        $rows      = BitBot_Widget_Copy::normalize( get_option( BitBot_Widget_Copy::OPTION, array() ) );
+        $codes     = BitBot_Widget_Copy::stale_auto_codes( $selection, $site_code, $rows );
+        if ( empty( $codes ) || get_transient( 'bitbot_widget_copy_refresh_failed' ) ) {
+            return;
+        }
+        $title       = BitBot_Widget_Copy::base_title( '' );
+        $welcome     = BitBot_Widget_Copy::default_welcome( $site_code );
+        $placeholder = BitBot_Widget_Copy::default_placeholder();
+        $questions   = BitBot_Widget_Copy::base_questions( get_option( 'bitbot_suggested_questions', '' ) );
+        if ( '' === $title && '' === $welcome && empty( $questions ) && '' === $placeholder ) {
+            return;
+        }
+        $tr      = $this->api_client->translate_widget_copy( $title, $welcome, $site_code, $codes, $questions, $placeholder );
+        $results = ( ! empty( $tr['success'] ) && isset( $tr['data']['copy'] ) && is_array( $tr['data']['copy'] ) ) ? $tr['data']['copy'] : array();
+        if ( empty( $results ) ) {
+            set_transient( 'bitbot_widget_copy_refresh_failed', 1, HOUR_IN_SECONDS );
+            return;
+        }
+        // Merge into the rows as they are NOW, not the snapshot read before the
+        // API call: an owner edit saved meanwhile must not be overwritten
+        // (merge_auto never touches an owner row, so a row that became the
+        // owner's during the call is kept). Both option caches are dropped
+        // first; an autoloaded option is read from 'alloptions' before its
+        // own key. The read, merge and write are still three steps, not one:
+        // an owner save that lands between them is lost. That window is
+        // milliseconds, on a settings load, after the API call has returned.
+        wp_cache_delete( BitBot_Widget_Copy::OPTION, 'options' );
+        wp_cache_delete( 'alloptions', 'options' );
+        $fresh = BitBot_Widget_Copy::normalize( get_option( BitBot_Widget_Copy::OPTION, array() ) );
+        update_option( BitBot_Widget_Copy::OPTION, BitBot_Widget_Copy::merge_auto( $fresh, $results ) );
+    }
+
     public function regenerate_auto_copy() {
         $site_code = BitBot_Languages::site_code( get_locale() );
         $selection = BitBot_Languages::effective_selection( get_option( BitBot_Languages::OPTION, array() ), BitBot_Languages::detected(), BitBot_Languages::all() );
@@ -139,6 +180,7 @@ class BitBot_Admin {
         add_action('wp_ajax_bitbot_sync', array($this, 'ajax_sync'));
         add_action('wp_ajax_bitbot_sync_progress', array($this, 'ajax_sync_progress'));
         add_action('wp_ajax_bitbot_sync_stop', array($this, 'ajax_sync_stop'));
+        add_action('wp_ajax_bitbot_gather_continue', array($this, 'ajax_gather_continue'));
         add_action('wp_ajax_bitbot_generate', array($this, 'ajax_generate'));
         add_action('wp_ajax_bitbot_get_upload_url', array($this, 'ajax_get_upload_url'));
         add_action('wp_ajax_bitbot_generate_from_storage', array($this, 'ajax_generate_from_storage'));
@@ -3514,6 +3556,9 @@ class BitBot_Admin {
             update_option( 'bitbot_voice_calls_enabled', $voice_res['data']['enabled'] ? '1' : '0' );
         }
 
+        // Machine translations made under older rules are remade before they are shown.
+        $this->refresh_stale_auto_copy();
+
         return new WP_REST_Response( array(
             'enabled'              => (bool)   get_option( 'bitbot_enabled', true ),
             'widgetTitle'          => (string) get_option( 'bitbot_widget_title', '' ),
@@ -3911,13 +3956,33 @@ class BitBot_Admin {
         $done  = isset($progress['done']) ? (int) $progress['done'] : 0;
         $pct   = $total > 0 ? (int) floor(min($done, $total) / $total * 100) : 0;
 
-        wp_send_json_success(array(
+        $response = array(
             'state'   => isset($progress['state']) ? $progress['state'] : 'idle',
             'done'    => min($done, $total),
             'total'   => $total,
             'percent' => $pct,
             'error'   => isset($progress['error']) ? $progress['error'] : null,
-        ));
+        );
+        // Gather v2 render pass (only present when the backend switched it on).
+        $gather = BitBot::get_instance()->gather_v2()->status();
+        if (isset($gather['state']) && 'off' !== $gather['state']) {
+            $response['gather'] = $gather;
+        }
+        wp_send_json_success($response);
+    }
+
+    /**
+     * AJAX: continue a stalled or paused gather v2 render pass. One tick, and the
+     * cooldown still applies (a probe is not offered from the admin).
+     */
+    public function ajax_gather_continue() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+
+        wp_send_json_success(BitBot::get_instance()->continue_gather(false));
     }
 
     /**

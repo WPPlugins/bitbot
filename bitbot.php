@@ -11,7 +11,7 @@
  * Plugin Name:       BitBot
  * Plugin URI:        https://youami.ai
  * Description:       AI text chat, voice calls, content tools and a leads inbox for your WordPress site.
- * Version:           2.2.3
+ * Version:           2.2.4
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            youami.ai
@@ -52,7 +52,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.2.3' );
+define( 'BITBOT_VERSION', '2.2.4' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -66,6 +66,10 @@ define( 'BITBOT_API_URL', 'https://www.youami.ai/api' );
 // Include required files
 require_once BITBOT_PLUGIN_DIR . 'includes/class-plan.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-api-client.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-gather-core.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-gather-wp-store.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-gather-fields.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-gather-v2.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-whatsapp.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-languages.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-widget-copy.php';
@@ -172,6 +176,9 @@ class BitBot {
      */
     private $api_client;
 
+    /** @var BitBot_Gather_V2 Inside-WordPress render pass (off unless the backend enables it). */
+    private $gather_v2;
+
     /**
      * Admin instance
      *
@@ -222,6 +229,11 @@ class BitBot {
      */
     private function __construct() {
         $this->api_client = new BitBot_API_Client();
+
+        // Gather v2 (2.2.17-dev): render pass of the sync chain. Does nothing
+        // unless the backend returned gatherV2:true in a SyncContent response.
+        $this->gather_v2 = new BitBot_Gather_V2( $this->api_client );
+        $this->gather_v2->register_hooks();
 
         // Fatal-error capture: the plugin runs inside EVERY request, including
         // the ones that crash — so at shutdown, if the request died on a fatal,
@@ -396,6 +408,10 @@ class BitBot {
 
         // Resumable bulk-sync tick — one batch per fire, reschedules until done.
         add_action( self::SYNC_CHUNK_CRON_HOOK, array( $this, 'run_sync_chunk' ), 10, 2 );
+        // A long wp-cron process rewrites the whole cron array from a stale copy and
+        // can erase an event another request just scheduled. Look for a lost chain
+        // (pass 1 or the gather v2 render pass) at most every 30 s while a sync runs.
+        add_action( 'wp_loaded', array( $this, 'watch_sync_chain' ) );
 
         // Deferred, debounced prune when posts are deleted (replaces the old
         // full blocking re-sync on every deletion).
@@ -769,6 +785,14 @@ class BitBot {
      * @param int $post_id Post ID.
      */
     public function run_deferred_post_sync( $post_id ) {
+        // A bulk sync covers every post. Single-post syncs queued before it started
+        // used to run ahead of the chain's next event (cron runs events in time
+        // order) and starve it, so while the bulk sync runs they wait.
+        $bulk = get_option( self::SYNC_PROGRESS_OPTION );
+        if ( is_array( $bulk ) && isset( $bulk['state'] ) && 'running' === $bulk['state'] ) {
+            wp_schedule_single_event( time() + 300, 'bitbot_sync_post', array( $post_id ) );
+            return;
+        }
         $post = get_post( $post_id );
         if ( ! $post ) return;
         if ( ! in_array( $post->post_type, $this->api_client->get_syncable_post_types(), true ) ) return;
@@ -794,35 +818,123 @@ class BitBot {
     /** Batch size for the resumable bulk sync (pages per SyncContent POST). */
     const SYNC_BATCH_SIZE = 100;
 
-    public function start_background_sync() {
-        $ids = $this->api_client->gather_post_ids();
-        $total = count( $ids );
+    /** The gather v2 engine (admin visibility and manual continue). */
+    public function gather_v2() {
+        return $this->gather_v2;
+    }
 
+    /**
+     * Write sync progress for $run_id, but only while that run is still the
+     * site's current one AND the stored progress still belongs to it. An old
+     * tick that was in flight when a new sync started therefore cannot overwrite
+     * the new run's progress (nor start anything for the old run).
+     *
+     * @return bool True when written.
+     */
+    private function write_sync_progress( $run_id, array $progress, array $merge ) {
+        return $this->write_progress_if_current( $run_id, array_merge( $progress, $merge ) );
+    }
+
+    /**
+     * THE one way to write sync progress after the run exists.
+     *
+     * ONE atomic statement: the progress row is replaced only while the run
+     * option still names $run_id AND (by default) the stored progress carries
+     * that same run_id. A start_background_sync() landing at any moment either
+     * happens before this statement (the JOIN fails, nothing is written) or
+     * after it (the new run then replaces this write). No read-then-write.
+     *
+     * @param string $run_id         Run the caller belongs to.
+     * @param array  $value          Full progress array to store.
+     * @param bool   $match_progress Also require the stored progress to carry $run_id
+     *                               (false only for stop, which rotates the run token
+     *                               first and writes a progress that has no earlier owner).
+     * @return bool true if written, false if the run was superseded.
+     */
+    public function write_progress_if_current( $run_id, array $value, $match_progress = true ) {
+        global $wpdb;
+        $run_id = (string) $run_id;
+        $stored = maybe_serialize( $value );
+        $sql    = "UPDATE {$wpdb->options} p JOIN {$wpdb->options} r ON r.option_name = %s
+                      SET p.option_value = %s
+                    WHERE p.option_name = %s AND r.option_value = %s";
+        $args   = array( self::SYNC_RUN_OPTION, $stored, self::SYNC_PROGRESS_OPTION, $run_id );
+        if ( $match_progress ) {
+            $sql   .= ' AND p.option_value LIKE %s';
+            $args[] = '%' . $wpdb->esc_like( serialize( 'run_id' ) . serialize( $run_id ) ) . '%';
+        }
+        $wpdb->query( $wpdb->prepare( $sql, $args ) );
+        $affected = (int) $wpdb->rows_affected;
+        wp_cache_delete( self::SYNC_PROGRESS_OPTION, 'options' );
+        wp_cache_delete( self::SYNC_RUN_OPTION, 'options' );
+        wp_cache_delete( 'alloptions', 'options' );
+        if ( $affected === 1 ) {
+            return true;
+        }
+        // MySQL reports 0 for a matched row whose value did not change. That is
+        // still a success for THIS run, so tell it apart from a superseded run
+        // by re-reading once: it counts only if the run option still names
+        // $run_id and the stored progress is exactly what we meant to write.
+        return (string) get_option( self::SYNC_RUN_OPTION ) === $run_id
+            && get_option( self::SYNC_PROGRESS_OPTION ) === $value;
+    }
+
+    /**
+     * Start a bulk sync. If one is already active it is RETIRED completely and
+     * this one starts: the new run id is claimed first (so every in-flight tick
+     * of the old run fails its guards), the old chain's events and worklist and
+     * any gather v2 render pass are removed, and a progress record for the new
+     * run is written at once, before the slow post-id query.
+     */
+    public function start_background_sync() {
         // Mint a fresh run token. Any cron tick from a PRIOR run carries an
         // older token and will bail, so re-triggering cleanly supersedes an
         // in-flight sync instead of racing it.
         $run_id = wp_generate_uuid4();
         update_option( self::SYNC_RUN_OPTION, $run_id, false );
+        $this->retire_previous_sync();
+        // Plain write: it immediately follows this caller's own run-option write
+        // above, so this run owns the row. Every LATER write goes through
+        // write_progress_if_current().
+        update_option( self::SYNC_PROGRESS_OPTION, array(
+            'state'      => 'running',
+            'done'       => 0,
+            'cursor'     => 0,
+            'total'      => 0,
+            'run_id'     => $run_id,
+            'started_at' => time(),
+            'updated_at' => time(),
+        ), false );
+
+        $ids = $this->api_client->gather_post_ids();
+        $total = count( $ids );
 
         if ( $total === 0 ) {
-            update_option( self::SYNC_PROGRESS_OPTION, array(
+            if ( ! $this->write_progress_if_current( $run_id, array(
                 'state'      => 'done',
                 'done'       => 0,
                 'total'      => 0,
                 'run_id'     => $run_id,
                 'message'    => 'No published content found to sync.',
                 'updated_at' => time(),
-            ), false );
+            ) ) ) {
+                return array( 'total' => 0, 'totalBatches' => 0, 'superseded' => true );
+            }
             delete_transient( self::SYNC_IDS_TRANSIENT );
             return array( 'total' => 0, 'totalBatches' => 0 );
         }
 
         $total_batches = (int) ceil( $total / self::SYNC_BATCH_SIZE );
 
+        // A newer Sync pressed during the slow id query owns the row now.
+        if ( (string) get_option( self::SYNC_RUN_OPTION ) !== $run_id ) {
+            return array( 'total' => 0, 'totalBatches' => 0, 'superseded' => true );
+        }
+
         // Snapshot the worklist so every tick chunks the SAME list.
         set_transient( self::SYNC_IDS_TRANSIENT, $ids, HOUR_IN_SECONDS );
 
-        update_option( self::SYNC_PROGRESS_OPTION, array(
+        if ( ! $this->write_progress_if_current( $run_id, array(
             'state'         => 'running',
             'done'          => 0,
             'cursor'        => 0,      // next batch index — authoritative resume point
@@ -832,11 +944,100 @@ class BitBot {
             'run_id'        => $run_id,
             'started_at'    => time(),
             'updated_at'    => time(),
-        ), false );
+        ) ) ) {
+            return array( 'total' => 0, 'totalBatches' => 0, 'superseded' => true );
+        }
 
         $this->schedule_sync_chunk( 0, $run_id );
 
         return array( 'total' => $total, 'totalBatches' => $total_batches );
+    }
+
+    /** Remove everything a previous sync left: chain events, worklist, render pass. */
+    private function retire_previous_sync() {
+        if ( function_exists( 'wp_unschedule_hook' ) ) {
+            wp_unschedule_hook( self::SYNC_CHUNK_CRON_HOOK );
+        } else {
+            wp_clear_scheduled_hook( self::SYNC_CHUNK_CRON_HOOK );
+        }
+        delete_transient( self::SYNC_IDS_TRANSIENT );
+        $this->gather_v2->retire();
+    }
+
+    /**
+     * Admin / backend "continue" for the gather v2 render pass.
+     *
+     * - Engine of a superseded run: retired. If the CURRENT run's pass 1 is
+     *   finished, the render pass is restarted under the current run.
+     * - Otherwise one normal continue tick.
+     *
+     * @return array { ok, action, message, tick?, gather }
+     */
+    public function continue_gather( $probe = false ) {
+        $engine  = $this->gather_v2;
+        $current = (string) get_option( self::SYNC_RUN_OPTION );
+        $state   = $engine->state_run_id();
+        if ( null !== $state && $state !== $current ) {
+            $engine->retire();
+            $state = null;
+            $note  = 'The render pass belonged to an older sync and was cleared. ';
+        } else {
+            $note = '';
+        }
+        if ( null === $state ) {
+            $progress = get_option( self::SYNC_PROGRESS_OPTION );
+            if ( BitBot_Gather_V2::enabled() && is_array( $progress ) && isset( $progress['run_id'], $progress['state'] ) && $progress['run_id'] === $current && 'done' === $progress['state'] ) {
+                $acc = isset( $progress['gv2_acc'] ) ? $progress['gv2_acc'] : array();
+                $this->gather_v2->begin( $current, $this->api_client->gather_post_ids(), BitBot_Gather_V2::accumulated_to_data( $acc ) );
+                return array( 'ok' => true, 'action' => 'restarted', 'message' => $note . 'The render pass was restarted for the current sync.', 'gather' => $engine->status() );
+            }
+            if ( is_array( $progress ) && isset( $progress['state'] ) && 'running' === $progress['state'] ) {
+                return array( 'ok' => true, 'action' => 'waiting', 'message' => $note . 'A sync is still collecting pages. The render pass starts when it finishes.', 'gather' => $engine->status() );
+            }
+            return array( 'ok' => true, 'action' => 'none', 'message' => $note . 'There is no render pass to continue. Press Sync content to start one.', 'gather' => $engine->status() );
+        }
+        $engine->recover();
+        return array( 'ok' => true, 'action' => 'continued', 'tick' => $engine->manual_tick( $probe ), 'gather' => $engine->status() );
+    }
+
+    /**
+     * Notice a lost sync chain and put it back on the clock.
+     *
+     * Pass 1: a running sync with no progress for 60 s and neither its next event
+     * nor its watchdog scheduled gets its next chunk scheduled again. Also nudges
+     * wp-cron while a sync is active. The gather v2 render pass has its own
+     * recover(). Throttled to once per 30 s.
+     */
+    public function watch_sync_chain() {
+        if ( ( defined( 'DOING_CRON' ) && DOING_CRON ) || false !== get_transient( 'bitbot_sync_watch' ) ) {
+            return;
+        }
+        set_transient( 'bitbot_sync_watch', 1, 30 );      // idle sites pay one cheap read per 30 s
+        $progress = get_option( self::SYNC_PROGRESS_OPTION );
+        $engine   = $this->gather_v2->status();
+        $engine_running = isset( $engine['state'] ) && in_array( $engine['state'], array( 'running', 'stalled' ), true );
+        $pass1_running  = is_array( $progress ) && isset( $progress['state'] ) && 'running' === $progress['state'];
+        if ( ! $pass1_running && ! $engine_running ) {
+            return;
+        }
+        if ( $pass1_running ) {
+            $run_id = (string) get_option( self::SYNC_RUN_OPTION );
+            if ( isset( $progress['run_id'] ) && (string) $progress['run_id'] !== $run_id ) {
+                return;     // progress belongs to a superseded run: write_sync_progress keeps it from being revived
+            }
+            $cursor = isset( $progress['cursor'] ) ? (int) $progress['cursor'] : 0;
+            $has_c  = false !== wp_next_scheduled( self::SYNC_CHUNK_CRON_HOOK, array( $cursor, $run_id ) );
+            $has_w  = false !== wp_next_scheduled( self::SYNC_CHUNK_CRON_HOOK, array( -1, $run_id ) );
+            if ( BitBot_Gather_Guard::chain_needs_recovery( $progress, $run_id, time(), $has_c, $has_w ) ) {
+                $this->schedule_sync_chunk( $cursor, $run_id );
+            }
+        }
+        if ( $engine_running ) {
+            $this->gather_v2->recover();
+        }
+        if ( function_exists( 'spawn_cron' ) ) {
+            spawn_cron();
+        }
     }
 
     /**
@@ -855,13 +1056,21 @@ class BitBot {
         $total = ( is_array( $progress ) && isset( $progress['total'] ) ) ? (int) $progress['total'] : 0;
 
         // New token nobody matches → all chains bail on next tick.
-        update_option( self::SYNC_RUN_OPTION, 'stopped-' . wp_generate_uuid4(), false );
-        delete_transient( self::SYNC_IDS_TRANSIENT );
+        $token = 'stopped-' . wp_generate_uuid4();
+        update_option( self::SYNC_RUN_OPTION, $token, false );
+        $this->retire_previous_sync();
 
-        update_option( self::SYNC_PROGRESS_OPTION, array(
+        // Run option first (as above), then the idle progress written ATOMICALLY
+        // while the run option still holds our token: a Sync pressed in between
+        // mints a newer run, our JOIN then fails and its fresh progress survives.
+        // The existing progress belongs to the OLD run, so the stored run_id is
+        // not matched here (match_progress = false); the row is created if absent.
+        add_option( self::SYNC_PROGRESS_OPTION, array(), '', false );
+        $this->write_progress_if_current( $token, array(
             'state'      => 'idle',
             'done'       => $done,
             'total'      => $total,
+            'run_id'     => $token,
             'stopped_at' => time(),
             'updated_at' => time(),
         ), false );
@@ -879,7 +1088,14 @@ class BitBot {
     private function schedule_sync_chunk( $batch_index, $run_id ) {
         $args = array( $batch_index, $run_id );
         if ( ! wp_next_scheduled( self::SYNC_CHUNK_CRON_HOOK, $args ) ) {
-            wp_schedule_single_event( time(), self::SYNC_CHUNK_CRON_HOOK, $args );
+            $res = wp_schedule_single_event( time(), self::SYNC_CHUNK_CRON_HOOK, $args, true );
+            if ( true !== $res ) {
+                // Do not lose it silently: watch_sync_chain() picks this up.
+                $progress = get_option( self::SYNC_PROGRESS_OPTION );
+                if ( is_array( $progress ) ) {
+                    $this->write_sync_progress( $run_id, $progress, array( 'schedule_failed' => true ) );
+                }
+            }
         }
         // Nudge wp-cron to fire promptly instead of waiting for the next
         // front-end visit (low-traffic sites would otherwise stall).
@@ -906,6 +1122,12 @@ class BitBot {
             return;
         }
 
+        // Gather v2 render pass (pass 2) rides this same chain once pass 1 is
+        // finished. The engine rejects stale seq / run events itself.
+        if ( $this->gather_v2->handle_event( $batch_index, $run_id ) ) {
+            return;
+        }
+
         // Only an actively-running sync does work. A tick that arrives after
         // the run finished / errored / was stopped (e.g. the watchdog below)
         // bails here — this also stops the max-run cap from ever flipping a
@@ -919,11 +1141,11 @@ class BitBot {
         // desynced chain can never reschedule itself forever.
         $started_at = isset( $progress['started_at'] ) ? (int) $progress['started_at'] : time();
         if ( time() - $started_at > self::SYNC_MAX_RUN_SECONDS ) {
-            update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+            $this->write_sync_progress( $run_id, $progress, array(
                 'state'      => 'error',
                 'error'      => 'Sync timed out',
                 'updated_at' => time(),
-            ) ), false );
+            ) );
             delete_transient( self::SYNC_IDS_TRANSIENT );
             return;
         }
@@ -935,11 +1157,11 @@ class BitBot {
             // showed "0 of 44 pages (0%)" with nothing left that could ever
             // advance or clear it (seen live on a customer site). A run with
             // no worklist is over; say so.
-            update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+            $this->write_sync_progress( $run_id, $progress, array(
                 'state'      => 'error',
                 'error'      => 'Sync worklist expired before finishing. Press Sync now to restart.',
                 'updated_at' => time(),
-            ) ), false );
+            ) );
             return;
         }
 
@@ -992,6 +1214,7 @@ class BitBot {
                 ? array_values( array_filter( array_map( 'get_permalink', $ids ) ) )
                 : null;
 
+            $was_v2 = BitBot_Gather_V2::enabled();
             $result = $this->api_client->sync_batch(
                 $batches[ $cursor ],
                 $cursor,
@@ -999,14 +1222,43 @@ class BitBot {
                 $all_urls
             );
 
+            // A newer run (or a stop) may have started while the request was in
+            // flight. This tick must not write anything back over it.
+            if ( get_option( self::SYNC_RUN_OPTION ) !== $run_id ) {
+                return;
+            }
+
+            // The backend's gatherV2 switch rides the response. Absent = off.
+            $now_v2 = is_array( $result ) && ! empty( $result['success'] )
+                ? BitBot_Gather_V2::note_flag( isset( $result['data'] ) ? $result['data'] : array() )
+                : $was_v2;
+            $last_data = ( is_array( $result ) && isset( $result['data'] ) ) ? $result['data'] : array();
+            // sampleRequests / wantImages / renderTypes can arrive on ANY batch
+            // response: accumulate them in the run's progress so none is lost.
+            if ( $now_v2 && is_array( $last_data ) ) {
+                // Start from the freshest stored accumulator: an overlapping tick (cron plus the
+                // admin poll's inline tick) may have added to it since this tick read $progress.
+                $fresh = get_option( self::SYNC_PROGRESS_OPTION );
+                $base  = ( is_array( $fresh ) && isset( $fresh['run_id'] ) && $fresh['run_id'] === $run_id && isset( $fresh['gv2_acc'] ) ) ? $fresh['gv2_acc'] : ( isset( $progress['gv2_acc'] ) ? $progress['gv2_acc'] : array() );
+                $progress['gv2_acc'] = BitBot_Gather_V2::accumulate( $base, $last_data );
+                $this->gather_v2->note_current( $run_id, $last_data );   // pages already current: own per-run key, not this option
+            }
+            // Switched on by the very first answer: that batch went out without the
+            // v2 fields, so send it again with them before moving on.
+            if ( ! $was_v2 && $now_v2 && 0 === $cursor && empty( $progress['v2_replayed'] ) ) {
+                $progress['v2_replayed'] = true;
+                $this->write_sync_progress( $run_id, $progress, array( 'updated_at' => time() ) );
+                continue;
+            }
+
             if ( is_array( $result ) && empty( $result['success'] ) ) {
-                update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+                $this->write_sync_progress( $run_id, $progress, array(
                     'state'      => 'error',
                     'done'       => min( $cursor * $batch_size, $total ),
                     'cursor'     => $cursor,
                     'error'      => isset( $result['error'] ) ? $result['error'] : 'Sync failed',
                     'updated_at' => time(),
-                ) ), false );
+                ) );
                 delete_transient( self::SYNC_IDS_TRANSIENT );
                 return;
             }
@@ -1017,23 +1269,30 @@ class BitBot {
             if ( $cursor >= $total_batches ) {
                 // Final batch done. last_sync_at is stamped backend-side only on
                 // that batch, so it can't read "just now" before completion.
-                update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+                if ( ! $this->write_sync_progress( $run_id, $progress, array(
                     'state'       => 'done',
                     'done'        => $total,
                     'cursor'      => $cursor,
                     'finished_at' => time(),
                     'updated_at'  => time(),
-                ) ), false );
+                ) ) ) {
+                    return;     // a newer sync took over: this one writes and starts nothing
+                }
                 delete_transient( self::SYNC_IDS_TRANSIENT );
+                // Pass 2: render only what the backend asks for.
+                if ( $now_v2 ) {
+                    $acc = isset( $progress['gv2_acc'] ) ? $progress['gv2_acc'] : array();
+                    $this->gather_v2->begin( $run_id, $ids, BitBot_Gather_V2::accumulated_to_data( $acc ) );
+                }
                 return;
             }
 
-            update_option( self::SYNC_PROGRESS_OPTION, array_merge( $progress, array(
+            $this->write_sync_progress( $run_id, $progress, array(
                 'state'      => 'running',
                 'done'       => min( $cursor * $batch_size, $total ),
                 'cursor'     => $cursor,
                 'updated_at' => time(),
-            ) ), false );
+            ) );
 
             $processed++;
         }
@@ -2788,6 +3047,8 @@ class BitBot {
         if ( ! $this->admin ) {
             $this->admin = new BitBot_Admin( $this->api_client );
         }
+        $this->gather_v2->register_routes();
+
         // Widget config — deliberately uncacheable. widget.js fetches this on
         // load (cache-busted) and overrides the inlined bitbotConfig, so a
         // settings change shows immediately even when the page itself is

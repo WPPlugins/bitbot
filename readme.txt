@@ -5,7 +5,7 @@ Tags: chatbot, ai, voice, whatsapp, lead generation
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.3
+Stable tag: 2.2.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -111,6 +111,15 @@ Yes, inside WordPress, any time. Your plan stays active until the end of the bil
 9. Build a form in minutes and embed it anywhere with a shortcode.
 
 == Changelog ==
+
+= 2.2.4 =
+
+* Voice calls answer sooner, and a short thinking sound fills any pause instead of silence.
+* The voice welcome speaks in the chosen voice's own gender in every language.
+* Sync content reads your pages from inside WordPress, shows each stage of the sync, and can be stopped.
+* Chat finds the right page on large sites through page summaries.
+* Conversation transcripts show formatting instead of raw markdown.
+* Voice languages save exactly as the picker shows them.
 
 = 2.2.3 =
 
@@ -266,6 +275,9 @@ Major release — BitBot grows from a chatbot into a full AI assistant for your 
 * Initial release: chat widget, content sync from sitemap, AI content generator with SEO optimisation, topic discovery, usage tracking, Stripe billing.
 
 == Upgrade Notice ==
+
+= 2.2.4 =
+Faster voice answers, sync from inside WordPress with progress and Stop, better page finding on large sites.
 
 = 2.2.3 =
 Settings page fix for some hosts, widget in your site's language, language adding on Free.
