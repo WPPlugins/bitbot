@@ -1484,15 +1484,20 @@ class BitBot_API_Client {
      * @param bool  $final True on the last render batch of the run.
      * @return array RPC response.
      */
-    public function sync_render_batch( $pages, $seq = 0, $final = false ) {
+    public function sync_render_batch( $pages, $seq = 0, $final = false, $visitor_probe = null ) {
         // No totalBatches: the number of render batches is not known up front.
         // `final` marks the last batch of the run (the backend completes on it).
-        return $this->rpc( 'SyncContent', array(
+        // `visitorProbe`: the wave's paired idle/wave probe (backend lib/renderGuard).
+        $body = array(
             'pass'       => 'render',
             'pages'      => $pages,
             'batchIndex' => (int) $seq,
             'final'      => (bool) $final,
-        ), 120 );
+        );
+        if ( is_array( $visitor_probe ) ) {
+            $body['visitorProbe'] = $visitor_probe;
+        }
+        return $this->rpc( 'SyncContent', $body, 120 );
     }
 
     /**

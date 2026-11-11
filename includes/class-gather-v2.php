@@ -59,6 +59,8 @@ class BitBot_Gather_V2 {
     const STALLED_AFTER       = 300;
     const NUDGE_COOLDOWN      = 20;
     const FAILED_IDS_CAP      = 200;
+    /** A tick stops starting waves once PHP has used this share of memory_limit. */
+    const MEMORY_SHARE        = 0.7;
 
     /** @var BitBot_API_Client */
     private $api;
@@ -68,6 +70,12 @@ class BitBot_Gather_V2 {
     private $lease;
     /** @var string Post id the render-side metrics token was bound to. */
     private $bound_post = 0;
+    /** @var array|null The last wave's paired visitor probe (batch field visitorProbe), or null when none could be taken. */
+    private $last_probe = null;
+    /** @var string|null The exact route key (http, https, self) the last wave rendered on. */
+    private $last_route = null;
+    /** @var bool The last wave's search probe got a non-200, non-distress answer: search is no sensor on this site. */
+    private $search_unusable = false;
     /** @var string Why the last read_image() returned null. */
     private $image_reason = '';
     /** @var array|null Context of the tick running in THIS process (for the shutdown handler). */
@@ -736,7 +744,12 @@ class BitBot_Gather_V2 {
         $rows    = null;
         $stop    = false;
 
+        $memory_budget = BitBot_Gather_V2::memory_budget_bytes( (string) ini_get( 'memory_limit' ) );
         while ( ! $stop && ( microtime( true ) - $started ) < self::TICK_BUDGET_SECONDS ) {
+            // A tick that has used most of PHP's memory ends here; the next one starts clean.
+            if ( $memory_budget > 0 && memory_get_usage( true ) > $memory_budget ) {
+                break;
+            }
             $now  = time();
             $size = BitBot_Gather_Pacer::wave_size( $state['pacer'], $now );
             if ( $is_probe ) {
@@ -757,7 +770,18 @@ class BitBot_Gather_V2 {
                 return 'lost';
             }
 
-            $wave = $this->render_wave( $ids, $run_id, $state['via'] );
+            // Visitor probes alternate the home page and an uncached search page (lib/renderGuard).
+            // Search stops being a sensor for the run once it answers anything but 200 (switched off, hijacked, redirected).
+            $state['probe_n'] = isset( $state['probe_n'] ) ? (int) $state['probe_n'] + 1 : 0;
+            $kind  = ( empty( $state['probe_search_off'] ) && 1 === $state['probe_n'] % 2 ) ? 'search' : 'home';
+            $wave  = $this->render_wave( $ids, $run_id, $state['via'], $kind, isset( $state['route_key'] ) ? (string) $state['route_key'] : '' );
+            $probe = $this->last_probe;
+            if ( null !== $this->last_route ) {
+                $state['route_key'] = $this->last_route;
+            }
+            if ( $this->search_unusable ) {
+                $state['probe_search_off'] = true;
+            }
             $pages = array();       // renders that worked
             $items = array();       // everything sent: successes and failures
             $results = array();
@@ -797,7 +821,7 @@ class BitBot_Gather_V2 {
             if ( $items ) {
                 // The last batch of the run: nothing left in the queue after it, no images pending.
                 $is_final = ( 'running' === $state['state'] ) && BitBot_Gather_Queue::is_final_batch( $state['pos'], count( $ids ), count( $queue ), $state['want_images'], (int) ( isset( $state['images_outstanding'] ) ? $state['images_outstanding'] : 0 ) );
-                $res = $this->api->sync_render_batch( $items, (int) $state['ticks'], $is_final );
+                $res = $this->api->sync_render_batch( $items, (int) $state['ticks'], $is_final, $probe );
                 if ( empty( $res['success'] ) ) {
                     $state['backend_fail']++;
                     $state['inflight'] = array();
@@ -1031,7 +1055,10 @@ class BitBot_Gather_V2 {
      *
      * @return array id => { kind, ms, error, page? }
      */
-    private function render_wave( array $ids, $run_id, $preferred_via ) {
+    private function render_wave( array $ids, $run_id, $preferred_via, $probe_kind = 'home', $preferred_route = '' ) {
+        $this->last_probe      = null;
+        $this->last_route      = null;
+        $this->search_unusable = false;
         $out     = array();
         $pending = array();
         $tokens  = array();
@@ -1061,11 +1088,33 @@ class BitBot_Gather_V2 {
             'self'  => array( 'via' => 'self', 'base' => '', 'verify' => true ),
         );
         $order = array_keys( $routes );
-        if ( '' !== $preferred_via ) {
+        if ( '' !== $preferred_route && isset( $routes[ $preferred_route ] ) ) {
+            // The exact route that worked last (http and https are both "loopback").
+            $order = array_values( array_unique( array_merge( array( $preferred_route ), $order ) ) );
+        } elseif ( '' !== $preferred_via ) {
             usort( $order, function ( $a, $b ) use ( $routes, $preferred_via ) {
                 return (int) ( $routes[ $b ]['via'] === $preferred_via ) - (int) ( $routes[ $a ]['via'] === $preferred_via );
             } );
         }
+
+        // The paired visitor probe (lib/renderGuard): only on the EXACT route the last
+        // wave rendered on (a blocked loopback must not read as a sick host), idle first
+        // with nothing of ours in flight, then the same destination inside the wave's
+        // own request. A redirect is resolved once, on the idle probe, so both measure
+        // the page a visitor lands on, never the redirect response.
+        $probe_rk  = ( '' !== $preferred_route && isset( $routes[ $preferred_route ] ) && $pending ) ? $preferred_route : null;
+        $probe_rq  = null;
+        $probe_out = null;
+        if ( null !== $probe_rk ) {
+            $resolved = $this->resolve_probe( $this->visitor_probe_request( $probe_kind, $routes[ $probe_rk ], $host ), $routes[ $probe_rk ], $plan );
+            if ( null !== $resolved ) {
+                $probe_rq  = $resolved['request'];
+                $probe_out = array( 'url' => $probe_kind, 'idleMs' => $this->probe_ms( $resolved['timed'] ), 'idleStatus' => (int) $resolved['timed']['status'] );
+            } elseif ( 'search' === $probe_kind ) {
+                $this->search_unusable = true;
+            }
+        }
+        $rendered_on = null;
 
         foreach ( $order as $rk ) {
             if ( ! $pending ) {
@@ -1082,7 +1131,17 @@ class BitBot_Gather_V2 {
                     'options' => array(),
                 );
             }
+            $in_flight = count( $requests );
+            if ( $rk === $probe_rk && null !== $probe_rq ) {
+                $requests['probe'] = $probe_rq;
+            }
             $timed = $this->multi_get( $requests, $route['verify'] );
+            if ( isset( $timed['probe'] ) ) {
+                $probe_out['waveMs']      = $this->probe_ms( $timed['probe'] );
+                $probe_out['waveStatus']  = (int) $timed['probe']['status'];
+                $probe_out['concurrency'] = $in_flight;
+                unset( $timed['probe'], $requests['probe'] );
+            }
             $timed = $this->follow_redirects_once( $timed, $requests, $route, $plan );
             foreach ( $timed as $id => $t ) {
                 $cls = $this->classify_response( $t );
@@ -1093,6 +1152,9 @@ class BitBot_Gather_V2 {
                         'page' => $this->page_item( $pending[ $id ]['post'], $cls['html'], $route['via'], $t['ms'], $t['status'] ),
                     );
                     unset( $pending[ $id ] );
+                    if ( null === $rendered_on ) {
+                        $rendered_on = $rk;
+                    }
                 } else {
                     $pending[ $id ]['last'] = array( 'kind' => $cls['kind'], 'ms' => $t['ms'], 'error' => $cls['error'], 'status' => $t['status'], 'via' => $route['via'] );
                     // A struggling host (5xx, 429) is not asked again through another route.
@@ -1110,7 +1172,99 @@ class BitBot_Gather_V2 {
         foreach ( $tokens as $key ) {
             $this->store->delete( $key );   // unused tokens do not outlive the wave
         }
+        // The probe counts only when the wave rendered on the route it was taken on:
+        // otherwise its failure says "this route is blocked", not "the host is unwell".
+        $this->last_route = $rendered_on;
+        if ( null !== $probe_out && isset( $probe_out['waveStatus'] ) && $rendered_on === $probe_rk ) {
+            if ( self::probe_status_usable( $probe_out['waveStatus'] ) ) {
+                $this->last_probe = $probe_out;
+            } elseif ( 'search' === $probe_kind ) {
+                $this->search_unusable = true;
+            }
+        }
         return $out;
+    }
+
+    /**
+     * The idle probe, with one same-host redirect resolved: returns the request
+     * that reaches the destination and its timed idle answer, or null when the
+     * probe is no visitor-latency sensor here (a redirect off the site, two
+     * redirects, or a non-200 that is not a sign of distress).
+     */
+    private function resolve_probe( array $rq, array $route, array $plan ) {
+        $t = $this->multi_get( array( 'probe' => $rq ), $route['verify'] );
+        $t = $t['probe'];
+        if ( in_array( (int) $t['status'], array( 301, 302, 307, 308 ), true ) ) {
+            $f = empty( $t['location'] ) ? null : BitBot_Gather_Routes::follow( $t['location'], $plan['host'] );
+            if ( ! $f ) {
+                return null;
+            }
+            if ( null !== $f['host_header'] ) {
+                $rq['headers']['Host'] = $f['host_header'];
+            }
+            $rq['url'] = '' === $route['base'] ? home_url( $f['path'] ) : $route['base'] . $f['path'];
+            $t = $this->multi_get( array( 'probe' => $rq ), $route['verify'] );
+            $t = $t['probe'];
+        }
+        return self::probe_status_usable( (int) $t['status'] ) ? array( 'request' => $rq, 'timed' => $t ) : null;
+    }
+
+    /**
+     * A probe answer the guard can use: a 200 (a page a visitor gets), or a sign
+     * of distress (no answer, 429, 5xx). A 3xx or another 4xx measures nothing a
+     * visitor waits for, so that pair is dropped.
+     */
+    public static function probe_status_usable( $status ) {
+        $status = (int) $status;
+        return 200 === $status || 0 === $status || 429 === $status || $status >= 500;
+    }
+
+    /** A visitor's GET of the home page or an uncached search page: no gather token, so it renders as any visitor's would. */
+    private function visitor_probe_request( $kind, array $route, $host ) {
+        $path = $this->site_path( home_url( '/' ) );
+        if ( '' === $path ) {
+            $path = '/';
+        }
+        if ( 'search' === $kind ) {
+            $path .= ( false === strpos( $path, '?' ) ? '?' : '&' ) . 's=bbprobe' . wp_rand( 1000, 9999 );
+        }
+        return array(
+            'url'     => '' === $route['base'] ? home_url( $path ) : $route['base'] . $path,
+            'headers' => array( 'Host' => $host, 'Accept' => 'text/html', 'Cache-Control' => 'no-cache' ),
+            'type'    => 'GET',
+            'options' => array(),
+        );
+    }
+
+    /** Time to first byte of one timed response, ms; null when there was no response at all. */
+    private function probe_ms( array $t ) {
+        if ( 0 === (int) $t['status'] ) {
+            return null;
+        }
+        return (int) ( isset( $t['ttfb'] ) ? $t['ttfb'] : $t['ms'] );
+    }
+
+    /**
+     * The memory a tick may use before it stops starting waves: MEMORY_SHARE of
+     * memory_limit. 0 = no bound (memory_limit -1, or unreadable).
+     *
+     * @param string $limit memory_limit as PHP reports it ("256M", "1G", "-1", "134217728").
+     */
+    public static function memory_budget_bytes( $limit ) {
+        $limit = trim( (string) $limit );
+        if ( '' === $limit || '-1' === $limit ) {
+            return 0;
+        }
+        $n    = (float) $limit;
+        $unit = strtolower( substr( $limit, -1 ) );
+        if ( 'g' === $unit ) {
+            $n *= 1073741824;
+        } elseif ( 'm' === $unit ) {
+            $n *= 1048576;
+        } elseif ( 'k' === $unit ) {
+            $n *= 1024;
+        }
+        return $n > 0 ? (int) ( $n * self::MEMORY_SHARE ) : 0;
     }
 
     /** Requests::request_multiple with a per-request latency from curl's own timing. */
@@ -1119,11 +1273,15 @@ class BitBot_Gather_V2 {
         $hooks = class_exists( '\WpOrg\Requests\Hooks' ) ? '\WpOrg\Requests\Hooks' : 'Requests_Hooks';
         $ca    = ABSPATH . WPINC . '/certificates/ca-bundle.crt';
         $ms    = array();
+        $ttfb  = array();
         foreach ( $requests as $id => &$rq ) {
             $h = new $hooks();
-            $h->register( 'curl.after_request', function ( $headers, &$info ) use ( &$ms, $id ) {
+            $h->register( 'curl.after_request', function ( $headers, &$info ) use ( &$ms, &$ttfb, $id ) {
                 if ( is_array( $info ) && isset( $info['total_time'] ) ) {
                     $ms[ $id ] = (int) round( $info['total_time'] * 1000 );
+                }
+                if ( is_array( $info ) && isset( $info['starttransfer_time'] ) && $info['starttransfer_time'] > 0 ) {
+                    $ttfb[ $id ] = (int) round( $info['starttransfer_time'] * 1000 );
                 }
             } );
             $rq['options'] = array(
@@ -1152,6 +1310,9 @@ class BitBot_Gather_V2 {
         foreach ( $requests as $id => $_ ) {
             $r = isset( $resp[ $id ] ) ? $resp[ $id ] : null;
             $t = array( 'ms' => isset( $ms[ $id ] ) ? $ms[ $id ] : $wall, 'status' => 0, 'body' => '', 'error' => '', 'location' => '' );
+            if ( isset( $ttfb[ $id ] ) ) {
+                $t['ttfb'] = $ttfb[ $id ];
+            }
             if ( $r instanceof \Exception ) {
                 $t['error'] = $r->getMessage();
             } elseif ( is_object( $r ) && isset( $r->status_code ) ) {

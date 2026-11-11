@@ -462,6 +462,28 @@ class BitBot_Widget_Copy {
     }
 
     /**
+     * merge_auto as ONE compare-and-swap: read the stored rows, merge, write
+     * only if the stored value is still what was read; otherwise read again.
+     * An owner save that lands between the read and the write is never lost.
+     *
+     * @param callable $read     () => raw stored option value (null when absent), no cache.
+     * @param callable $write_if ( $expected_raw, array $rows ) => bool, true when written.
+     * @param array    $results  code => array( title, welcome, ... ) from the API.
+     * @param int      $attempts How many times a lost race is retried.
+     * @return array|null The rows written, or null when every attempt lost the race.
+     */
+    public static function cas_merge( $read, $write_if, $results, $attempts = 3 ) {
+        for ( $i = 0; $i < max( 1, (int) $attempts ); $i++ ) {
+            $raw  = call_user_func( $read );
+            $rows = self::merge_auto( self::normalize( $raw ), $results );
+            if ( call_user_func( $write_if, $raw, $rows ) ) {
+                return $rows;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Store machine translations. Owner rows (auto false) are untouched, rows
      * for other codes are kept (nothing is pruned), empty results are skipped.
      *

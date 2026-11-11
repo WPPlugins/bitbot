@@ -109,17 +109,51 @@ class BitBot_Admin {
             return;
         }
         // Merge into the rows as they are NOW, not the snapshot read before the
-        // API call: an owner edit saved meanwhile must not be overwritten
-        // (merge_auto never touches an owner row, so a row that became the
-        // owner's during the call is kept). Both option caches are dropped
-        // first; an autoloaded option is read from 'alloptions' before its
-        // own key. The read, merge and write are still three steps, not one:
-        // an owner save that lands between them is lost. That window is
-        // milliseconds, on a settings load, after the API call has returned.
-        wp_cache_delete( BitBot_Widget_Copy::OPTION, 'options' );
+        // API call, and write ONLY if nobody wrote in between: one conditional
+        // statement (the stored value must still equal what was read), else
+        // read again and merge again, three times at most. An owner save that
+        // lands during the merge is therefore never lost (merge_auto never
+        // touches an owner row either). Codex 2026-11-10.
+        BitBot_Widget_Copy::cas_merge(
+            array( $this, 'read_widget_copy_raw' ),
+            array( $this, 'write_widget_copy_if_unchanged' ),
+            $results
+        );
+    }
+
+    /** The stored widget copy as it is in the database now, no option cache. */
+    public function read_widget_copy_raw() {
+        global $wpdb;
+        $raw = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", BitBot_Widget_Copy::OPTION ) );
+        return null === $raw ? null : maybe_unserialize( $raw );
+    }
+
+    /**
+     * Writes $rows to the widget copy option only while its stored value is
+     * still exactly $expected (null = the row does not exist yet).
+     *
+     * @return bool True when written (or already equal), false when someone else wrote first.
+     */
+    public function write_widget_copy_if_unchanged( $expected, array $rows ) {
+        global $wpdb;
+        $name = BitBot_Widget_Copy::OPTION;
+        if ( null === $expected ) {
+            $added = add_option( $name, $rows, '', 'yes' );
+            return (bool) $added;
+        }
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+            maybe_serialize( $rows ), $name, maybe_serialize( $expected )
+        ) );
+        $affected = (int) $wpdb->rows_affected;
+        wp_cache_delete( $name, 'options' );
         wp_cache_delete( 'alloptions', 'options' );
-        $fresh = BitBot_Widget_Copy::normalize( get_option( BitBot_Widget_Copy::OPTION, array() ) );
-        update_option( BitBot_Widget_Copy::OPTION, BitBot_Widget_Copy::merge_auto( $fresh, $results ) );
+        if ( 1 === $affected ) {
+            return true;
+        }
+        // MySQL reports 0 for a matched row whose value did not change: that is
+        // still this writer's value in place. Anything else means another write landed.
+        return $this->read_widget_copy_raw() === $rows;
     }
 
     public function regenerate_auto_copy() {
