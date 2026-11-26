@@ -31,8 +31,9 @@ class BitBot_Plan {
     const PRO_PLUS = 'pro_plus';
 
     /**
-     * Every paying tier. Anything in this set hides the "Powered by"
-     * branding, disables upsell CTAs, and unlocks gated UI.
+     * Every paying tier. Anything in this set disables upsell CTAs and
+     * unlocks gated UI. The plan never decides the "Powered by" link: that
+     * is the site administrator's own opt-in (BitBot_Consent).
      */
     const PAID = array( self::PRO, self::PRO_PLUS );
 

@@ -876,7 +876,7 @@ class BitBot_Gather_Routes {
      *   the 127.0.0.1 attempts use that same port.
      */
     public static function plan( $home_url ) {
-        $p    = parse_url( $home_url );
+        $p    = wp_parse_url( $home_url );
         $host = isset( $p['host'] ) ? strtolower( $p['host'] ) : '';
         $port = isset( $p['port'] ) ? (int) $p['port'] : 0;
         $suffix = $port ? ':' . $port : '';
@@ -908,7 +908,7 @@ class BitBot_Gather_Routes {
         if ( '' === $location ) {
             return null;
         }
-        $p = parse_url( $location );
+        $p = wp_parse_url( $location );
         if ( false === $p ) {
             return null;
         }

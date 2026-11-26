@@ -272,7 +272,7 @@ class BitBot_Gather_V2 {
         $body   = $request->get_json_params();
         $key    = is_array( $body ) && isset( $body['apiKey'] ) ? (string) $body['apiKey'] : '';
         $stored = (string) get_option( 'bitbot_api_key', '' );
-        return '' !== $stored && '' !== $key && hash_equals( $stored, $key );
+        return BitBot_Consent::is_connected() && '' !== $stored && '' !== $key && hash_equals( $stored, $key );
     }
 
     public function rest_status( $request ) {
@@ -437,8 +437,8 @@ class BitBot_Gather_V2 {
         global $wpdb;
         $rows = array();
         foreach ( array_chunk( array_map( 'intval', $ids ), 500 ) as $chunk ) {
-            $in  = implode( ',', $chunk );
-            $res = $wpdb->get_results( "SELECT ID, post_type, post_modified_gmt FROM {$wpdb->posts} WHERE post_status = 'publish' AND ID IN ($in)", ARRAY_N ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ints only.
+            $in  = implode( ',', array_map( 'absint', $chunk ) );
+            $res = $wpdb->get_results( "SELECT ID, post_type, post_modified_gmt FROM {$wpdb->posts} WHERE post_status = 'publish' AND ID IN ($in)", ARRAY_N ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $in is absint()-ed ids joined by commas, nothing else.
             foreach ( (array) $res as $r ) {
                 $rows[] = array( (int) $r[0], (string) $r[1], (int) strtotime( $r[2] . ' UTC' ) );
             }
@@ -827,7 +827,7 @@ class BitBot_Gather_V2 {
                     $state['inflight'] = array();
                     if ( $state['backend_fail'] >= self::BACKEND_FAIL_PAUSE ) {
                         $state['state']        = 'paused';
-                        $state['pause_reason'] = 'The BitBot service did not accept render batches: ' . ( isset( $res['error'] ) ? (string) $res['error'] : 'unknown error' );
+                        $state['pause_reason'] = 'The Youami service did not accept render batches: ' . ( isset( $res['error'] ) ? (string) $res['error'] : 'unknown error' );
                     }
                     // pos is NOT advanced: those pages are rendered again later. Failed ones already counted.
                     $stop = true;
@@ -923,7 +923,7 @@ class BitBot_Gather_V2 {
                     $state['backend_fail']++;
                     if ( $state['backend_fail'] >= self::BACKEND_FAIL_PAUSE ) {
                         $state['state']        = 'paused';
-                        $state['pause_reason'] = 'The BitBot service did not accept the final render batch.';
+                        $state['pause_reason'] = 'The Youami service did not accept the final render batch.';
                     }
                 } else {
                     $state['final_sent'] = true;
@@ -1438,7 +1438,7 @@ class BitBot_Gather_V2 {
      * it is bound to a run and one page, and only emits for that page.
      */
     public function maybe_capture_render_metrics() {
-        $sent = isset( $_SERVER[ self::HEADER ] ) ? (string) wp_unslash( $_SERVER[ self::HEADER ] ) : '';
+        $sent = isset( $_SERVER[ self::HEADER ] ) ? sanitize_text_field( wp_unslash( $_SERVER[ self::HEADER ] ) ) : '';
         if ( '' === $sent || strlen( $sent ) > 64 ) {
             return;
         }
@@ -1455,11 +1455,26 @@ class BitBot_Gather_V2 {
         if ( ! $state || (string) $state['run_id'] !== (string) $tok['run'] ) {
             return;
         }
-        ob_start( function ( $buf ) {
-            $t0 = isset( $_SERVER['REQUEST_TIME_FLOAT'] ) ? (float) $_SERVER['REQUEST_TIME_FLOAT'] : microtime( true );
-            return $buf . "\n<!--" . BitBot_Gather_V2::MARKER . ' mem=' . memory_get_peak_usage( true )
-                . ' ms=' . (int) round( ( microtime( true ) - $t0 ) * 1000 ) . ' q=' . (int) get_num_queries() . '-->';
-        } );
+        // WordPress 6.9 and later: the core template enhancement buffer opens
+        // and closes the buffer for us.
+        if ( function_exists( 'wp_start_template_enhancement_output_buffer' ) ) {
+            add_filter( 'wp_template_enhancement_output_buffer', array( $this, 'append_metrics_marker' ) );
+            return;
+        }
+        // Older WordPress has no such filter: no output buffer is opened, so
+        // the marker is simply not added.
+    }
+
+    /**
+     * Append the metrics comment the backend reads back (see strip_metrics).
+     *
+     * @param string $buf The page HTML.
+     * @return string
+     */
+    public function append_metrics_marker( $buf ) {
+        $t0 = isset( $_SERVER['REQUEST_TIME_FLOAT'] ) ? (float) $_SERVER['REQUEST_TIME_FLOAT'] : microtime( true );
+        return $buf . "\n<!--" . self::MARKER . ' mem=' . memory_get_peak_usage( true )
+            . ' ms=' . (int) round( ( microtime( true ) - $t0 ) * 1000 ) . ' q=' . (int) get_num_queries() . '-->';
     }
 
     private function strip_metrics( $html ) {

@@ -1,0 +1,103 @@
+/* Scheduler drawer — editorial warm theme, scoped to the admin SPA tokens. */
+
+.bb-sched { display: flex; flex-direction: column; gap: 14px; }
+.bb-sched-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.bb-sched-intro { color: var(--ink-500); font-size: var(--fs-13); margin: 0; max-width: 70%; }
+.bb-sched-empty { color: var(--ink-400); font-size: var(--fs-14); text-align: center; padding: 28px 8px; }
+
+.bb-sched-list { display: flex; flex-direction: column; gap: 12px; }
+
+.bb-sched-card {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: 14px;
+  padding: 14px 15px;
+}
+.bb-sched-card.paused { opacity: 0.64; }
+
+.bb-sched-card-top { display: flex; align-items: flex-start; gap: 12px; }
+.bb-sched-titles { flex: 1; min-width: 0; }
+.bb-sched-name { font-weight: 650; font-size: var(--fs-15); display: flex; align-items: center; gap: 8px; }
+.bb-sched-kind {
+  font-size: var(--fs-12); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 6px; background: var(--paper-2); color: var(--ink-500);
+}
+.bb-sched-kind.hourly { background: #ECF0F5; color: #4d6076; }
+.bb-sched-desc { display: block; color: var(--ink-500); font-size: var(--fs-13); margin-top: 3px; }
+
+.bb-sched-toggle {
+  flex: none; width: 40px; height: 23px; border-radius: 20px; border: none;
+  background: var(--success); position: relative; cursor: pointer; transition: background .15s;
+}
+.bb-sched-toggle::after { content: ""; position: absolute; top: 2px; left: 19px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: left .15s; }
+.bb-sched-toggle.off { background: var(--ink-300); }
+.bb-sched-toggle.off::after { left: 2px; }
+
+.bb-sched-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; padding-top: 11px; border-top: 1px dashed var(--ink-200); }
+.bb-sched-m { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-13); font-weight: 600; }
+.bb-sched-m b { font-size: var(--fs-12); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-400); }
+
+.bb-sched-actions { display: flex; gap: 16px; margin-top: 12px; }
+.bb-sched-link { background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-size: var(--fs-13); font-weight: 600; color: var(--accent); }
+.bb-sched-link:hover { color: var(--accent-hover); }
+.bb-sched-link.danger { color: var(--danger); margin-left: auto; }
+.bb-sched-link:disabled { opacity: .5; cursor: default; }
+
+/* run history */
+.bb-sched-runs { margin-top: 12px; border-top: 1px solid var(--ink-200); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.bb-sched-runs-empty { margin-top: 10px; color: var(--ink-400); font-size: var(--fs-13); }
+.bb-sched-run { display: flex; align-items: center; gap: 9px; font-size: var(--fs-13); padding: 5px 0; }
+.bb-sched-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-300); }
+.bb-sched-dot.success { background: var(--success); }
+.bb-sched-dot.failed { background: var(--danger); }
+.bb-sched-dot.skipped { background: var(--warn); }
+.bb-sched-dot.running { background: var(--accent); }
+.bb-sched-run-when { color: var(--ink-500); width: 110px; flex: none; }
+.bb-sched-run-res { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-sched-run-open { background: none; border: none; cursor: pointer; font: inherit; font-size: var(--fs-13); font-weight: 600; color: var(--accent); flex: none; }
+.bb-sched-run-del { background: none; border: none; cursor: pointer; font: inherit; font-size: var(--fs-12); color: var(--ink-300); flex: none; padding: 0 2px; transition: color var(--duration-fast, 150ms) ease; }
+.bb-sched-run-del:hover:not(:disabled) { color: var(--danger); }
+.bb-sched-run-del:disabled { opacity: .4; cursor: default; }
+
+/* workflow preview panel (renders the blueprint markdown) */
+.bb-wf-panel {
+  width: min(960px, 94vw); height: 88vh; display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--ink-200); border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15,20,25,.28); overflow: hidden;
+}
+.bb-wf-sub { display: block; color: var(--ink-400); font-size: var(--fs-13); margin-top: 2px; }
+.bb-wf-body { flex: 1; padding: 10px 34px 28px; overflow: auto; }
+.bb-wf-body > *:not(.bb-wf-edit) { max-width: 760px; }
+.bb-wf-h { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-18); color: var(--ink-900); margin: 22px 0 8px; }
+.bb-wf-h:first-child { margin-top: 8px; }
+.bb-wf-p { margin: 5px 0; font-size: var(--fs-15); line-height: 1.65; color: var(--ink-700); }
+.bb-wf-li { margin: 5px 0 5px 6px; padding-left: 18px; position: relative; font-size: var(--fs-15); line-height: 1.6; color: var(--ink-700); }
+.bb-wf-li::before { content: "•"; position: absolute; left: 2px; color: var(--accent); }
+.bb-wf-ol::before { content: ""; }
+.bb-wf-sp { height: 6px; }
+.bb-wf-code { font-family: var(--font-mono); font-size: 0.85em; background: var(--paper-2); border: 1px solid var(--ink-200); border-radius: 5px; padding: 1px 5px; }
+.bb-wf-headact { display: flex; align-items: center; gap: 12px; }
+.bb-wf-edit {
+  width: 100%; height: 100%; min-height: 60vh; resize: vertical; margin-top: 4px;
+  border: 1px solid var(--ink-300); border-radius: 10px; padding: 14px 16px;
+  font-family: var(--font-mono); font-size: var(--fs-14); line-height: 1.6; color: var(--ink-900); background: var(--paper);
+}
+
+/* create modal */
+.bb-sched-modal-scrim { position: fixed; inset: 0; z-index: 10000; background: rgba(15,20,25,.42); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.bb-sched-modal { width: min(560px, 96vw); max-height: 92vh; overflow: auto; background: var(--card); border: 1px solid var(--ink-200); border-radius: 16px; box-shadow: 0 24px 60px rgba(15,20,25,.28); }
+.bb-sched-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 6px; }
+.bb-sched-modal-head h3 { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: var(--fs-24); }
+.bb-sched-x { width: 30px; height: 30px; border: 1px solid var(--ink-200); border-radius: 8px; background: none; color: var(--ink-500); cursor: pointer; }
+.bb-sched-modal-body { padding: 8px 22px 18px; }
+.bb-sched-lbl { display: block; font-weight: 700; font-size: var(--fs-13); margin: 14px 0 6px; }
+.bb-sched-inp, .bb-sched-ta, .bb-sched-sel {
+  width: 100%; border: 1px solid var(--ink-300); border-radius: 10px; padding: 10px 12px;
+  font: inherit; background: var(--paper); color: var(--ink-900);
+}
+.bb-sched-ta { min-height: 90px; resize: vertical; }
+.bb-sched-freqrow { display: flex; gap: 10px; flex-wrap: wrap; }
+.bb-sched-freqrow .bb-sched-sel { width: auto; flex: 1; min-width: 120px; }
+.bb-sched-note { font-size: var(--fs-12); color: var(--ink-400); margin: 12px 0 0; }
+.bb-sched-err { font-size: var(--fs-13); color: var(--danger); margin: 10px 0 0; }
+.bb-sched-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px 20px; border-top: 1px solid var(--ink-200); }

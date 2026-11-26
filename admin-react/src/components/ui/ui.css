@@ -1,0 +1,357 @@
+/* ─────────────────────────────────────────────────────────────────────
+   UI primitives — Card, Button, StatusPill, StatTile, ProGate,
+   EmptyState, Toast. Editorial-modern styling per design tokens.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.bb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-6);
+  padding: var(--sp-8) var(--sp-16);
+  border-radius: var(--r-8);
+  font-size: var(--fs-14);
+  font-weight: 500;
+  line-height: 1;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  white-space: nowrap;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+.bb-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.bb-btn-primary:hover {
+  background: var(--accent-hover);
+  color: #fff;
+}
+.bb-btn-ghost {
+  background: transparent;
+  color: var(--ink-700);
+  border-color: var(--ink-200);
+}
+.bb-btn-ghost:hover {
+  background: var(--ink-100);
+  color: var(--ink-900);
+}
+/* Destructive variant used on Delete-style actions. Stays subtle
+   until hover so it doesn't compete with the primary action. */
+.bb-btn-danger {
+  color: var(--accent);
+}
+.bb-btn-danger:hover {
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Solid destructive — used as the COMMIT button in confirm-delete modals
+   where the user is making an irreversible choice and needs a clear,
+   unambiguous "act" affordance. White text on accent fill. */
+.bb-btn-destructive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.bb-btn-destructive:hover {
+  background: color-mix(in oklab, var(--accent) 88%, black 12%);
+  border-color: color-mix(in oklab, var(--accent) 88%, black 12%);
+  color: #fff;
+}
+.bb-btn-destructive:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.bb-btn-dark {
+  background: var(--ink-900);
+  color: #fff;
+}
+.bb-btn-dark:hover {
+  background: var(--ink-700);
+  color: #fff;
+}
+
+/* Disabled state — visibly muted so a click feels like nothing happened
+   only because nothing should happen yet. Applies to every variant. */
+.bb-btn:disabled,
+.bb-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── Cards ────────────────────────────────────────────────────────── */
+.bb-card {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  overflow: hidden;
+}
+.bb-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-16) var(--sp-20);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-card-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-20);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  /* Stack an optional eyebrow span above the title text. Cards that don't
+     use an eyebrow just render the single span on its own line. */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bb-card-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+}
+.bb-card-body {
+  padding: var(--sp-20);
+}
+
+/* ── Status pills ─────────────────────────────────────────────────── */
+.bb-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: var(--sp-4) var(--sp-10);
+  border-radius: var(--r-full);
+  font-size: var(--fs-12);
+  font-weight: 500;
+}
+.bb-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.bb-status-pill-success { color: var(--success); background: var(--success-soft); }
+.bb-status-dot-success  { background: var(--success); }
+.bb-status-pill-warn    { color: var(--warn);    background: var(--warn-soft); }
+.bb-status-dot-warn     { background: var(--warn); }
+.bb-status-pill-error   { color: var(--danger);  background: var(--danger-soft); }
+.bb-status-dot-error    { background: var(--danger); }
+.bb-status-pill-idle    { color: var(--ink-500); background: var(--ink-100); }
+.bb-status-dot-idle     { background: var(--ink-400); }
+.bb-status-pill-syncing { color: var(--ink-500); background: var(--ink-100); }
+.bb-status-dot-syncing {
+  background: var(--ink-500);
+  animation: bb-pulse 1.4s var(--ease) infinite;
+}
+@keyframes bb-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-status-dot-syncing { animation: none; }
+}
+
+/* ── Stat tiles ───────────────────────────────────────────────────── */
+.bb-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.bb-stat-label {
+  font-size: var(--fs-12);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-500);
+}
+.bb-stat-value {
+  font-family: var(--font-display);
+  font-size: var(--fs-32);
+  font-weight: 400;
+  line-height: 1;
+  color: var(--ink-900);
+  margin-top: var(--sp-2);
+}
+.bb-stat-unit {
+  font-size: var(--fs-20);
+  color: var(--ink-500);
+  margin-left: 2px;
+}
+.bb-stat-delta {
+  font-size: var(--fs-12);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+.bb-stat-delta-up   { color: var(--success); }
+.bb-stat-delta-down { color: var(--danger); }
+.bb-stat-delta-arrow { font-size: 9px; }
+.bb-stat-delta-label { color: var(--ink-500); font-weight: 400; }
+
+/* ── Tier badges (used by ProGate, PlanCard) ──────────────────────── */
+.bb-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.bb-tier-badge-free      { background: var(--accent);       color: #fff; }
+.bb-tier-badge-assistant { background: var(--assistant-bg); color: var(--assistant-fg); }
+.bb-tier-badge-agent     { background: var(--agent-bg);     color: var(--agent-fg); }
+
+/* ── ProGate overlay ──────────────────────────────────────────────── */
+/* The gated children render fully but at 32% opacity so the visitor sees
+   exactly what they'd unlock. The upgrade card sits on TOP via a sticky
+   position so it stays in view even when the gated catalogue is taller
+   than a single viewport (e.g. Integrations with 11 cards).
+
+   The overlay is the FIRST child of .bb-progate so the sticky anchor is
+   the top of the gated section. We pull the following content up by
+   the overlay's full height (negative margin-bottom) so the gated
+   layout doesn't shift down. */
+.bb-progate {
+  position: relative;
+}
+.bb-progate-content {
+  opacity: 0.32;
+  pointer-events: none;
+  filter: saturate(0.6);
+}
+.bb-progate-overlay {
+  position: sticky;
+  top: 30vh;
+  z-index: 2;
+  width: fit-content;
+  max-width: 360px;
+  margin: 0 auto -160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-10);
+  padding: var(--sp-24);
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  box-shadow: var(--shadow-3);
+}
+.bb-progate-text {
+  font-size: var(--fs-14);
+  color: var(--ink-700);
+  text-align: center;
+}
+
+/* ── Error boundary fallback ─────────────────────────────────────────── */
+.bb-errbound { border-left: 3px solid var(--accent); }
+.bb-errbound-body {
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+  line-height: 1.5;
+  margin: 0 0 var(--sp-10);
+}
+.bb-errbound-message {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: var(--fs-12);
+  background: var(--paper-2);
+  border-radius: var(--r-8);
+  padding: var(--sp-10) var(--sp-12);
+  color: var(--ink-700);
+  margin: 0 0 var(--sp-12);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.bb-errbound-actions {
+  display: flex; justify-content: flex-end; gap: var(--sp-8);
+}
+
+/* ── Empty state ──────────────────────────────────────────────────── */
+.bb-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--sp-40) var(--sp-24);
+  gap: var(--sp-12);
+}
+.bb-empty-icon {
+  color: var(--ink-400);
+  width: 48px;
+  height: 48px;
+}
+.bb-empty-headline {
+  font-family: var(--font-display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  color: var(--ink-900);
+}
+.bb-empty-body {
+  font-size: var(--fs-14);
+  color: var(--ink-500);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+/* ── Toast ────────────────────────────────────────────────────────── */
+.bb-toast-viewport {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  z-index: 2147483646;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.bb-toast {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  box-shadow: var(--shadow-3);
+  padding: var(--sp-12) var(--sp-16);
+}
+.bb-toast-success { border-left: 3px solid var(--success); }
+.bb-toast-error   { border-left: 3px solid var(--danger);  }
+.bb-toast-info    { border-left: 3px solid var(--accent);  }
+.bb-toast-title {
+  font-weight: 500;
+  font-size: var(--fs-14);
+  color: var(--ink-900);
+}
+.bb-toast-description {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  margin-top: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-toast[data-state="open"],
+  .bb-toast[data-state="closed"] { animation: none; }
+}
+
+/* Inline waiting dots: sit on the text baseline right after the last word. */
+.bb-wait-dots { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: baseline; }
+.bb-wait-dots span {
+  width: 4px; height: 4px; border-radius: 999px;
+  background: var(--accent);
+  animation: bb-wait-dot 1.2s ease-in-out infinite;
+}
+.bb-wait-dots span:nth-child(2) { animation-delay: 0.15s; }
+.bb-wait-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes bb-wait-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-wait-dots span { animation: none; opacity: 0.7; }
+}

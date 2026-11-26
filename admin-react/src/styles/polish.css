@@ -1,0 +1,103 @@
+/* =========================================================================
+   Polish pass (BLUEPRINT Step 17)
+   - prefers-reduced-motion: respect OS-level "reduce motion" preference
+   - Staggered card reveal on tab mount
+   - 320px responsive guards
+   ========================================================================= */
+
+/* ── Staggered card reveal ────────────────────────────────────────────────
+   When a tab first paints, each .bb-card / .bb-stat-tile / .bb-syncstrip /
+   .bb-lead-row / .bb-conv-row fades up with a small per-child delay so the
+   eye can follow the layout rather than absorbing everything at once.
+   Cards beyond the 8th get no delay so a long list doesn't feel laggy. */
+@keyframes bb-card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.bb-card,
+.bb-statrow,
+.bb-syncstrip,
+.bb-lead-row,
+.bb-conv-row,
+.bb-draft-row,
+.bb-int-card,
+.bb-appt-row {
+  animation: bb-card-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.bb-card:nth-child(2)        { animation-delay: 40ms; }
+.bb-card:nth-child(3)        { animation-delay: 80ms; }
+.bb-card:nth-child(4)        { animation-delay: 120ms; }
+.bb-card:nth-child(5)        { animation-delay: 160ms; }
+.bb-lead-row:nth-child(2)    { animation-delay: 30ms; }
+.bb-lead-row:nth-child(3)    { animation-delay: 60ms; }
+.bb-lead-row:nth-child(4)    { animation-delay: 90ms; }
+.bb-lead-row:nth-child(5)    { animation-delay: 120ms; }
+.bb-conv-row:nth-child(2)    { animation-delay: 30ms; }
+.bb-conv-row:nth-child(3)    { animation-delay: 60ms; }
+.bb-conv-row:nth-child(4)    { animation-delay: 90ms; }
+.bb-conv-row:nth-child(5)    { animation-delay: 120ms; }
+
+/* ── 320px / extreme-narrow guards ───────────────────────────────────────
+   The BrandBar packs domain + version + status pills horizontally; below
+   ~460px it overflows. Stack everything vertically with smaller text. */
+@media (max-width: 460px) {
+  .bb-brandbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-12);
+    padding: var(--sp-14) var(--sp-16);
+  }
+  .bb-brandbar-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .bb-brandbar-sub {
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .bb-container {
+    padding: var(--sp-16) var(--sp-14);
+  }
+  .bb-section-title {
+    font-size: var(--fs-22);
+  }
+  .bb-section-numeral {
+    font-size: var(--fs-28);
+  }
+  .bb-plancard {
+    padding: var(--sp-16);
+  }
+  .bb-phone-preview {
+    transform: scale(0.78);
+    transform-origin: top center;
+    margin-bottom: -120px; /* recover whitespace from the scale */
+  }
+}
+
+/* ── Reduced motion override (WCAG 2.3.3) ────────────────────────────────
+   Honour `prefers-reduced-motion: reduce`. Strips every transition +
+   animation across the SPA so motion-sensitive users (vestibular
+   disorders, ADHD, low-power devices) get a static experience.
+   Use `*` so we don't have to hunt every individual rule. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Drawer + dialog should still appear (just without slide) */
+  .bb-drawer,
+  .bb-drawer-overlay {
+    animation: none !important;
+  }
+  /* Pulse + shimmer on un-viewed dots and skeletons are decorative — kill them */
+  .bb-lead-row-dot,
+  .bb-skeleton,
+  .bb-status-dot-syncing {
+    animation: none !important;
+  }
+}

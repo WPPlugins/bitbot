@@ -1,0 +1,83 @@
+/* Connect screen: one decision, given room. The card is narrow so the copy
+   reads as a short column, and each step has its own space. */
+.bb-connect {
+  max-width: 620px;
+  margin: var(--sp-48) auto 0;
+}
+.bb-connect .bb-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-20);
+  padding: var(--sp-40) var(--sp-40) var(--sp-32);
+}
+.bb-connect .bb-card-title {
+  font-size: var(--fs-28);
+  line-height: 1.15;
+  margin: 0;
+}
+.bb-connect-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-connect-copy p {
+  margin: 0;
+  font-size: var(--fs-15);
+  line-height: 1.6;
+  color: var(--ink-700);
+}
+.bb-connect-copy .bb-connect-promise {
+  color: var(--ink-900);
+  font-weight: 500;
+}
+
+/* The optional analytics choice: set apart as its own quiet panel. */
+.bb-connect-optin {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--sp-12);
+  row-gap: var(--sp-4);
+  align-items: start;
+  padding: var(--sp-16);
+  background: var(--paper);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+.bb-connect-optin:hover { border-color: var(--ink-300); }
+.bb-connect-optin:has(input:focus-visible) { border-color: var(--accent); }
+.bb-connect-optin input {
+  margin: 3px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.bb-connect-optin-label {
+  font-size: var(--fs-15);
+  font-weight: 500;
+  color: var(--ink-900);
+}
+.bb-connect-optin-help {
+  grid-column: 2;
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--ink-500);
+}
+
+.bb-connect-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-10);
+  padding-top: var(--sp-4);
+}
+.bb-connect-action .bb-btn {
+  padding: var(--sp-12) var(--sp-24);
+  font-size: var(--fs-15);
+}
+
+@media (max-width: 600px) {
+  .bb-connect { margin-top: var(--sp-16); }
+  .bb-connect .bb-card-body { padding: var(--sp-24) var(--sp-20); }
+}

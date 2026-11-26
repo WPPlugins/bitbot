@@ -1,0 +1,109 @@
+/* =========================================================================
+   Youami Admin v2 — Design tokens (copied from design-prototypes/admin-v2)
+   Direction: Editorial-modern. Warm paper palette, serif display + grotesque
+   body, coral accent. Scoped to #bitbot-admin-root so it never leaks into
+   the surrounding WP admin styling.
+   ========================================================================= */
+
+/* Tokens apply to the admin SPA root AND to .bb-portal-scope wrappers
+   used by modals that get portaled to <body>. Without the portal-scope
+   override, modal content rendered outside #bitbot-admin-root has no
+   access to these CSS variables and renders transparent / unstyled. */
+#bitbot-admin-root,
+.bb-portal-scope {
+  /* ── Palette ─────────────────────────────────────────────────────────── */
+  --ink-900: #0F1419;        /* primary text, dark surfaces */
+  --ink-700: #2A323D;
+  --ink-500: #5C6776;        /* secondary text */
+  --ink-400: #8593A3;        /* tertiary, captions */
+  --ink-300: #BFC8D2;        /* dividers */
+  --ink-200: #E4E8ED;        /* subtle dividers */
+  --ink-100: #F1F3F6;        /* faint fills */
+
+  --paper:   #FBF8F4;        /* main background — warm off-white */
+  --paper-2: #F5F0E8;        /* recessed surfaces, sidebar tint */
+  --card:    #FFFFFF;        /* card surface */
+  --card-2:  #FAFAF7;        /* alternate card */
+
+  --accent:       #E84F2A;   /* coral-amber — primary CTA, Free badge */
+  --accent-hover: #D03E1A;
+  --accent-soft:  #FCE7DF;
+  --accent-ink:   #7A2810;
+
+  --assistant-bg:   #1A3D2E; /* Assistant tier — deep sage (was --pro-bg) */
+  --assistant-fg:   #D4E8DB;
+  --assistant-soft: #E3EDE7;
+  --assistant-ink:  #1A3D2E;
+
+  --agent-bg:   #1A1F26;     /* Agent tier — near-black (was --plus-bg) */
+  --agent-fg:   #F5C77E;     /* warm gold accent on Agent */
+  --agent-soft: #2A2F38;
+
+  --success: #2D7A4F;
+  --success-soft: #DCEDE2;
+  --warn:    #B88A1A;
+  --warn-soft: #FAF0D6;
+  --danger:  #B23030;
+  --danger-soft: #F8DBDB;
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --font-display: "Fraunces", "Charter", "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+  --font-body:    "Inter Tight", "InterTight", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+
+  /* Modular scale — 1.20 (minor third), anchored at 16px */
+  --fs-12: 0.75rem;
+  --fs-13: 0.8125rem;
+  --fs-14: 0.875rem;
+  --fs-15: 0.9375rem;
+  --fs-16: 1rem;
+  --fs-18: 1.125rem;
+  --fs-20: 1.25rem;
+  --fs-24: 1.5rem;
+  --fs-28: 1.75rem;
+  --fs-32: 2rem;
+  --fs-40: 2.5rem;
+  --fs-48: 3rem;
+
+  /* ── Spacing ─────────────────────────────────────────────────────────── */
+  --sp-2: 2px;
+  --sp-4: 4px;
+  --sp-6: 6px;
+  --sp-8: 8px;
+  --sp-10: 10px;
+  --sp-12: 12px;
+  --sp-14: 14px;
+  --sp-16: 16px;
+  --sp-20: 20px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+  --sp-40: 40px;
+  --sp-48: 48px;
+  --sp-64: 64px;
+
+  /* ── Radii ───────────────────────────────────────────────────────────── */
+  --r-4: 4px;
+  --r-6: 6px;
+  --r-8: 8px;
+  --r-10: 10px;
+  --r-12: 12px;
+  --r-16: 16px;
+  --r-full: 999px;
+
+  /* ── Shadows — restrained, not puffy ─────────────────────────────────── */
+  --shadow-1: 0 1px 0 rgba(15, 20, 25, 0.04), 0 1px 2px rgba(15, 20, 25, 0.04);
+  --shadow-2: 0 1px 0 rgba(15, 20, 25, 0.05), 0 4px 12px -2px rgba(15, 20, 25, 0.08);
+  --shadow-3: 0 2px 0 rgba(15, 20, 25, 0.05), 0 12px 28px -6px rgba(15, 20, 25, 0.12);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  /* ── Motion ──────────────────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+
+  /* ── Layout constants ────────────────────────────────────────────────── */
+  --content-max: 1280px;
+  --gutter: 32px;
+}

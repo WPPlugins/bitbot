@@ -1,0 +1,174 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Account drawer — right-side slide-in panel triggered from BrandBar.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* ── Overlay backdrop ────────────────────────────────────────────────── */
+.bb-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 20, 25, 0.4);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  animation: bb-drawer-fade-in var(--t-fast) var(--ease);
+}
+@keyframes bb-drawer-fade-in { from { opacity: 0 } to { opacity: 1 } }
+
+/* ── Drawer panel ────────────────────────────────────────────────────── */
+.bb-drawer {
+  position: fixed;
+  /* Sit below the WP admin bar (32px desktop, 46px under 783px viewport)
+     so our header doesn't get clipped by it. */
+  top: 32px; right: 0; bottom: 0;
+  width: min(440px, 90vw);
+  background: var(--paper);
+  z-index: 1001;
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 32px rgba(15, 20, 25, 0.2);
+  animation: bb-drawer-slide-in var(--t-base) var(--ease-out-expo);
+}
+@media screen and (max-width: 782px) {
+  .bb-drawer { top: 46px; }
+}
+@keyframes bb-drawer-slide-in {
+  from { transform: translateX(100%) }
+  to   { transform: translateX(0) }
+}
+
+.bb-drawer-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--sp-16) var(--sp-20);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-drawer-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-22);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0;
+}
+.bb-drawer-close {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  color: var(--ink-500);
+  font-size: 16px;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-drawer-close:hover { background: var(--ink-100); color: var(--ink-900); }
+
+/* Header-right cluster: prev/next arrows then the close button. Lets
+   the admin hop between Account / Guardrails / Bot instructions
+   without closing-then-reopening from a CTA. */
+.bb-drawer-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.bb-drawer-nav-btn {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  color: var(--ink-500);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-drawer-nav-btn:hover {
+  background: var(--ink-100);
+  color: var(--ink-900);
+}
+
+.bb-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-20);
+  display: flex; flex-direction: column;
+  gap: var(--sp-24);
+}
+
+.bb-drawer-section {
+  display: flex; flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-drawer-footer-section {
+  margin-top: auto;
+  padding-top: var(--sp-16);
+  border-top: 1px solid var(--ink-200);
+}
+
+/* ── Subscription tier display ──────────────────────────────────────── */
+.bb-account-tier {
+  display: flex; align-items: center; gap: var(--sp-8);
+}
+.bb-account-tier-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-28);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.bb-account-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+}
+.bb-account-status-trialing  { background: rgba(0, 115, 170, 0.10); color: #00567f; }
+.bb-account-status-active    { background: rgba(22, 163, 74, 0.10); color: #136a37; }
+.bb-account-status-cancelled { background: rgba(232, 79, 42, 0.10); color: #b3340e; }
+.bb-account-status-expired   { background: var(--ink-100); color: var(--ink-500); }
+
+.bb-account-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-6) var(--sp-12);
+  margin: 0;
+  font-size: var(--fs-13);
+}
+.bb-account-meta dt {
+  color: var(--ink-500);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  align-self: center;
+}
+.bb-account-meta dd {
+  color: var(--ink-900);
+  margin: 0;
+}
+
+.bb-account-help {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.bb-account-actions {
+  display: flex; flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-account-cancel { color: var(--ink-500); }
+.bb-account-cancel:hover { color: var(--accent); }
+
+/* Site section — API key + manual reconnect/regenerate */
+.bb-account-key { display: flex; align-items: center; gap: var(--sp-8, 8px); }
+.bb-account-key code {
+  font-size: var(--fs-12, 12px);
+  background: var(--ink-100, rgba(0,0,0,0.05));
+  padding: 2px 6px; border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.bb-account-reconnect { margin-top: var(--sp-12, 12px); }
+.bb-account-regen-confirm {
+  margin-top: var(--sp-12, 12px);
+  padding: var(--sp-12, 12px);
+  border: 1px solid var(--ink-200, rgba(0,0,0,0.1));
+  border-radius: 8px;
+}
+.bb-account-regen-actions { display: flex; gap: var(--sp-8, 8px); margin-top: var(--sp-10, 10px); }
+.bb-account-error { color: var(--danger, #c0392b); font-size: var(--fs-12, 12px); margin: var(--sp-8, 8px) 0 0; }

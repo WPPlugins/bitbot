@@ -1,0 +1,1292 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Content Generator tab — source picker tabs, upload zone, drafts grid,
+   SEO meta blocks.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* ── Source-type tabs (Topic / URL / Upload) ─────────────────────────── */
+.bb-content-source-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-8);
+  margin-bottom: var(--sp-20);
+}
+@media (max-width: 720px) {
+  .bb-content-source-tabs { grid-template-columns: 1fr; }
+}
+.bb-source-tab {
+  text-align: left;
+  padding: var(--sp-14) var(--sp-16);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  background: var(--paper);
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.bb-source-tab:hover {
+  border-color: var(--ink-700);
+  background: var(--paper-2);
+}
+.bb-source-tab-active {
+  border-color: var(--ink-900);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
+}
+.bb-source-tab-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+}
+.bb-source-tab-sub {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+
+/* ── Upload drop-zone ────────────────────────────────────────────────── */
+.bb-upload-zone {
+  border: 2px dashed var(--ink-300);
+  border-radius: var(--r-10);
+  padding: var(--sp-32) var(--sp-20);
+  text-align: center;
+  display: flex; flex-direction: column; gap: var(--sp-12);
+  align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: border-color var(--dur-fast, 150ms) ease, background-color var(--dur-fast, 150ms) ease;
+}
+.bb-upload-zone:hover {
+  border-color: var(--ink-400);
+  background: var(--ink-50, rgba(0, 0, 0, 0.02));
+}
+.bb-upload-zone:focus-visible {
+  outline: 2px solid var(--accent, #d9480f);
+  outline-offset: 2px;
+}
+.bb-upload-zone-dragging {
+  border-color: var(--accent, #d9480f);
+  background: var(--accent-50, rgba(217, 72, 15, 0.06));
+}
+.bb-upload-zone-filled {
+  border-style: solid;
+  cursor: default;
+}
+.bb-upload-zone p {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  margin: 0;
+}
+/* The native input is triggered programmatically via the zone click. */
+.bb-upload-input {
+  display: none;
+}
+.bb-upload-file {
+  display: flex; align-items: center; gap: var(--sp-8);
+  max-width: 100%;
+}
+.bb-upload-file-name {
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+  font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bb-upload-file-remove {
+  flex: 0 0 auto;
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+  background: var(--ink-100, rgba(0, 0, 0, 0.06));
+  color: var(--ink-600);
+  font-size: 16px; line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--dur-fast, 150ms) ease;
+}
+.bb-upload-file-remove:hover {
+  background: var(--ink-200, rgba(0, 0, 0, 0.12));
+  color: var(--ink-800);
+}
+
+/* ── Composer actions row ────────────────────────────────────────────── */
+.bb-content-actions {
+  display: flex; justify-content: flex-end;
+  margin-top: var(--sp-8);
+}
+
+/* ── Drafts grid (list + detail) ─────────────────────────────────────── */
+.bb-drafts-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: var(--sp-16);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .bb-drafts-grid { grid-template-columns: 1fr; }
+}
+.bb-drafts-list { min-width: 0; }
+/* One card of rows, split by hairlines; the open draft carries the accent bar. */
+.bb-draft-rows {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  overflow: hidden;
+}
+.bb-draft-row {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  padding: var(--sp-14) var(--sp-16) var(--sp-14) 13px;
+  display: flex; flex-direction: column; gap: 4px;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.bb-draft-row + .bb-draft-row { border-top: 1px solid var(--ink-200); }
+.bb-draft-row:hover { background: var(--paper-2); }
+.bb-draft-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bb-draft-row-active {
+  border-left-color: var(--accent);
+  background: var(--paper-2);
+}
+.bb-draft-row-title {
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--ink-900);
+  line-height: 1.35;
+}
+.bb-draft-row-meta {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+}
+
+/* ── Draft detail ────────────────────────────────────────────────────── */
+.bb-draft-detail .bb-card-body { display: flex; flex-direction: column; gap: var(--sp-14); }
+.bb-draft-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-10); }
+.bb-draft-head .bb-draft-status { font-size: var(--fs-12); padding: 4px 10px; }
+.bb-draft-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-24, 24px);
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0;
+  text-wrap: balance;
+}
+.bb-draft-seo > summary { font-size: var(--fs-13); font-weight: 500; color: var(--ink-700); padding: var(--sp-4) 0; }
+.bb-draft-seo[open] > summary { margin-bottom: var(--sp-8); }
+.bb-draft-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--sp-12);
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+.bb-link-btn-danger { color: var(--danger); }
+.bb-link-btn-danger:hover { color: var(--danger); background: var(--danger-soft); }
+.bb-draft-body-note .bb-link-btn {
+  margin-left: var(--sp-4);
+  color: var(--ink-900);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bb-draft-body-note .bb-link-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Draft status pills ──────────────────────────────────────────────── */
+.bb-draft-status {
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  letter-spacing: 0.02em;
+}
+.bb-draft-status-draft        { background: var(--ink-100); color: var(--ink-700); }
+.bb-draft-status-in-wordpress { background: rgba(0, 115, 170, 0.10); color: #00567f; }
+.bb-draft-status-scheduled    { background: rgba(0, 115, 170, 0.12); color: #00567f; }
+.bb-draft-status-published    { background: rgba(22, 163, 74, 0.12); color: #136a37; }
+.bb-draft-status-failed       { background: rgba(232, 79, 42, 0.12); color: #b3340e; }
+
+/* ── SEO meta block ──────────────────────────────────────────────────── */
+.bb-seo-block {
+  background: var(--paper-2);
+  border-radius: var(--r-10);
+  padding: var(--sp-14);
+  display: flex; flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-seo-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--sp-12);
+  align-items: baseline;
+}
+.bb-seo-label {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bb-seo-value {
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+  line-height: 1.5;
+}
+.bb-keyword-chip {
+  display: inline-block;
+  font-size: 11px;
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+/* ── Sub-tab strip (Knowledgebase tab) ──────────────────────────────
+   Lower-key visual than the main tabstrip — no card lift, just a
+   bottom-border + active-underline pattern. Sits flush under the
+   plan card with comfortable bottom margin before the section head.
+*/
+.bb-subtab-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  border-bottom: 1px solid var(--ink-200);
+  margin-bottom: var(--sp-20);
+}
+.bb-subtab {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sp-10) var(--sp-14);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fs-14);
+  color: var(--ink-500);
+  cursor: pointer;
+  position: relative;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.bb-subtab:hover {
+  color: var(--ink-900);
+}
+.bb-subtab-active {
+  color: var(--ink-900);
+  font-weight: 500;
+  border-bottom-color: var(--accent);
+}
+
+/* ── Body preview ─────────────────────────────────────────────────────
+   Renders HTML from BAML/Haiku as a true article preview rather than
+   the old <pre>-style source dump. Typography is scoped here so the
+   article's heading/paragraph styles don't leak into surrounding
+   admin chrome. */
+.bb-draft-body {
+  font-family: var(--font-body, system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-size: var(--fs-14);
+  line-height: 1.65;
+  color: var(--ink-700);
+  background: var(--paper-2);
+  border-radius: var(--r-10);
+  padding: var(--sp-16) var(--sp-20);
+  max-height: 480px;
+  overflow-y: auto;
+  word-break: break-word;
+  margin: 0;
+}
+.bb-draft-body :where(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-display, var(--font-body));
+  color: var(--ink-900);
+  line-height: 1.25;
+  margin: var(--sp-20) 0 var(--sp-8);
+  font-weight: 600;
+}
+.bb-draft-body :where(h1):first-child,
+.bb-draft-body :where(h2):first-child,
+.bb-draft-body :where(h3):first-child { margin-top: 0; }
+.bb-draft-body h1 { font-size: var(--fs-20); }
+.bb-draft-body h2 { font-size: var(--fs-18); }
+.bb-draft-body h3 { font-size: var(--fs-16); }
+.bb-draft-body h4, .bb-draft-body h5, .bb-draft-body h6 { font-size: var(--fs-14); }
+.bb-draft-body p { margin: 0 0 var(--sp-12); }
+.bb-draft-body ul, .bb-draft-body ol {
+  margin: 0 0 var(--sp-12);
+  padding-left: var(--sp-20);
+}
+.bb-draft-body li { margin-bottom: 4px; }
+.bb-draft-body a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+.bb-draft-body a:hover { color: var(--accent); }
+.bb-draft-body strong { font-weight: 600; color: var(--ink-900); }
+.bb-draft-body em { font-style: italic; }
+.bb-draft-body blockquote {
+  margin: 0 0 var(--sp-12);
+  padding: var(--sp-8) var(--sp-14);
+  border-left: 3px solid var(--accent);
+  background: var(--card);
+  color: var(--ink-700);
+  font-style: italic;
+}
+.bb-draft-body code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--ink-100, var(--paper-2));
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.bb-draft-body pre {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-8);
+  padding: var(--sp-12);
+  overflow-x: auto;
+  font-size: var(--fs-13);
+  margin: 0 0 var(--sp-12);
+}
+.bb-draft-body pre code { background: transparent; padding: 0; }
+.bb-draft-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-8);
+  margin: var(--sp-8) 0;
+}
+.bb-draft-body hr {
+  border: none;
+  border-top: 1px solid var(--ink-200);
+  margin: var(--sp-20) 0;
+}
+.bb-draft-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--sp-12);
+  font-size: var(--fs-13);
+}
+.bb-draft-body th, .bb-draft-body td {
+  border: 1px solid var(--ink-200);
+  padding: var(--sp-6) var(--sp-10);
+  text-align: left;
+}
+.bb-draft-body th { background: var(--card); font-weight: 600; }
+
+/* ── Topic discovery (Step 01) ───────────────────────────────────── */
+/* Editorial empty-state: no duplicate header card, just a clear
+   primary action with the section heading carrying the title. */
+.bb-topic-discovery { display: flex; flex-direction: column; gap: var(--sp-16); }
+.bb-topic-discovery-empty {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: var(--sp-12);
+  padding: var(--sp-24) 0 var(--sp-12);
+  max-width: 60ch;
+}
+.bb-topic-discovery-empty-lede {
+  font-size: var(--fs-15);
+  color: var(--ink-700);
+  line-height: 1.6;
+  margin: 0;
+}
+.bb-topic-discovery-empty-foot {
+  color: var(--ink-400); font-size: var(--fs-12); margin: 0;
+}
+.bb-topic-discovery-error {
+  color: var(--accent); font-size: var(--fs-13); margin: 0;
+}
+
+/* Once results land, a small inline meta + Refresh button instead of
+   a heading. The section header above does the announcing. */
+.bb-topic-discovery-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: var(--sp-12);
+  padding-bottom: var(--sp-8);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-topic-discovery-head p {
+  margin: 0; color: var(--ink-500); font-size: var(--fs-13);
+}
+
+/* Loading pulse — three slow-pulsing dots, no fake skeleton cards. */
+/* Keyframes kept: other surfaces animate with this name. */
+@keyframes bb-pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40%           { opacity: 1;    transform: scale(1);   }
+}
+
+.bb-topic-discovery-gate {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: var(--sp-16);
+  padding: var(--sp-16);
+  background: linear-gradient(135deg, rgba(232,79,42,0.06), rgba(232,79,42,0.02));
+  border: 1px solid rgba(232,79,42,0.20);
+  border-radius: var(--r-8);
+}
+.bb-topic-discovery-gate strong { display: block; margin-bottom: 4px; }
+.bb-topic-discovery-gate p {
+  color: var(--ink-500); font-size: var(--fs-13);
+  margin: 0; max-width: 56ch;
+}
+
+.bb-inline-error {
+  margin-top: var(--sp-12);
+  padding: var(--sp-12) var(--sp-16);
+  background: rgba(232, 79, 42, 0.06);
+  border: 1px solid rgba(232, 79, 42, 0.25);
+  border-radius: var(--r-8);
+  color: var(--ink-700);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}
+.bb-inline-error strong { color: var(--ink-900); }
+
+.bb-topic-suggestions, .bb-content-gaps { display: flex; flex-direction: column; gap: var(--sp-8); }
+
+/* Header strip above the suggested-topic list. Holds the eyebrow on
+   the left and the content-gaps disclosure button on the right. */
+.bb-topic-suggestions-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-12);
+}
+
+/* Disclosure trigger — ⓘ glyph + count label. Acts as a toggle that
+   reveals the inline content-gaps panel. */
+.bb-topic-gaps-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--ink-200);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.bb-topic-gaps-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+.bb-topic-gaps-toggle-active {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+.bb-topic-gaps-toggle-label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline content-gaps panel revealed by the disclosure. Tinted to
+   tie it back to its trigger and to read as a secondary surface. */
+.bb-content-gaps-inline {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
+  border-radius: var(--r-8);
+  padding: var(--sp-12) var(--sp-14);
+  margin: 0 0 var(--sp-8);
+}
+.bb-content-gaps-lede {
+  margin: 0 0 var(--sp-8);
+  font-size: var(--fs-12);
+  color: var(--accent-ink);
+}
+.bb-topic-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
+.bb-topic-item {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: var(--sp-16);
+  padding: var(--sp-12) var(--sp-14);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-8);
+  background: var(--paper);
+}
+.bb-topic-item-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bb-topic-item-title { font-weight: 500; color: var(--ink-900); }
+.bb-topic-item-reason { color: var(--ink-500); font-size: var(--fs-13); }
+.bb-topic-item-meta {
+  display: flex; align-items: center; gap: var(--sp-8);
+  font-size: var(--fs-12); color: var(--ink-500);
+}
+.bb-topic-item-query { display: inline-flex; align-items: baseline; gap: 4px; }
+.bb-topic-item-query code {
+  background: var(--ink-100); padding: 1px 6px; border-radius: 4px;
+  font-size: var(--fs-12);
+}
+
+.bb-difficulty-pill {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-size: var(--fs-12); font-weight: 500;
+}
+.bb-difficulty-easy   { background: rgba(34,197,94,0.12);  color: #15803d; }
+.bb-difficulty-medium { background: rgba(234,179,8,0.14);  color: #a16207; }
+.bb-difficulty-hard   { background: rgba(239,68,68,0.12);  color: #b91c1c; }
+
+.bb-gap-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.bb-gap-item {
+  padding: var(--sp-8) var(--sp-12);
+  background: var(--ink-100);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-6);
+  color: var(--ink-700);
+  font-size: var(--fs-13);
+}
+
+.bb-topic-sources { font-size: var(--fs-13); color: var(--ink-500); }
+.bb-topic-sources summary { cursor: pointer; padding: var(--sp-6) 0; }
+.bb-source-list { list-style: none; padding: var(--sp-8) 0 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.bb-source-list a { color: var(--ink-700); text-decoration: underline; }
+.bb-source-meta { color: var(--ink-400); margin-left: var(--sp-8); }
+
+/* ─── FAQ section (Content tab, section 04) ─────────────────────────── */
+.bb-faq-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-20);
+  margin-bottom: var(--sp-32);
+}
+
+.bb-faq-composer {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  padding: var(--sp-20);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-12);
+}
+.bb-faq-composer-hint {
+  font-size: var(--fs-13);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: var(--sp-10) var(--sp-12);
+  border-radius: 0 var(--r-4) var(--r-4) 0;
+}
+.bb-faq-drafting {
+  background: var(--paper-2);
+  border: 1px dashed var(--ink-300);
+  border-radius: var(--r-12);
+  padding: var(--sp-20);
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  font-style: italic;
+  text-align: center;
+}
+.bb-faq-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bb-faq-field-label {
+  font-size: var(--fs-12);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+.bb-faq-composer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bb-faq-composer-chars {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
+}
+
+.bb-faq-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 var(--sp-4);
+}
+.bb-faq-list-aside {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+}
+
+.bb-faq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+}
+
+.bb-faq-row {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  padding: var(--sp-16) var(--sp-20);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-faq-row-inactive {
+  opacity: 0.6;
+}
+.bb-faq-row-editing {
+  border-color: var(--accent);
+  gap: var(--sp-10);
+}
+.bb-faq-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-12);
+}
+.bb-faq-row-meta {
+  display: flex;
+  gap: var(--sp-8);
+  align-items: center;
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+}
+.bb-faq-row-time { font-variant-numeric: tabular-nums; }
+.bb-faq-tag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.bb-faq-tag-auto {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.bb-faq-tag-paused {
+  background: var(--ink-100);
+  color: var(--ink-500);
+}
+.bb-faq-row-controls {
+  display: flex;
+  gap: var(--sp-8);
+}
+.bb-faq-row-ctrl {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.bb-faq-row-ctrl:hover { color: var(--ink-900); text-decoration: underline; }
+.bb-faq-row-ctrl-danger:hover { color: var(--accent); }
+
+.bb-faq-question {
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+  font-weight: 500;
+  color: var(--ink-900);
+  margin: 0;
+  line-height: 1.35;
+}
+.bb-faq-answer {
+  font-size: var(--fs-14);
+  color: var(--ink-700);
+  line-height: 1.55;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.bb-faq-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-8);
+}
+
+.bb-faq-empty {
+  font-size: var(--fs-13);
+  color: var(--ink-400);
+  font-style: italic;
+  text-align: center;
+  padding: var(--sp-24);
+}
+
+/* Sub-headers used inside Section 01 Knowledgebase to split the
+   indexed-pages and FAQ blocks without competing with section h2s. */
+.bb-content-subhead {
+  font-family: var(--font-display);
+  font-size: var(--fs-18);
+  font-weight: 500;
+  color: var(--ink-900);
+  margin: var(--sp-16) 0 var(--sp-4);
+}
+.bb-content-subhead-spaced { margin-top: var(--sp-32); }
+.bb-content-subhead-sub {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  margin: 0 0 var(--sp-14);
+}
+
+/* Composer button group — Discard + Add FAQ sit on the right;
+   character counter sits on the left. */
+.bb-faq-composer-buttons {
+  display: flex;
+  gap: var(--sp-8);
+  align-items: center;
+}
+
+/* ─── Suggested-from-coverage-gaps panel ────────────────────────────── */
+.bb-faq-suggestions {
+  background: var(--paper-2);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  padding: var(--sp-14) var(--sp-16) var(--sp-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-faq-suggestion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-faq-suggestion {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--sp-12);
+  align-items: center;
+  padding: var(--sp-10) var(--sp-12);
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-4);
+}
+.bb-faq-suggestion-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bb-faq-suggestion-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-8);
+}
+.bb-faq-suggestion-topic {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-transform: capitalize;
+}
+.bb-faq-suggestion-count {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+.bb-faq-suggestion-example {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* List-block wrapper for "Your FAQs" — rows of Q+A above the
+   "+ Add FAQ" trigger pill. */
+.bb-faq-list-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-12);
+}
+.bb-faq-add-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-8);
+  padding: var(--sp-4) 0 0;
+}
+.bb-faq-cap-help {
+  margin: 0;
+  font-size: var(--fs-12);
+  color: var(--ink-700);
+  max-width: 64ch;
+}
+
+/* Multi-select on FAQs — mirrors Leads + Conversations pattern. */
+.bb-faq-list-head { display: flex; align-items: center; gap: var(--sp-16); justify-content: space-between; }
+.bb-faq-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  font-size: var(--fs-12);
+  color: var(--ink-700);
+  cursor: pointer;
+  user-select: none;
+}
+.bb-faq-select-all input { cursor: pointer; }
+
+.bb-faq-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-12);
+  padding: var(--sp-8) var(--sp-12);
+  background: var(--paper);
+  border: 1px solid var(--ink-200);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-8);
+  margin: var(--sp-8) 0;
+  font-size: var(--fs-13);
+}
+.bb-faq-bulk-toolbar strong { color: var(--ink-900); }
+.bb-faq-bulk-actions { display: inline-flex; gap: var(--sp-8); }
+
+.bb-faq-row-check {
+  margin-right: var(--sp-8);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast, 150ms);
+}
+/* Reveal the checkbox + per-row Delete on hover, focus-within
+   (keyboard accessibility), or when the row is selected. */
+.bb-faq-row:hover .bb-faq-row-check,
+.bb-faq-row:focus-within .bb-faq-row-check,
+.bb-faq-row-selected .bb-faq-row-check {
+  opacity: 1;
+}
+
+/* Per-row controls (Edit / Delete) — visible on hover/focus/selected,
+   otherwise hidden so the row reads as just question + meta. The Edit
+   button stays visible since it's the primary affordance. */
+.bb-faq-row .bb-faq-row-ctrl-danger {
+  opacity: 0;
+  transition: opacity var(--duration-fast, 150ms);
+}
+.bb-faq-row:hover .bb-faq-row-ctrl-danger,
+.bb-faq-row:focus-within .bb-faq-row-ctrl-danger,
+.bb-faq-row-selected .bb-faq-row-ctrl-danger {
+  opacity: 1;
+}
+
+.bb-faq-row-selected {
+  background: rgba(232, 79, 42, 0.04);
+  border-color: rgba(232, 79, 42, 0.25) !important;
+}
+
+/* Confirm-style modal — destructive action dialogs.
+   Reuses .bb-modal base (shadow, radius, paper background) but caps
+   width tighter and adds a footer with top-border for the action row. */
+.bb-confirm-modal {
+  width: min(440px, 100%);
+}
+.bb-confirm-modal-body {
+  margin: 0;
+  font-size: var(--fs-14);
+  line-height: 1.55;
+  color: var(--ink-700);
+}
+.bb-confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-8);
+  padding: var(--sp-12) var(--sp-20);
+  border-top: 1px solid var(--ink-200);
+  background: var(--paper);
+}
+.bb-faq-row-source {
+  text-transform: capitalize;
+  color: var(--ink-400);
+}
+
+/* ─── Pill-based FAQ surface (suggestions + Add trigger) ────────────
+   Suggestions and the Add FAQ trigger render as flex-wrapping pills.
+   Clicking a pill opens the composer — kept consistent across the
+   three triggers (add manually, edit FAQ row, draft from gap pill). */
+.bb-faq-pills-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-faq-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  padding: var(--sp-4);
+}
+/* Suggestion + its discard control sit together; the × dismisses the gap
+   so it stops surfacing without having to turn it into an FAQ. */
+.bb-faq-pill-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.bb-faq-pill-discard {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  color: var(--ink-400);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  /* Hidden until the pill is hovered/focused — keeps the row calm. Opacity
+     (not display) so the layout never shifts when it fades in. */
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+.bb-faq-pill-wrap:hover .bb-faq-pill-discard,
+.bb-faq-pill-wrap:focus-within .bb-faq-pill-discard {
+  opacity: 1;
+}
+/* Touch devices have no hover — keep the × always visible there. */
+@media (hover: none) {
+  .bb-faq-pill-discard { opacity: 1; }
+}
+.bb-faq-pill-discard:hover {
+  color: var(--accent);
+  background: var(--ink-100);
+}
+.bb-faq-pill-discard:disabled { opacity: 0.5; cursor: default; }
+/* Reset-discarded icon in the suggestions head — tooltip on hover. */
+.bb-faq-reset-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: var(--sp-6);
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  color: var(--ink-400);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: color 120ms ease, background 120ms ease;
+}
+.bb-faq-reset-icon:hover { color: var(--accent); background: var(--ink-100); }
+.bb-faq-reset-icon:disabled { opacity: 0.5; cursor: default; }
+
+/* Base pill shape — applied to every variant. The pill itself is a
+   container; the label/remove buttons inside it own their own click
+   targets so the X never propagates an edit. */
+.bb-faq-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: 999px;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  transition: border-color 120ms ease, background 120ms ease,
+              transform 120ms ease, box-shadow 120ms ease;
+}
+.bb-faq-pill:hover {
+  border-color: var(--ink-400);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.bb-faq-pill-label {
+  background: none;
+  border: none;
+  padding: var(--sp-8) var(--sp-4) var(--sp-8) var(--sp-12);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  max-width: 340px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bb-faq-pill-label:hover { color: var(--accent-ink); }
+
+.bb-faq-pill-remove {
+  background: none;
+  border: none;
+  padding: var(--sp-8) var(--sp-10) var(--sp-8) var(--sp-4);
+  margin-left: -2px;
+  font-size: var(--fs-16);
+  line-height: 1;
+  color: var(--ink-400);
+  cursor: pointer;
+  border-radius: 0 999px 999px 0;
+}
+.bb-faq-pill-remove:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bb-faq-pill-auto {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  flex-shrink: 0;
+}
+
+/* "+ Add manually" pill — dashed border to signal an action, not data. */
+.bb-faq-pill-add {
+  padding: var(--sp-8) var(--sp-14);
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-500);
+  cursor: pointer;
+  font: inherit;
+}
+.bb-faq-pill-add:hover {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Suggestion pill — tinted to differentiate from saved FAQs and
+   includes a count badge of how often this gap surfaced. */
+.bb-faq-pill-suggest {
+  padding: var(--sp-8) var(--sp-12);
+  background: var(--paper-2);
+  border-color: var(--ink-200);
+  color: var(--ink-700);
+  cursor: pointer;
+  font: inherit;
+  text-transform: capitalize;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  max-width: 340px;
+}
+.bb-faq-pill-suggest:hover {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.bb-faq-pill-suggest[disabled] {
+  opacity: 0.55;
+  cursor: wait;
+}
+.bb-faq-pill-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-500);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+}
+
+/* View-all pill — text-only sibling that opens the modal. */
+.bb-faq-pill-viewall {
+  padding: var(--sp-8) var(--sp-12);
+  background: transparent;
+  border-color: transparent;
+  color: var(--accent-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+}
+.bb-faq-pill-viewall:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  text-decoration: underline;
+}
+
+/* ── Knowledgebase sub tabs: tighter rhythm now the section heading is gone ── */
+.bb-subtab-strip { margin-bottom: var(--sp-12); }
+.bb-compose-quota { margin: 0 0 var(--sp-12); font-size: var(--fs-13); color: var(--ink-500); }
+.bb-compose-instructions { margin: 0 0 var(--sp-12); }
+.bb-compose-instructions > summary {
+  cursor: pointer;
+  font-size: var(--fs-13);
+  font-weight: 500;
+  color: var(--ink-700);
+  padding: var(--sp-4) 0;
+}
+.bb-compose-instructions > summary:focus-visible,
+.bb-draft-seo > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bb-compose-instructions[open] > summary { margin-bottom: var(--sp-8); }
+.bb-draft-seo > summary { cursor: pointer; }
+.bb-faq-viewall { margin-left: var(--sp-8); }
+.bb-faq-viewall:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ─── FAQs sub tab: one card (toolbar, unanswered questions, list) ───── */
+.bb-faq-card {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bb-faq-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-12);
+  padding: var(--sp-12) var(--sp-20);
+}
+.bb-faq-search { flex: 1 1 220px; min-width: 0; margin-right: auto; }
+.bb-faq-toolbar .bb-faq-select-all { margin-right: auto; }
+.bb-faq-count {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+.bb-faq-card .bb-faq-cap-help { padding: 0 var(--sp-20) var(--sp-12); }
+
+/* Unanswered questions lead the card: tinted band, count in the accent. */
+.bb-faq-gaps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding: var(--sp-12) var(--sp-20) var(--sp-14);
+  background: var(--accent-soft);
+  border-top: 1px solid var(--ink-200);
+}
+.bb-faq-gaps-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); }
+.bb-faq-gaps-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.bb-faq-gaps-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.bb-faq-gaps .bb-faq-pills { padding: 0; }
+.bb-faq-gaps .bb-faq-pill-suggest { background: var(--card); }
+
+.bb-faq-card .bb-faq-drafting,
+.bb-faq-composer-slot { margin: 0 var(--sp-20) var(--sp-16); }
+.bb-faq-card .bb-faq-gaps + .bb-faq-drafting,
+.bb-faq-card .bb-faq-gaps + .bb-faq-composer-slot { margin-top: var(--sp-16); }
+.bb-faq-card .bb-faq-bulk-toolbar { margin: 0 var(--sp-20) var(--sp-12); }
+.bb-faq-card .bb-faq-empty { border-top: 1px solid var(--ink-200); margin: 0; }
+
+/* Rows share the card and are split by rules, not boxed one by one. */
+.bb-faq-card .bb-faq-list { gap: 0; }
+.bb-faq-card .bb-faq-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--sp-4) var(--sp-12);
+  padding: var(--sp-16) var(--sp-20);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--ink-200);
+  border-radius: 0;
+}
+.bb-faq-card .bb-faq-row-editing { display: block; }
+.bb-faq-card .bb-faq-row-editing .bb-faq-composer { border-color: var(--accent); }
+.bb-faq-card .bb-faq-row-selected { background: rgba(232, 79, 42, 0.04); }
+.bb-faq-card .bb-faq-row-check { margin: 4px 0 0; }
+.bb-faq-row-body { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+.bb-faq-card .bb-faq-question {
+  font-family: inherit;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.bb-faq-card .bb-faq-question .bb-faq-tag { margin-left: var(--sp-8); vertical-align: middle; }
+.bb-faq-card .bb-faq-answer { overflow-wrap: anywhere; }
+.bb-faq-row-side {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .bb-faq-card .bb-faq-row { grid-template-columns: auto minmax(0, 1fr); }
+  .bb-faq-row-side { grid-column: 2; justify-content: space-between; }
+  .bb-faq-toolbar, .bb-faq-gaps, .bb-faq-card .bb-faq-row { padding-left: var(--sp-12); padding-right: var(--sp-12); }
+}
+/* The row checkbox shows on hover in the left gutter, so questions line up with the rest of the card. */
+.bb-faq-card .bb-faq-row { position: relative; grid-template-columns: minmax(0, 1fr) auto; }
+.bb-faq-card .bb-faq-row-check { position: absolute; left: 3px; top: var(--sp-16); margin: 3px 0 0; }
+@media (max-width: 600px) {
+  .bb-faq-card .bb-faq-row { grid-template-columns: minmax(0, 1fr); padding-left: var(--sp-20); }
+  .bb-faq-row-side { grid-column: 1; }
+}
+
+/* Selection lives in ONE strip right above the list: tick-all, the count, Clear, Delete. */
+.bb-faq-card .bb-faq-bulk-toolbar {
+  position: relative;
+  margin: 0;
+  padding: var(--sp-8) var(--sp-20);
+  background: var(--paper);
+  border: 0;
+  border-top: 1px solid var(--ink-200);
+  border-radius: 0;
+}
+.bb-faq-card .bb-faq-bulk-toolbar .bb-faq-select-all { margin: 0; font-size: var(--fs-13); }
+/* Row and tick-all checkboxes share one column in the card's left gutter, clear of the text. */
+.bb-faq-card input.bb-faq-row-check {
+  position: absolute;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+}
+.bb-faq-card .bb-faq-row input.bb-faq-row-check { top: calc(var(--sp-16) + 3px); }
+.bb-faq-card .bb-faq-bulk-toolbar input.bb-faq-row-check { top: 50%; transform: translateY(-50%); opacity: 1; }
+.bb-faq-card input.bb-faq-row-check:checked::before { width: 18px; height: 18px; margin: -3px 0 0 -3px; }
+/* While anything is selected every row shows its checkbox, so the column reads as one control. */
+.bb-faq-card:has(.bb-faq-bulk-toolbar) .bb-faq-row-check { opacity: 1; }
+
+/* Discard is always visible on an unanswered question: it is half of what the pill is for. */
+.bb-faq-gaps .bb-faq-pill-wrap {
+  gap: 0;
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: 999px;
+  padding-right: 4px;
+}
+.bb-faq-gaps .bb-faq-pill-suggest { border: 0; background: none; }
+.bb-faq-gaps .bb-faq-pill-suggest:hover { transform: none; box-shadow: none; }
+.bb-faq-gaps .bb-faq-pill-discard { opacity: 1; }
+.bb-faq-gaps .bb-faq-pills { gap: var(--sp-8); }
+/* A wider left gutter so the checkbox column has air on both sides. */
+.bb-faq-card .bb-faq-toolbar,
+.bb-faq-card .bb-faq-gaps,
+.bb-faq-card .bb-faq-row,
+.bb-faq-card .bb-faq-bulk-toolbar,
+.bb-faq-card .bb-faq-cap-help { padding-left: 30px; }
+.bb-faq-card .bb-faq-drafting,
+.bb-faq-card .bb-faq-composer-slot { margin-left: 30px; }
+.bb-faq-card input.bb-faq-row-check { left: 8px; }
+.bb-draft-body-note { color: var(--ink-500); font-size: var(--fs-13); margin: 0; }

@@ -1,0 +1,95 @@
+/* Voice row + the voice panel it opens. Tone: sage on Assistant, gold on Agent. */
+.bb-voice, .bb-voice-panel {
+  --voice-color: var(--assistant-ink);
+  --voice-row: var(--assistant-soft);
+  --voice-play-bg: var(--assistant-soft);
+  --voice-play-fg: var(--assistant-ink);
+  --voice-on-bg: var(--assistant-ink);
+  --voice-on-fg: #fff;
+  color: var(--ink-900); font-family: var(--font-body); font-size: var(--fs-13); line-height: 1.4;
+}
+.bb-voice--agent, .bb-voice-panel--agent {
+  --voice-color: var(--agent-bg);
+  --voice-row: color-mix(in srgb, var(--agent-fg) 24%, #fff);
+  --voice-play-bg: var(--agent-fg);
+  --voice-play-fg: var(--agent-bg);
+  --voice-on-bg: var(--agent-bg);
+  --voice-on-fg: var(--agent-fg);
+}
+
+/* Summary row */
+.bb-voice { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--sp-10); align-items: center; }
+.bb-voice-summary { min-width: 0; }
+.bb-voice-line { display: flex; align-items: baseline; gap: var(--sp-6); min-width: 0; }
+.bb-voice-label { color: var(--ink-500); margin-right: var(--sp-2); }
+.bb-voice-name { font-size: var(--fs-14); font-weight: 600; color: var(--ink-900); white-space: nowrap; }
+.bb-voice-gender { color: var(--ink-400); font-size: var(--fs-12); flex-shrink: 0; }
+.bb-voice-rows { display: grid; gap: var(--sp-4); }
+.bb-voice-rows .bb-voice + .bb-voice { padding-top: var(--sp-6); border-top: 1px solid var(--ink-100); }
+.bb-voice-change-slot { visibility: hidden; }
+.bb-voice-desc { color: var(--ink-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-voice-line .bb-voice-desc::before { content: "·"; margin-right: var(--sp-6); color: var(--ink-300); }
+
+/* Play / stop */
+.bb-voice-play {
+  position: relative; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border: 0; border-radius: var(--r-full); padding: 0; cursor: pointer;
+  background: var(--voice-play-bg); color: var(--voice-play-fg);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.bb-voice-play--row { width: 30px; height: 30px; }
+.bb-voice-play:hover:not(:disabled) { transform: scale(1.06); }
+.bb-voice-play:active:not(:disabled) { transform: scale(.96); }
+.bb-voice-play.is-playing { background: var(--voice-on-bg); color: var(--voice-on-fg); }
+.bb-voice-play:disabled { opacity: .35; cursor: default; }
+.bb-voice-ring { position: absolute; inset: 0; border-radius: var(--r-full); border: 1.5px solid var(--voice-on-bg); opacity: 0; pointer-events: none; }
+.bb-voice-play.is-playing .bb-voice-ring { animation: bb-voice-ring 1.4s var(--ease-out) infinite; }
+@keyframes bb-voice-ring { from { transform: scale(1); opacity: .55; } to { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .bb-voice-play.is-playing .bb-voice-ring { animation: none; } .bb-voice-play { transition: none; } }
+
+.bb-voice-play:focus-visible, .bb-voice-change:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Change */
+.bb-voice-change {
+  flex-shrink: 0; border: 0; border-radius: var(--r-6); padding: var(--sp-6) var(--sp-10); background: transparent;
+  color: var(--voice-color); font: inherit; font-weight: 500; cursor: pointer; transition: background var(--t-fast) var(--ease);
+}
+.bb-voice-change:hover:not(:disabled), .bb-voice-change[aria-expanded="true"] { background: var(--voice-row); }
+.bb-voice-change:disabled { opacity: .45; cursor: default; }
+
+/* Panel */
+.bb-voice-panel {
+  position: fixed; z-index: 100000; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
+  max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px);
+  background: var(--card); border: 1px solid var(--ink-200); border-radius: var(--r-12); box-shadow: var(--shadow-3);
+  animation: bb-voice-panel-in var(--t-base) var(--ease-out);
+}
+@keyframes bb-voice-panel-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .bb-voice-panel { animation: none; } }
+.bb-voice-panel-head { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-12) var(--sp-14) var(--sp-10); border-bottom: 1px solid var(--ink-200); }
+.bb-voice-panel-title { font-family: var(--font-display); font-size: var(--fs-16); font-weight: 500; letter-spacing: -.01em; color: var(--ink-900); }
+
+/* Six voices tall: the seventh peeks, so a longer list reads as scrollable. */
+.bb-voice-list { list-style: none; margin: 0; padding: var(--sp-6); overflow-y: auto; overscroll-behavior: contain; min-height: 0; max-height: 400px; }
+.bb-voice-row {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: var(--sp-10); align-items: center;
+  padding: var(--sp-6) var(--sp-10) var(--sp-6) var(--sp-8); border-radius: var(--r-8); transition: background var(--t-fast) var(--ease);
+}
+.bb-voice-row:hover { background: var(--ink-100); }
+.bb-voice-row.is-selected { background: var(--voice-row); }
+.bb-voice-row:has(.bb-voice-pick:focus-visible) { box-shadow: inset 0 0 0 2px var(--voice-color); }
+.bb-voice-pick { display: grid; min-width: 0; padding: var(--sp-2) 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; outline: none; }
+.bb-voice-pick:disabled { cursor: default; }
+.bb-voice-row .bb-voice-name { display: flex; align-items: baseline; gap: var(--sp-4); }
+.bb-voice-row.is-selected .bb-voice-name { color: var(--voice-color); }
+.bb-voice-row .bb-voice-desc { font-size: var(--fs-12); }
+.bb-voice-mark { display: flex; align-items: center; gap: var(--sp-8); flex-shrink: 0; min-width: 18px; justify-content: flex-end; }
+.bb-voice-check { color: var(--voice-color); }
+
+@media (max-width: 480px) {
+  .bb-voice { gap: var(--sp-6); }
+  .bb-voice-line { flex-wrap: wrap; row-gap: 0; }
+  .bb-voice-line .bb-voice-label { flex-basis: 100%; font-size: var(--fs-12); margin: 0; }
+  .bb-voice-line .bb-voice-name { white-space: normal; overflow-wrap: anywhere; }
+  .bb-voice-line .bb-voice-desc { display: none; }
+}

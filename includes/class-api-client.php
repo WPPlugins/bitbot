@@ -62,6 +62,14 @@ class BitBot_API_Client {
      * @return array Response with 'success' and 'data' or 'error' keys.
      */
     private function rpc( $request_tag, $payload = array(), $timeout = 90, $blocking = true ) {
+        // Every call to youami.ai goes through here. Until the administrator
+        // has pressed Connect (BitBot_Consent), nothing is sent.
+        if ( ! BitBot_Consent::is_connected() ) {
+            return array(
+                'success' => false,
+                'error'   => __( 'Not connected to youami.ai yet. Press Connect in the Youami admin.', 'bitbot' ),
+            );
+        }
         // Add API key to all payloads. Re-read from options when the cached
         // value is empty: the API client is built once per request and
         // captures bitbot_api_key at construction. On a fresh install the
@@ -415,20 +423,6 @@ class BitBot_API_Client {
     }
 
     /**
-     * Push appointment availability config + weekly hours to backend.
-     *
-     * @since 1.7.0
-     * @param array $config Keys: enabled (bool), serviceName (string),
-     *        durationMinutes (int), bufferMinutes (int), timezone (string),
-     *        leadTimeHours (int), maxDaysAhead (int), weeklyHours (array of
-     *        { dayOfWeek:int, startTime:string, endTime:string }).
-     * @return array API response.
-     */
-    public function update_availability( $config ) {
-        return $this->rpc( 'UpdateAvailability', $config );
-    }
-
-    /**
      * Push cart-recovery discount config to backend.
      *
      * @since 1.7.0
@@ -708,7 +702,12 @@ class BitBot_API_Client {
     }
 
     /**
-     * Collect the IDs of every published post we sync, newest-modified first.
+     * Collect the IDs of every published post we sync.
+     *
+     * Order: the static front page, then pages, then products, then
+     * everything else, each group newest-modified first. The set is the same
+     * as before; only the order changed, so a plan with a page limit reads
+     * the most useful pages first (the backend enforces the limit).
      *
      * IDs only (no content) so this stays cheap even on 5,000+ page sites —
      * the memory blow-up that fataled large syncs lived in loading all that
@@ -718,8 +717,153 @@ class BitBot_API_Client {
      * @return int[] Post IDs.
      */
     public function gather_post_ids() {
+        $types    = $this->get_syncable_post_types();
+        $pages    = in_array( 'page', $types, true ) ? array( 'page' ) : array();
+        $products = in_array( 'product', $types, true ) ? array( 'product' ) : array();
+        $others   = array_values( array_diff( $types, $pages, $products ) );
+
+        $front_id = ( 'page' === get_option( 'show_on_front' ) ) ? (int) get_option( 'page_on_front' ) : 0;
+        if ( $front_id > 0 && ( 'publish' !== get_post_status( $front_id ) || ! in_array( get_post_type( $front_id ), $types, true ) ) ) {
+            $front_id = 0;
+        }
+
+        $page_ids = $this->published_ids_by_modified( $pages );
+
+        return BitBot_Post_Id_Order::combine(
+            $front_id,
+            BitBot_Post_Id_Order::parents_first( $page_ids, $this->page_parents( $page_ids ) ),
+            $this->published_ids_by_modified( $products ),
+            $this->published_ids_by_modified( $others ),
+            $this->menu_post_ids()
+        );
+    }
+
+    /**
+     * Parent of each page, for the top-level-first order.
+     *
+     * @param int[] $page_ids Published page IDs.
+     * @return array Map of page ID to parent ID.
+     */
+    private function page_parents( array $page_ids ) {
+        if ( empty( $page_ids ) ) {
+            return array();
+        }
         $query = new WP_Query( array(
-            'post_type'              => $this->get_syncable_post_types(),
+            'post_type'              => 'page',
+            'post_status'            => 'publish',
+            'posts_per_page'         => -1,
+            'fields'                 => 'id=>parent',
+            'no_found_rows'          => true,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ) );
+        $out = array();
+        foreach ( (array) $query->posts as $row ) {
+            if ( is_object( $row ) && isset( $row->ID ) ) {
+                $out[ (int) $row->ID ] = (int) $row->post_parent;
+            }
+        }
+        return $out;
+    }
+
+    /** At most this many menu items are READ for ranking, of any kind, across every menu: a bound on the work. */
+    const MENU_RANK_ITEMS = 300;
+
+    /**
+     * Posts and pages linked from the menus a visitor can see, in menu order:
+     * classic menus assigned to a theme location first, then the navigation a
+     * block theme's templates really include. A saved menu or a template part
+     * that nothing shows is not read. Read-only. Classic items are read as IDs
+     * plus two meta values (no menu filters, no permalinks); the selection and
+     * the work budget are BitBot_Post_Id_Order's, this only supplies the reads.
+     *
+     * @return int[]
+     */
+    private function menu_post_ids() {
+        $theme    = get_stylesheet();
+        $front_id = ( 'page' === get_option( 'show_on_front' ) ) ? (int) get_option( 'page_on_front' ) : 0;
+        $front_ok = $front_id > 0 && 'publish' === get_post_status( $front_id );
+        $posts_id = (int) get_option( 'page_for_posts' );
+        $newest   = get_posts( array( 'post_type' => 'wp_navigation', 'post_status' => 'publish', 'numberposts' => 1, 'orderby' => 'date', 'order' => 'DESC', 'fields' => 'ids', 'suppress_filters' => true ) );
+
+        return BitBot_Post_Id_Order::ranked_menu_ids( array(
+            'assigned'          => (array) get_nav_menu_locations(),
+            'registered'        => array_keys( (array) get_registered_nav_menus() ),
+            'items_of'          => array( $this, 'menu_item_rows' ),
+            'block_theme'       => function_exists( 'wp_is_block_theme' ) && wp_is_block_theme(),
+            'show_on_front'     => (string) get_option( 'show_on_front' ),
+            'has_front_page'    => $front_ok,
+            'has_posts_page'    => $posts_id > 0 && 'publish' === get_post_status( $posts_id ),
+            'front_template'    => $front_ok ? (string) get_page_template_slug( $front_id ) : '',
+            'template'          => function ( $slug ) use ( $theme ) {
+                $template = get_block_template( $theme . '//' . $slug, 'wp_template' );
+                return ( $template && isset( $template->content ) && '' !== (string) $template->content ) ? parse_blocks( (string) $template->content ) : null;
+            },
+            'loaders'           => array(
+                'part'       => function ( $slug ) use ( $theme ) {
+                    $part = get_block_template( $theme . '//' . $slug, 'wp_template_part' );
+                    return ( $part && isset( $part->content ) ) ? parse_blocks( (string) $part->content ) : array();
+                },
+                'pattern'    => function ( $slug ) {
+                    $pattern = class_exists( 'WP_Block_Patterns_Registry' ) ? WP_Block_Patterns_Registry::get_instance()->get_registered( $slug ) : null;
+                    return ( is_array( $pattern ) && isset( $pattern['content'] ) ) ? parse_blocks( (string) $pattern['content'] ) : array();
+                },
+                'navigation' => function ( $id ) {
+                    $post = get_post( (int) $id );
+                    return ( $post && 'wp_navigation' === $post->post_type && 'publish' === $post->post_status ) ? parse_blocks( (string) $post->post_content ) : array();
+                },
+            ),
+            'newest_navigation' => empty( $newest ) ? 0 : (int) $newest[0],
+        ), self::MENU_RANK_ITEMS );
+    }
+
+    /**
+     * Up to $limit items of one classic menu as array( type, object_id ), in menu
+     * order: IDs first, then every item's meta in one query.
+     *
+     * @param int $menu_id Menu term ID.
+     * @param int $limit   Most items to read.
+     * @return array
+     */
+    public function menu_item_rows( $menu_id, $limit ) {
+        if ( $limit <= 0 ) {
+            return array();
+        }
+        $items = get_posts( array(
+            'post_type'              => 'nav_menu_item',
+            'post_status'            => 'publish',
+            'numberposts'            => (int) $limit,
+            'orderby'                => 'menu_order',
+            'order'                  => 'ASC',
+            'fields'                 => 'ids',
+            'suppress_filters'       => true,
+            'update_post_term_cache' => false,
+            'tax_query'              => array( array( 'taxonomy' => 'nav_menu', 'field' => 'term_id', 'terms' => (int) $menu_id ) ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- one indexed lookup per assigned menu
+        ) );
+        $items = array_map( 'intval', (array) $items );
+        if ( empty( $items ) ) {
+            return array();
+        }
+        update_postmeta_cache( $items );
+        $rows = array();
+        foreach ( $items as $item_id ) {
+            $rows[] = array( (string) get_post_meta( $item_id, '_menu_item_type', true ), (int) get_post_meta( $item_id, '_menu_item_object_id', true ) );
+        }
+        return $rows;
+    }
+
+    /**
+     * Published post IDs of the given types, newest-modified first.
+     *
+     * @param string[] $post_types Post type slugs; empty returns no IDs.
+     * @return int[]
+     */
+    private function published_ids_by_modified( array $post_types ) {
+        if ( empty( $post_types ) ) {
+            return array();
+        }
+        $query = new WP_Query( array(
+            'post_type'              => $post_types,
             'post_status'            => 'publish',
             'posts_per_page'         => -1,
             'orderby'                => 'modified',
@@ -1140,12 +1284,12 @@ class BitBot_API_Client {
         if ( '/' === $url[0] && ( ! isset( $url[1] ) || '/' !== $url[1] ) ) {
             $url = rtrim( (string) $home_url, '/' ) . $url;
         }
-        $host = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
         if ( '' === $host ) {
             return '';
         }
-        $query = (string) parse_url( $url, PHP_URL_QUERY );
-        return $host . rtrim( (string) parse_url( $url, PHP_URL_PATH ), '/' ) . ( '' !== $query ? '?' . $query : '' );
+        $query = (string) wp_parse_url( $url, PHP_URL_QUERY );
+        return $host . rtrim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' ) . ( '' !== $query ? '?' . $query : '' );
     }
 
     /**
@@ -1658,6 +1802,7 @@ class BitBot_API_Client {
         if ( $status_code >= 400 ) {
             return array(
                 'success' => false,
+                /* translators: %d: HTTP status code */
                 'error'   => sprintf( __( 'Upload failed with status %d', 'bitbot' ), $status_code ),
             );
         }
@@ -2015,10 +2160,11 @@ class BitBot_API_Client {
      * Resync a specific page by gathering its content from WordPress
      *
      * @since 1.0.0
-     * @param string $page_url URL of the page to resync.
+     * @param string $page_url        URL of the page to resync.
+     * @param string $replace_page_id Optional page ID to switch off in exchange (page limit).
      * @return array API response.
      */
-    public function resync_page( $page_url ) {
+    public function resync_page( $page_url, $replace_page_id = '' ) {
         // Find the WordPress post by URL
         $post_id = url_to_postid( $page_url );
 
@@ -2026,6 +2172,8 @@ class BitBot_API_Client {
             return array(
                 'success' => false,
                 'error'   => __( 'Could not find WordPress post for this URL', 'bitbot' ),
+                // Stable for the admin app (the message is translated): the backend reads the page instead.
+                'code'    => 'unreadable',
             );
         }
 
@@ -2035,17 +2183,24 @@ class BitBot_API_Client {
             return array(
                 'success' => false,
                 'error'   => __( 'Post not found or not published', 'bitbot' ),
+                'code'    => 'unreadable',
             );
         }
 
         // Get the rendered content
         $content = apply_filters( 'the_content', $post->post_content );
 
-        return $this->rpc( 'ResyncPage', array(
+        $payload = array(
             'url'     => esc_url_raw( $page_url ),
             'title'   => get_the_title( $post_id ),
             'content' => $content,
-        ), 120 ); // 2 min timeout for resync
+        );
+        // Swap in: the backend switches this page off only once the new one is stored.
+        if ( '' !== (string) $replace_page_id ) {
+            $payload['replacePageId'] = (string) $replace_page_id;
+        }
+
+        return $this->rpc( 'ResyncPage', $payload, 120 ); // 2 min timeout for resync
     }
 
     // ============================================
@@ -2291,12 +2446,11 @@ class BitBot_API_Client {
             'isBlockTheme' => $is_block,
             'storeComingSoon'      => $coming_soon,
             'storeComingSoonScope' => $coming_soon_scope,
-            // The agent's own CSS channel (bitbot_custom_css option, printed by
-            // render_site_css). Proposals REPLACE this document, so the snapshot
-            // must read the same channel the apply writes — reading the theme's
-            // Customizer CSS here would make the agent copy the owner's own CSS
-            // into our option on its next edit.
-            'customCss'    => (string) get_option( 'bitbot_custom_css', '' ),
+            // The active theme's Additional CSS, WordPress's own store. Proposals
+            // REPLACE this document, so the snapshot reads the same place the
+            // apply writes (BitBot_Site_Css); the owner's own Additional CSS is
+            // part of it and is carried along by every edit.
+            'customCss'    => BitBot_Site_Css::read_additional_css(),
             'siteTitle'    => (string) get_option( 'blogname', '' ),
             'tagline'      => (string) get_option( 'blogdescription', '' ),
             // Only block themes have editable global styles; classic themes get ''.
@@ -2457,20 +2611,6 @@ class BitBot_API_Client {
     }
 
     /**
-     * Fetch every appointment for the site for the calendar admin view.
-     *
-     * Returns up to 500 rows, newest first. The caller is expected to
-     * cache the result on the page for FullCalendar to render across
-     * month / week / day views without re-hitting the API.
-     *
-     * @since 1.7.0
-     * @return array { appointments: array<object>, siteTimezone: string } | error envelope
-     */
-    public function get_appointments() {
-        return $this->rpc( 'GetAppointments' );
-    }
-
-    /**
      * Lightweight count of future-dated, non-cancelled appointments.
      * Used to drive the Calendar menu badge — never the calendar UI
      * itself (that one needs the full payload).
@@ -2521,19 +2661,9 @@ class BitBot_API_Client {
             );
         }
 
-        // Free plan: append a subtle "Draft by BitBot →" footer to the post body.
-        // Any paying tier (Pro or Pro+) leaves the content untouched.
-        $plan_status = $this->get_plan_status();
-        $plan        = ! empty( $plan_status['success'] ) ? ( $plan_status['data']['plan'] ?? null ) : null;
-        $is_pro      = BitBot_Plan::is_paid( $plan );
-
-        if ( ! $is_pro ) {
-            $content .= "\n\n<!-- bitbot-draft-footer -->\n";
-            $content .= '<p style="font-size: 12px; color: #888; text-align: center; margin-top: 32px;">';
-            $content .= '<em>' . esc_html__( 'Draft by', 'bitbot' ) . ' ';
-            $content .= '<a href="https://youami.ai/?utm_source=post&utm_medium=draft_footer&utm_campaign=free_tier" ';
-            $content .= 'target="_blank" rel="noopener">BitBot</a> →</em></p>';
-        }
+        // No credit is written into the post. The optional "Draft by Youami" line
+        // is added at display time by BitBot_Post_Credit, only while the
+        // administrator's "Powered by" consent is current.
 
         $post_data = array(
             'post_title'   => sanitize_text_field( $draft['title'] ),

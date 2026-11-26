@@ -78,7 +78,7 @@
      * @param {function(string): Promise} deps.loadScript   loads a script URL once per call to this
      * @param {function(): Object} deps.getHabitatVoice     returns window.HabitatVoice
      * @param {function(string, string): Promise} [deps.fetchLinks]  (sessionId, lastTurnId) -> {turnId, citations} or null; the citations of the answer just spoken
-     * @param {Object} deps.ui   setState, upsertLine, attachCitations, showError, setInCall
+     * @param {Object} deps.ui   setState, upsertLine, attachCitations, showError, showNote, setInCall
      */
     function createVoiceCall(deps) {
         // Each Start creates a call record `c`. `cur` is the live one (or null).
@@ -160,7 +160,8 @@
                 var quiet = nowMs() - c.lastActivityAt;
                 if (quiet >= IDLE_HANGUP_MS) {
                     hangUp();
-                    deps.ui.showError(MESSAGES.idleEnded);
+                    // Not an error and not part of the conversation: a quiet note that fades away.
+                    deps.ui.showNote(MESSAGES.idleEnded);
                     return;
                 }
                 if (quiet >= IDLE_PROMPT_MS && c.rawState === 'listening' && !c.awaiting) {
@@ -425,7 +426,19 @@
             return leaving;
         }
 
-        return { start: start, hangUp: hangUp, isActive: function () { return cur !== null; } };
+        // Tell the API a visitor has opened the chat, once per page, so the instance that will start a call has
+        // finished loading before they press Call (an idle instance took about six seconds longer). Nothing is
+        // started and no answer is read. No Content-Type and no body: a plain request, with no CORS preflight.
+        var warmed = false;
+        function warm() {
+            if (warmed || typeof deps.warmUrl !== 'string' || !deps.warmUrl) return;
+            warmed = true;
+            try {
+                Promise.resolve(deps.fetch(deps.warmUrl, { method: 'POST', mode: 'cors', credentials: 'omit', keepalive: true })).catch(function () { /* best effort */ });
+            } catch (e) { /* best effort */ }
+        }
+
+        return { start: start, hangUp: hangUp, warm: warm, isActive: function () { return cur !== null; } };
     }
 
     return { createVoiceCall: createVoiceCall, errorTextFor: errorTextFor, stillThereText: stillThereText, MESSAGES: MESSAGES, LINKS_SETTLE_MS: LINKS_SETTLE_MS, IDLE_PROMPT_MS: IDLE_PROMPT_MS, IDLE_HANGUP_MS: IDLE_HANGUP_MS };

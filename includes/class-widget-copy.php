@@ -42,27 +42,27 @@ class BitBot_Widget_Copy {
 
     /** Plain single-line text, capped. */
     public static function clean_title( $value ) {
-        $value = function_exists( 'sanitize_text_field' ) ? sanitize_text_field( (string) $value ) : trim( strip_tags( (string) $value ) );
+        $value = function_exists( 'sanitize_text_field' ) ? sanitize_text_field( (string) $value ) : trim( preg_replace( '/<[^>]*>/', '', (string) $value ) );
         $value = trim( (string) preg_replace( '/\s+/u', ' ', $value ) );
         return self::cut( $value, self::TITLE_MAX );
     }
 
     /** The input hint: plain single-line text, capped. */
     public static function clean_placeholder( $value ) {
-        $value = function_exists( 'sanitize_text_field' ) ? sanitize_text_field( (string) $value ) : trim( strip_tags( (string) $value ) );
+        $value = function_exists( 'sanitize_text_field' ) ? sanitize_text_field( (string) $value ) : trim( preg_replace( '/<[^>]*>/', '', (string) $value ) );
         $value = trim( (string) preg_replace( '/\s+/u', ' ', $value ) );
         return self::cut( $value, self::PLACEHOLDER_MAX );
     }
 
     /** Plain multi-line text, capped. */
     public static function clean_welcome( $value ) {
-        $value = function_exists( 'sanitize_textarea_field' ) ? sanitize_textarea_field( (string) $value ) : trim( strip_tags( (string) $value ) );
+        $value = function_exists( 'sanitize_textarea_field' ) ? sanitize_textarea_field( (string) $value ) : trim( preg_replace( '/<[^>]*>/', '', (string) $value ) );
         return self::cut( trim( $value ), self::WELCOME_MAX );
     }
 
     /** One suggested question: plain single-line text, capped. */
     public static function clean_question( $value ) {
-        $value = function_exists( 'sanitize_text_field' ) ? sanitize_text_field( (string) $value ) : trim( strip_tags( (string) $value ) );
+        $value = function_exists( 'sanitize_text_field' ) ? sanitize_text_field( (string) $value ) : trim( preg_replace( '/<[^>]*>/', '', (string) $value ) );
         $value = trim( (string) preg_replace( '/\s+/u', ' ', $value ) );
         return self::cut( $value, self::QUESTION_MAX );
     }
@@ -193,6 +193,70 @@ class BitBot_Widget_Copy {
         }
         $cached = self::cached_site_defaults( $code );
         return ( $cached && ! empty( $cached['placeholder'] ) ) ? $cached['placeholder'] : $lines['en'];
+    }
+
+    /** The pre-chat form's fixed lines, in the order gate_copy() builds them. */
+    const GATE_KEYS = array( 'heading', 'pendingLabel', 'submit', 'submitting', 'back', 'networkError', 'genericError' );
+
+    /**
+     * The pre-chat form's own fixed text (heading, buttons, errors) in a language we have built-in text for,
+     * else English. The form's field labels are the owner's and are not part of this.
+     *
+     * @param string $code Language code.
+     * @return array<string,string> keyed by GATE_KEYS.
+     */
+    public static function gate_copy( $code = 'en' ) {
+        $lines = array(
+            'en' => array( 'A few details first', 'Your message, sent once you share your details', 'Continue', 'Sending...', 'Back', 'Network error. Please try again.', 'Something went wrong. Please try again.' ),
+            'fa' => array( 'ابتدا چند مورد از اطلاعات شما', 'پیام شما پس از وارد کردن مشخصات ارسال می‌شود', 'ادامه', 'در حال ارسال...', 'بازگشت', 'خطای شبکه. لطفاً دوباره تلاش کنید.', 'مشکلی پیش آمد. لطفاً دوباره تلاش کنید.' ),
+            'ar' => array( 'بعض التفاصيل أولاً', 'سنرسل رسالتك بعد إدخال بياناتك', 'متابعة', 'جارٍ الإرسال...', 'رجوع', 'خطأ في الشبكة. يُرجى المحاولة مرة أخرى.', 'حدث خطأ ما. يُرجى المحاولة مرة أخرى.' ),
+            'he' => array( 'כמה פרטים קודם', 'ההודעה שלך תישלח לאחר מילוי הפרטים', 'המשך', 'שולח...', 'חזרה', 'שגיאת רשת. נסו שוב.', 'משהו השתבש. נסו שוב.' ),
+            'ur' => array( 'پہلے چند تفصیلات', 'آپ کا پیغام تفصیلات دینے کے بعد بھیجا جائے گا', 'جاری رکھیں', 'بھیجا جا رہا ہے...', 'واپس', 'نیٹ ورک کی خرابی۔ براہ کرم دوبارہ کوشش کریں۔', 'کچھ غلط ہو گیا۔ براہ کرم دوبارہ کوشش کریں۔' ),
+            'hi' => array( 'पहले कुछ जानकारी', 'आपका संदेश, जानकारी देने के बाद भेजा जाएगा', 'आगे बढ़ें', 'भेजा जा रहा है...', 'वापस', 'नेटवर्क त्रुटि। कृपया फिर से प्रयास करें।', 'कुछ गड़बड़ हो गई। कृपया फिर से प्रयास करें।' ),
+            'es' => array( 'Primero, unos datos', 'Tu mensaje se enviará cuando compartas tus datos', 'Continuar', 'Enviando...', 'Atrás', 'Error de red. Inténtalo de nuevo.', 'Algo salió mal. Inténtalo de nuevo.' ),
+            'fr' => array( 'Quelques informations d\'abord', 'Votre message sera envoyé une fois vos coordonnées saisies', 'Continuer', 'Envoi...', 'Retour', 'Erreur réseau. Veuillez réessayer.', 'Une erreur s\'est produite. Veuillez réessayer.' ),
+            'de' => array( 'Zuerst ein paar Angaben', 'Ihre Nachricht wird gesendet, sobald Sie Ihre Angaben gemacht haben', 'Weiter', 'Wird gesendet...', 'Zurück', 'Netzwerkfehler. Bitte versuchen Sie es erneut.', 'Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.' ),
+            'pt' => array( 'Primeiro, alguns dados', 'Sua mensagem será enviada depois que você informar seus dados', 'Continuar', 'Enviando...', 'Voltar', 'Erro de rede. Tente novamente.', 'Algo deu errado. Tente novamente.' ),
+            'it' => array( 'Prima alcuni dati', 'Il tuo messaggio verrà inviato dopo aver inserito i tuoi dati', 'Continua', 'Invio...', 'Indietro', 'Errore di rete. Riprova.', 'Qualcosa è andato storto. Riprova.' ),
+            'nl' => array( 'Eerst een paar gegevens', 'Je bericht wordt verzonden zodra je je gegevens hebt ingevuld', 'Doorgaan', 'Verzenden...', 'Terug', 'Netwerkfout. Probeer het opnieuw.', 'Er ging iets mis. Probeer het opnieuw.' ),
+            'pl' => array( 'Najpierw kilka informacji', 'Twoja wiadomość zostanie wysłana po podaniu danych', 'Dalej', 'Wysyłanie...', 'Wstecz', 'Błąd sieci. Spróbuj ponownie.', 'Coś poszło nie tak. Spróbuj ponownie.' ),
+            'tr' => array( 'Önce birkaç bilgi', 'Mesajınız, bilgilerinizi paylaştıktan sonra gönderilecek', 'Devam', 'Gönderiliyor...', 'Geri', 'Ağ hatası. Lütfen tekrar deneyin.', 'Bir sorun oluştu. Lütfen tekrar deneyin.' ),
+            'ru' => array( 'Сначала немного информации', 'Ваше сообщение будет отправлено после ввода данных', 'Продолжить', 'Отправка...', 'Назад', 'Ошибка сети. Попробуйте ещё раз.', 'Что-то пошло не так. Попробуйте ещё раз.' ),
+            'uk' => array( 'Спершу кілька даних', 'Ваше повідомлення буде надіслано після введення даних', 'Продовжити', 'Надсилання...', 'Назад', 'Помилка мережі. Спробуйте ще раз.', 'Щось пішло не так. Спробуйте ще раз.' ),
+            'el' => array( 'Πρώτα μερικά στοιχεία', 'Το μήνυμά σας θα σταλεί μόλις συμπληρώσετε τα στοιχεία σας', 'Συνέχεια', 'Αποστολή...', 'Πίσω', 'Σφάλμα δικτύου. Δοκιμάστε ξανά.', 'Κάτι πήγε στραβά. Δοκιμάστε ξανά.' ),
+            'zh' => array( '请先填写几项信息', '填写信息后将发送您的消息', '继续', '正在发送...', '返回', '网络错误，请重试。', '出了点问题，请重试。' ),
+            'ja' => array( 'まずいくつかご入力ください', 'ご入力後にメッセージを送信します', '続ける', '送信中...', '戻る', 'ネットワークエラーです。もう一度お試しください。', '問題が発生しました。もう一度お試しください。' ),
+            'ko' => array( '먼저 몇 가지 정보를 입력해 주세요', '정보를 입력하시면 메시지가 전송됩니다', '계속', '보내는 중...', '뒤로', '네트워크 오류입니다. 다시 시도해 주세요.', '문제가 발생했습니다. 다시 시도해 주세요.' ),
+            'id' => array( 'Beberapa detail dulu', 'Pesan Anda dikirim setelah Anda mengisi detail', 'Lanjutkan', 'Mengirim...', 'Kembali', 'Kesalahan jaringan. Silakan coba lagi.', 'Terjadi kesalahan. Silakan coba lagi.' ),
+            'vi' => array( 'Trước tiên, một vài thông tin', 'Tin nhắn của bạn sẽ được gửi sau khi bạn điền thông tin', 'Tiếp tục', 'Đang gửi...', 'Quay lại', 'Lỗi mạng. Vui lòng thử lại.', 'Đã xảy ra lỗi. Vui lòng thử lại.' ),
+            'th' => array( 'ขอรายละเอียดเล็กน้อยก่อน', 'ข้อความของคุณจะถูกส่งเมื่อคุณกรอกรายละเอียดแล้ว', 'ดำเนินการต่อ', 'กำลังส่ง...', 'ย้อนกลับ', 'เครือข่ายขัดข้อง โปรดลองอีกครั้ง', 'เกิดข้อผิดพลาด โปรดลองอีกครั้ง' ),
+            'bn' => array( 'প্রথমে কিছু তথ্য', 'আপনার তথ্য দেওয়ার পর বার্তাটি পাঠানো হবে', 'এগিয়ে যান', 'পাঠানো হচ্ছে...', 'ফিরে যান', 'নেটওয়ার্ক ত্রুটি। আবার চেষ্টা করুন।', 'কিছু ভুল হয়েছে। আবার চেষ্টা করুন।' ),
+            'ta' => array( 'முதலில் சில விவரங்கள்', 'உங்கள் விவரங்களை அளித்ததும் செய்தி அனுப்பப்படும்', 'தொடரவும்', 'அனுப்புகிறது...', 'பின்செல்', 'நெட்வொர்க் பிழை. மீண்டும் முயற்சிக்கவும்.', 'ஏதோ தவறு ஏற்பட்டது. மீண்டும் முயற்சிக்கவும்.' ),
+            'pa' => array( 'ਪਹਿਲਾਂ ਕੁਝ ਵੇਰਵੇ', 'ਤੁਹਾਡਾ ਸੁਨੇਹਾ ਵੇਰਵੇ ਦੇਣ ਤੋਂ ਬਾਅਦ ਭੇਜਿਆ ਜਾਵੇਗਾ', 'ਜਾਰੀ ਰੱਖੋ', 'ਭੇਜਿਆ ਜਾ ਰਿਹਾ ਹੈ...', 'ਵਾਪਸ', 'ਨੈੱਟਵਰਕ ਗੜਬੜ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।', 'ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।' ),
+            'sv' => array( 'Först några uppgifter', 'Ditt meddelande skickas när du har fyllt i dina uppgifter', 'Fortsätt', 'Skickar...', 'Tillbaka', 'Nätverksfel. Försök igen.', 'Något gick fel. Försök igen.' ),
+            'da' => array( 'Først et par oplysninger', 'Din besked sendes, når du har udfyldt dine oplysninger', 'Fortsæt', 'Sender...', 'Tilbage', 'Netværksfejl. Prøv igen.', 'Noget gik galt. Prøv igen.' ),
+            'no' => array( 'Først noen opplysninger', 'Meldingen din sendes når du har fylt inn opplysningene', 'Fortsett', 'Sender...', 'Tilbake', 'Nettverksfeil. Prøv igjen.', 'Noe gikk galt. Prøv igjen.' ),
+            'fi' => array( 'Ensin muutama tieto', 'Viestisi lähetetään, kun olet antanut tietosi', 'Jatka', 'Lähetetään...', 'Takaisin', 'Verkkovirhe. Yritä uudelleen.', 'Jokin meni vikaan. Yritä uudelleen.' ),
+            'cs' => array( 'Nejprve pár údajů', 'Vaše zpráva se odešle, jakmile vyplníte své údaje', 'Pokračovat', 'Odesílání...', 'Zpět', 'Chyba sítě. Zkuste to prosím znovu.', 'Něco se pokazilo. Zkuste to prosím znovu.' ),
+            'ro' => array( 'Mai întâi câteva detalii', 'Mesajul tău va fi trimis după ce completezi datele', 'Continuă', 'Se trimite...', 'Înapoi', 'Eroare de rețea. Încearcă din nou.', 'Ceva nu a mers bine. Încearcă din nou.' ),
+            'hu' => array( 'Először néhány adat', 'Üzenetét az adatai megadása után küldjük el', 'Tovább', 'Küldés...', 'Vissza', 'Hálózati hiba. Kérjük, próbálja újra.', 'Hiba történt. Kérjük, próbálja újra.' ),
+            'ms' => array( 'Beberapa butiran dahulu', 'Mesej anda dihantar selepas anda mengisi butiran', 'Teruskan', 'Menghantar...', 'Kembali', 'Ralat rangkaian. Sila cuba lagi.', 'Sesuatu tidak kena. Sila cuba lagi.' ),
+            'sw' => array( 'Kwanza maelezo machache', 'Ujumbe wako utatumwa ukishajaza maelezo yako', 'Endelea', 'Inatuma...', 'Rudi', 'Hitilafu ya mtandao. Tafadhali jaribu tena.', 'Hitilafu imetokea. Tafadhali jaribu tena.' ),
+        );
+        $code = strtolower( substr( (string) $code, 0, 2 ) );
+        return array_combine( self::GATE_KEYS, isset( $lines[ $code ] ) ? $lines[ $code ] : $lines['en'] );
+    }
+
+    /** gate_copy() for each code: what the widget config carries so the form follows the visitor's language. */
+    public static function gate_copy_map( $codes ) {
+        $map = array();
+        foreach ( (array) $codes as $code ) {
+            $code = strtolower( substr( (string) $code, 0, 2 ) );
+            if ( '' !== $code ) {
+                $map[ $code ] = self::gate_copy( $code );
+            }
+        }
+        return $map;
     }
 
     /** Option holding the one machine translation of the English defaults into a site language we have no built-in text for. */

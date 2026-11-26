@@ -485,7 +485,7 @@ class BitBot_Elementor_Adapter {
                     if ( ! isset( $node['settings'][ $key ] ) || ! is_string( $node['settings'][ $key ] ) || self::is_bound( $node, $key ) ) {
                         continue;
                     }
-                    $text = trim( preg_replace( '/\s+/', ' ', strip_tags( $node['settings'][ $key ] ) ) );
+                    $text = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $node['settings'][ $key ] ) ) );
                     if ( '' === $text ) {
                         continue;
                     }

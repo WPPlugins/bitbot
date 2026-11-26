@@ -1,0 +1,231 @@
+/* ─────────────────────────────────────────────────────────────────────
+   App shell: brandbar, tabstrip, footer.
+   ───────────────────────────────────────────────────────────────────── */
+
+.bb-app {
+  min-height: 100vh;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Brand bar ────────────────────────────────────────────────────── */
+.bb-brandbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-16) var(--gutter);
+  background: var(--card);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-brandbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+}
+.bb-brandmark { flex: none; display: block; }
+.bb-brandbar-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-20);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bb-brandbar-sub {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  margin-top: 2px;
+}
+.bb-brandbar-sep { color: var(--ink-300); }
+.bb-brandbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+}
+
+/* ── Pills (status, tier badge) ───────────────────────────────────── */
+.bb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: var(--sp-4) var(--sp-10);
+  border-radius: var(--r-full);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  border: 1px solid var(--ink-200);
+}
+.bb-pill-success {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: transparent;
+}
+.bb-pill-success::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.bb-pill-tier {
+  background: var(--ink-900);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+.bb-pill-account {
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.bb-pill-account:hover { background: var(--ink-700); }
+.bb-pill-account-caret {
+  font-size: 9px;
+  opacity: 0.75;
+  transform: rotate(180deg);
+  display: inline-block;
+}
+
+/* ── Tab strip ────────────────────────────────────────────────────── */
+/* Wraps to multiple rows when the container is narrower than the tab row.
+   The bottom border still aligns under the last visible row of tabs. */
+.bb-tabstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4) var(--sp-4);
+  row-gap: var(--sp-6);
+  padding: var(--sp-8) var(--gutter);
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: var(--sp-10) var(--sp-16);
+  border-radius: var(--r-8);
+  font-size: var(--fs-14);
+  color: var(--ink-500);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  white-space: nowrap;
+}
+.bb-tab:hover:not(:disabled) {
+  background: rgba(15, 20, 25, 0.04);
+  color: var(--ink-900);
+}
+.bb-tab-active {
+  background: var(--card);
+  color: var(--ink-900);
+  font-weight: 500;
+  box-shadow: var(--shadow-2);
+  border: 1px solid var(--ink-200);
+  position: relative;
+}
+.bb-tab-active::after {
+  content: "";
+  position: absolute;
+  left: var(--sp-12);
+  right: var(--sp-12);
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: var(--r-full);
+}
+.bb-tab-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.bb-tab-soon {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-400);
+  background: var(--ink-100);
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+}
+
+/* Attention badge on a tab. Mirrors the WP admin menu's "(N)" bubble —
+   when the menu shows Youami (2), the tab strip inside the SPA also
+   shows which tab the 2 is hiding in. Subtle but legible. */
+.bb-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────── */
+.bb-footer {
+  margin-top: auto;
+  padding: var(--sp-24) var(--gutter);
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  border-top: 1px solid var(--ink-200);
+}
+.bb-footer a {
+  color: var(--ink-500);
+}
+.bb-footer a:hover {
+  color: var(--accent);
+}
+
+/* ── Stub fallback ────────────────────────────────────────────────── */
+.bb-stub {
+  padding: var(--sp-48) 0;
+  text-align: center;
+  color: var(--ink-500);
+  font-style: italic;
+}
+
+/* Brand bar — API key chip + regenerate (manual recovery) */
+.bb-brandbar-key { display: inline-flex; align-items: center; gap: 6px; }
+.bb-brandbar-key code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.bb-brandbar-iconbtn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: none; padding: 0 2px;
+  font: inherit; font-size: 12px; line-height: 1;
+  color: var(--ink-500, #888);
+  cursor: pointer;
+}
+.bb-brandbar-iconbtn:hover { color: var(--accent, #e8542a); }
+.bb-brandbar-regen { font-size: 14px; }
+.bb-brandbar-keylabel { opacity: 0.6; }
+
+/* Manual regenerate confirm bar (under the brand bar) */
+.bb-regen-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--accent-soft, rgba(232, 84, 42, 0.07));
+  border-bottom: 1px solid var(--ink-200, rgba(0, 0, 0, 0.1));
+  font-size: 13px;
+}
+.bb-regen-text { color: var(--ink-700, #333); line-height: 1.4; }
+.bb-regen-error { color: var(--danger, #c0392b); }
+.bb-regen-actions { display: inline-flex; gap: 8px; flex: 0 0 auto; }
+
+/* Invalid-key recovery banner: louder than the manual regen bar so a
+   "can't connect" state reads as an error, not a routine option. */
+.bb-regen-bar-error {
+  background: var(--danger-soft, rgba(192, 57, 43, 0.08));
+  border-left: 3px solid var(--danger, #c0392b);
+  border-bottom: 1px solid var(--danger, #c0392b);
+}

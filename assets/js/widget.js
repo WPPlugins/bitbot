@@ -32,7 +32,11 @@
     let chatGateHold = null;
     // Set by attachChatGate: reopens or retries the gate after a reload.
     let chatGateRestore = null;
+    // Set while a pre-chat form is on screen: redraws its fixed text after the visitor picks another language.
+    let chatGateRefreshCopy = null;
     let isOpen = false;
+    // A voice call is in progress: leaving the page would end it (see the link handler in init).
+    let voiceInCall = false;
     let isLoading = false;
     // The bubble of the answer being streamed, and the text it shows so far.
     let streamBubble = null;
@@ -55,6 +59,10 @@
     // Per-tab chat persistence (1.5.3): sessionStorage so the conversation
     // survives navigation within the same tab, wipes on tab close.
     const CHAT_STORAGE_KEY = 'bitbot_chat_state';
+
+    // A note about a call (it ended for silence): how long it stays, and how long it takes to fade.
+    const CALL_NOTE_VISIBLE_MS = 6000;
+    const CALL_NOTE_FADE_MS = 400;
 
     // Local persistence cap — stops sessionStorage growth on marathon chats.
     // Unrelated to the per-request send cap below.
@@ -451,6 +459,8 @@
                 const link = document.createElement('link');
                 link.rel = 'stylesheet';
                 link.href = config.cssUrl;
+                // Text typed before the styles arrived was measured unstyled: measure the message box again.
+                link.addEventListener('load', function () { fitInput(); });
                 widgetRoot.appendChild(link);
             }
 
@@ -473,6 +483,22 @@
         toggle = widgetRoot.getElementById('bitbot-toggle');
         chat = widgetRoot.getElementById('bitbot-chat');
         messages = widgetRoot.getElementById('bitbot-messages');
+        // A link to another page of this site opens in the same tab, so the conversation (kept per tab)
+        // comes along. The rule, with its exceptions, is BitBotLinks.staysInTab (widget-links.js).
+        messages.addEventListener('click', function (e) {
+            const link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+            if (!link || !window.BitBotLinks) return;
+            const sameTab = window.BitBotLinks.staysInTab(link.getAttribute('href'), window.location.href, {
+                inCall: voiceInCall,
+                modifier: e.ctrlKey || e.metaKey || e.shiftKey || e.altKey,
+                button: e.button,
+                download: link.hasAttribute('download'),
+            });
+            if (!sameTab) return;
+            e.preventDefault();
+            saveChatState();
+            window.location.assign(link.href);
+        });
         form = widgetRoot.getElementById('bitbot-form');
         input = widgetRoot.getElementById('bitbot-input');
 
@@ -854,10 +880,10 @@
             const F = window.BitBotForm;
             if (!F) return;
 
-            // All visitor-facing gate copy lives here. The per-language copy
-            // table is owner text run through the translation pipeline, so these
-            // fixed strings are not in it yet (English only for now).
-            const GATE_COPY = {
+            // The form's own fixed text. config.gateCopy carries it for the site language and each language the
+            // visitor can pick (BitBot_Widget_Copy::gate_copy); it is read when the form is drawn, so it follows
+            // the visitor's current pick. The English lines here are the last resort only.
+            const GATE_COPY_EN = {
                 heading: 'A few details first',
                 pendingLabel: 'Your message, sent once you share your details',
                 submit: 'Continue',
@@ -866,6 +892,16 @@
                 networkError: 'Network error. Please try again.',
                 genericError: 'Something went wrong. Please try again.'
             };
+            const GATE_COPY = {};
+            Object.keys(GATE_COPY_EN).forEach(function (key) {
+                Object.defineProperty(GATE_COPY, key, { get: function () {
+                    const all = config.gateCopy || {};
+                    const pick = String(currentLanguagePick() || '').slice(0, 2).toLowerCase();
+                    const site = String(config.languageCode || '').slice(0, 2).toLowerCase();
+                    const row = all[pick] || all[site] || GATE_COPY_EN;
+                    return row[key] || GATE_COPY_EN[key];
+                } });
+            });
             const P = 'bitbot-chat-gate';
             const GATE_STATE_KEY = 'bitbot_chat_gate_state';
             const fields = F.normalizeFields(formSchema.fields);
@@ -963,6 +999,17 @@
                     submitBtn.textContent = busy ? GATE_COPY.submitting : GATE_COPY.submit;
                     gateForm.setAttribute('aria-busy', busy ? 'true' : 'false');
                 }
+                // The visitor picked another language while the form is open: its fixed text follows, in place.
+                // What they typed, the submission key and a request in flight are untouched; a field error on
+                // screen was written in the old language, so it is cleared rather than left behind.
+                chatGateRefreshCopy = function() {
+                    if (!wrap.isConnected) { chatGateRefreshCopy = null; return; }
+                    wrap.querySelector('.' + P + '-head').textContent = GATE_COPY.heading;
+                    pendingNote.textContent = GATE_COPY.pendingLabel;
+                    backBtn.textContent = GATE_COPY.back;
+                    submitBtn.textContent = submitBtn.disabled ? GATE_COPY.submitting : GATE_COPY.submit;
+                    clearAll();
+                };
                 function focusFirstError(errors) {
                     const f = fields.filter(function(x) { return errors[x.name]; })[0];
                     const el = f && wrap.querySelector('[data-field="' + f.name + '"]');
@@ -981,6 +1028,7 @@
                     clearGateState();   // a resend gets a fresh key
                     setComposerLocked(false);
                     input.value = heldMessage;
+                    fitInput();
                     input.focus();
                 });
 
@@ -1095,6 +1143,7 @@
                 ev.preventDefault();
                 ev.stopImmediatePropagation();
                 input.value = '';
+                fitInput();
                 hold(value);
             }
             form.addEventListener('submit', gateHandler, true);
@@ -1138,6 +1187,18 @@
 
         if (form) {
             form.addEventListener('submit', handleSubmit);
+        }
+        // The message box is multi-line. Enter starts a new line and the visitor clicks Send, unless the owner
+        // turned "Press Enter to send" on: then Enter sends and Shift+Enter starts the new line. A key press that
+        // is part of composing a character (Japanese, Chinese, Korean input) is never ours to take.
+        if (input) {
+            input.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter' || e.isComposing || e.shiftKey || !config.enterToSend) return;
+                e.preventDefault();
+                if (form && typeof form.requestSubmit === 'function') form.requestSubmit();
+                else if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            });
+            input.addEventListener('input', fitInput);
         }
 
         applyDirection(config.languageCode || 'en');
@@ -1370,6 +1431,7 @@
         };
         function applyCopy() {
             applyDirection(control.current());
+            if (chatGateRefreshCopy) chatGateRefreshCopy();
             const c = L.copyFor(control.current(), config.copy, base);
             if (titleEl && c.title) titleEl.textContent = c.title;
             if (pillLabelEl && c.title) pillLabelEl.textContent = c.title;
@@ -1526,6 +1588,7 @@
             // as streamed answers); the REST route is the fallback.
             startUrl: config.streamUrl ? String(config.streamUrl).replace(/\?mode=widget$/, '?mode=voice-start') : '',
             joinedUrl: config.streamUrl ? String(config.streamUrl).replace(/\?mode=widget$/, '?mode=voice-joined') : '',
+            warmUrl: config.streamUrl ? String(config.streamUrl).replace(/\?mode=widget$/, '?mode=voice-warm') : '',
             getTicket: function () { return config.streamTicket || ''; },
             refreshTicket: refreshStreamTicket,
             getSiteLanguage: function () { return config.languageCode || ''; },
@@ -1560,12 +1623,27 @@
             ui: {
                 setState: function (state) { statusEl.textContent = STATE_WORDS[state] || ''; },
                 setInCall: function (inCall) {
+                    voiceInCall = inCall;
                     bar.hidden = !inCall;
                     callBtn.disabled = inCall;
                     if (languageLockHook) languageLockHook(inCall);
                     if (!inCall) statusEl.textContent = '';
                 },
                 showError: function (text) { addMessage(text, 'bot'); },
+                // A passing remark about the call itself (it ended for silence): small, centred,
+                // gone after a few seconds, and never part of the saved conversation.
+                showNote: function (text) {
+                    const note = document.createElement('div');
+                    note.className = 'bitbot-note';
+                    note.setAttribute('role', 'status');
+                    note.textContent = text;
+                    messages.appendChild(note);
+                    messages.scrollTop = messages.scrollHeight;
+                    setTimeout(function () {
+                        note.classList.add('bitbot-note-leaving');
+                        setTimeout(function () { note.remove(); }, CALL_NOTE_FADE_MS);
+                    }, CALL_NOTE_VISIBLE_MS);
+                },
                 // A non-final line that is over (the silence countdown once someone speaks).
                 removeLine: function (key) {
                     const el = lineEls[key];
@@ -1641,6 +1719,8 @@
             if (iconChat) iconChat.style.setProperty('display', 'none', 'important');
             if (iconClose) iconClose.style.display = 'block';
             if (input) input.focus();
+            // Calls are on: let the API get ready while the visitor reads (widget-voice.js warm, once per page).
+            if (voiceCall) voiceCall.warm();
         } else {
             // Closing the chat ends a live call: a hidden widget must never keep a microphone open.
             if (voiceCall && voiceCall.isActive()) voiceCall.hangUp();
@@ -1655,6 +1735,13 @@
     /**
      * Handle form submission
      */
+    /** The message box is as tall as its text, up to the CSS max-height; back to one line when emptied. */
+    function fitInput() {
+        if (!input || !input.style) return;
+        input.style.height = 'auto';
+        if (input.value) input.style.height = input.scrollHeight + 2 + 'px';
+    }
+
     function handleSubmit(e) {
         e.preventDefault();
 
@@ -1668,6 +1755,7 @@
 
         // Clear input
         input.value = '';
+        fitInput();
 
         // Send to API
         sendMessage(message);
@@ -2021,34 +2109,8 @@
      * Simple markdown to HTML conversion
      */
     function parseMarkdown(text) {
-        return text
-            // Escape HTML first
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            // Markdown links [text](url) — do this BEFORE auto-linking so we
-            // don't double-wrap the URL portion of a markdown link.
-            .replace(
-                /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-                '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-            )
-            // Bare URLs not already inside an href="..." — auto-link them so
-            // `Visit https://example.com` renders as a clickable link.
-            .replace(
-                /(^|[^"'>=])(https?:\/\/[^\s<)]+)/g,
-                '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>'
-            )
-            // Bold **text**
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            // Italic *text*
-            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            // Line breaks
-            .replace(/\n/g, '<br>')
-            // Lists - lines starting with -
-            .replace(/^- (.+)$/gm, '<li>$1</li>')
-            .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
-            // Clean up multiple <ul> tags
-            .replace(/<\/ul>\s*<ul>/g, '');
+        // The rules (and the escaping) live in widget-links.js, where they are unit tested.
+        return window.BitBotLinks.markdownToHtml(text);
     }
 
     /**
@@ -2066,7 +2128,9 @@
                 url += '#' + citation.anchorId;
             }
             html += '<a href="' + escapeHtml(url) + '" class="bitbot-citation-link" target="_blank" rel="noopener noreferrer">';
-            html += escapeHtml(citation.title || citation.url);
+            // WordPress titles arrive entity-encoded ("Crumb &#038; Co"):
+            // decode once, then escape, so the visitor sees "Crumb & Co".
+            html += escapeHtml(decodeEntities(citation.title) || citation.url);
             html += '</a>';
         });
 
@@ -2193,6 +2257,14 @@
     /**
      * Escape HTML to prevent XSS
      */
+    function decodeEntities(text) {
+        if (!text) return '';
+        // A textarea decodes entities without parsing markup or running anything.
+        const ta = document.createElement('textarea');
+        ta.innerHTML = String(text);
+        return ta.value;
+    }
+
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;

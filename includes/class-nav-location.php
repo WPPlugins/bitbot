@@ -16,6 +16,32 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class BitBot_Nav_Location {
 
+    /** Display name of the menu and wp_navigation post the plugin owns. */
+    const MENU_NAME        = 'Youami Primary';
+    /** The name installs made before the rename carry; found and renamed on next apply. */
+    const LEGACY_MENU_NAME = 'BitBot Primary';
+
+    /**
+     * The plugin's own wp_navigation post, under the current name or the
+     * legacy one, current name first.
+     *
+     * @return array WP_Post[] (at most one).
+     */
+    public static function find_navigation_posts() {
+        foreach ( array( self::MENU_NAME, self::LEGACY_MENU_NAME ) as $title ) {
+            $found = get_posts( array(
+                'post_type'   => 'wp_navigation',
+                'title'       => $title,
+                'post_status' => array( 'publish' ),
+                'numberposts' => 1,
+            ) );
+            if ( ! empty( $found ) ) {
+                return $found;
+            }
+        }
+        return array();
+    }
+
     /**
      * Decide the nav_menu_locations theme mod after assigning a menu.
      *
@@ -89,7 +115,7 @@ final class BitBot_Nav_Location {
      * menu ONLY, a block theme its navigation (wp_navigation) ONLY.
      *
      * Round 3 (2026-10-02, foretelllamp): on Twenty Twenty-One the add wrote
-     * the classic menu AND a wp_navigation post "BitBot Primary" (About only);
+     * the classic menu AND a wp_navigation post "Youami Primary" (About only);
      * after the switch to Twenty Twenty-Five that post took over the header in
      * place of its page list. Each theme writes the store it renders.
      *

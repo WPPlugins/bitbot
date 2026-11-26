@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Youami Admin — Dev</title>
+  <style>
+    /* Dev-only WP-admin frame simulation so the SPA renders against the
+       same gutters/shell it will live inside on a real WP install. */
+    body { margin: 0; background: #f0f0f1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    #wp-frame { display: flex; min-height: 100vh; }
+    #wp-frame > aside { width: 160px; background: #1d2327; color: #c3c4c7; padding: 8px 0; font-size: 13px; }
+    #wp-frame > aside .item { padding: 8px 16px; }
+    #wp-frame > aside .item.active { background: #2271b1; color: #fff; }
+    #wp-frame > main { flex: 1; padding: 16px 32px; }
+
+    /* Inject mock bitbotAdminConfig for standalone dev. In WP admin this
+       comes from wp_localize_script. */
+  </style>
+  <script>
+    window.bitbotAdminConfig = {
+      apiKey: 'bb_devmockapikey0000000000000000',
+      apiUrl: '/api/rpc',
+      restUrl: '/wp-json/bitbot/v1',
+      nonce: 'devmocknonce',
+      ajaxUrl: '/wp-admin/admin-ajax.php',
+      ajaxNonce: 'devmockajax',
+      upgradeUrl: '/wp-admin/admin.php?page=bitbot-upgrade',
+      pluginVersion: '2.0.0-dev',
+      siteUrl: 'https://example.com',
+      plan: 'free',
+    }
+  </script>
+</head>
+<body>
+  <div id="wp-frame">
+    <aside>
+      <div class="item">Dashboard</div>
+      <div class="item">Posts</div>
+      <div class="item">Media</div>
+      <div class="item">Pages</div>
+      <div class="item active">Youami</div>
+      <div class="item">Appearance</div>
+      <div class="item">Plugins</div>
+      <div class="item">Users</div>
+      <div class="item">Settings</div>
+    </aside>
+    <main>
+      <div id="bitbot-admin-root"></div>
+    </main>
+  </div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

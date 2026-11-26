@@ -1,0 +1,638 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Leads tab — master/detail layout, stage badges, transcripts.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* "Filtered to <form>" chip pinned above the LeadsList toolbar when
+   we arrive with ?formId= in the URL. Clear button removes the filter
+   and pushes a clean URL onto the history stack. */
+.bb-leads-form-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  padding: var(--sp-10) var(--sp-14);
+  background: rgba(232, 79, 42, 0.06);
+  border-bottom: 1px solid var(--ink-200);
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+}
+.bb-leads-form-filter strong { color: var(--ink-900); }
+.bb-leads-form-filter .bb-link-btn {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+/* ── Notification email strip ───────────────────────────────────────
+   Sits between the section head and the master/detail grid. Compact
+   summary by default; expands inline when the admin clicks Change.
+   Same paper/border tokens as the lead cards so it nests in visually.
+*/
+.bb-lead-notification-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-16);
+  padding: var(--sp-12) var(--sp-16);
+  margin-bottom: var(--sp-20);
+  background: var(--paper-2);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  flex-wrap: wrap;
+}
+.bb-lead-notification-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.bb-lead-notification-summary strong {
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+}
+.bb-lead-notification-status {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bb-lead-notification-edit {
+  flex: 1;
+  min-width: 240px;
+}
+.bb-lead-notification-edit strong {
+  display: block;
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+}
+.bb-lead-notification-actions {
+  display: flex;
+  gap: var(--sp-8);
+  align-self: flex-end;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────── */
+.bb-leads-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) 1fr;
+  gap: var(--sp-20);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .bb-leads-grid { grid-template-columns: 1fr; }
+}
+
+/* ── LeadsList ──────────────────────────────────────────────────────── */
+.bb-leads-list {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.bb-leads-toolbar {
+  padding: var(--sp-14) var(--sp-16);
+  border-bottom: 1px solid var(--ink-200);
+  display: flex; flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-leads-search { width: 100%; }
+.bb-leads-filters {
+  display: flex;
+  gap: var(--sp-8);
+  flex-wrap: wrap;
+}
+/* Form-submission modal — label/value pairs for each submitted field. */
+.bb-lead-submission { display: flex; flex-direction: column; gap: var(--sp-12); margin: 0; }
+.bb-lead-submission-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: var(--sp-12);
+  align-items: baseline;
+  padding-bottom: var(--sp-10);
+  border-bottom: 1px solid var(--ink-100);
+}
+.bb-lead-submission-row:last-child { border-bottom: none; padding-bottom: 0; }
+.bb-lead-submission-row dt {
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--ink-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bb-lead-submission-row dd {
+  margin: 0;
+  font-size: var(--fs-14);
+  color: var(--ink-800);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+@media (max-width: 520px) {
+  .bb-lead-submission-row { grid-template-columns: 1fr; gap: 2px; }
+}
+.bb-leads-filter {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--fs-13);
+  padding: var(--sp-6) var(--sp-8);
+}
+.bb-leads-count {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  justify-content: space-between;
+}
+.bb-leads-sync-all {
+  font: inherit;
+  color: var(--ink-700);
+  background: var(--ink-50, #f4f1ec);
+  border: 1px solid var(--ink-200);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.bb-leads-sync-all:hover:not(:disabled) { background: var(--ink-100, #ebe6dc); }
+.bb-leads-sync-all:disabled { opacity: 0.6; cursor: default; }
+
+/* CRM status — compact one-line-per-CRM strip. The CRM name is the source;
+   each row carries its own single "Open ↗". Replaces the old per-CRM cards. */
+.bb-crm-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6, 6px);
+  margin: var(--sp-12, 12px) 0 0;
+}
+.bb-crm-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-8, 8px);
+  font-size: var(--fs-13, 13px);
+  color: var(--ink-700);
+}
+.bb-crm-name {
+  font-weight: 600;
+  color: var(--ink-500);
+}
+.bb-crm-name.is-synced { color: var(--ink-900); }
+.bb-crm-detail { color: var(--ink-900); }
+.bb-crm-muted { color: var(--ink-500); }
+/* The single open/push affordance per row, pushed to the right edge. */
+.bb-crm-action {
+  margin-left: auto;
+  font-size: var(--fs-13, 13px);
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+.bb-crm-action:hover { text-decoration: underline; }
+.bb-crm-action:disabled { color: var(--ink-400, #9ca3af); cursor: default; }
+
+/* Load-more button at the bottom of any paginated list (Leads,
+   Conversations, Drafts, Form responses). Full-width inside the rows
+   container, neutral styling — explicit affordance instead of silent
+   truncation. */
+.bb-load-more {
+  width: 100%;
+  margin: var(--sp-8) 0;
+  justify-content: center;
+}
+.bb-leads-stages {
+  display: flex; flex-wrap: wrap;
+  gap: 4px;
+}
+.bb-leads-stage {
+  font-size: var(--fs-12);
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  color: var(--ink-500);
+  background: transparent;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-leads-stage:hover { background: var(--ink-100); color: var(--ink-900); }
+.bb-leads-stage-active {
+  background: var(--ink-900);
+  color: #fff;
+}
+.bb-leads-rows {
+  flex: 1;
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+}
+
+.bb-lead-row {
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  border-top: 1px solid var(--ink-100);
+  background: transparent;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  transition: background var(--t-fast) var(--ease);
+}
+.bb-lead-row:first-child { border-top: none; }
+.bb-lead-row:hover { background: var(--paper-2); }
+.bb-lead-row-active {
+  background: var(--paper-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.bb-lead-row-selected { background: rgba(20, 100, 200, 0.05); }
+
+/* Checkbox + trash mirror the Conversations tab: hidden by default,
+   revealed on row hover OR when something else is already selected. */
+.bb-lead-row-check {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-12);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.bb-lead-row:hover .bb-lead-row-check,
+.bb-lead-row-check-visible {
+  opacity: 1;
+}
+/* No checkbox cell on Free: the body carries the left gutter itself. */
+.bb-lead-row > .bb-lead-row-body:first-child { padding-left: var(--sp-16); }
+.bb-lead-row-body {
+  flex: 1 1 auto;
+  min-width: 0; /* let nowrap children truncate with ellipsis instead of widening the column → no horizontal scroll */
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--sp-14) var(--sp-8) var(--sp-14) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bb-lead-row-delete {
+  background: transparent;
+  border: none;
+  padding: 0 var(--sp-12);
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--ink-400);
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-lead-row:hover .bb-lead-row-delete { opacity: 1; }
+.bb-lead-row-delete:hover { color: var(--ink-900); }
+.bb-lead-row-top {
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.bb-lead-row-name {
+  font-weight: 500;
+  font-size: var(--fs-14);
+  color: var(--ink-900);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.bb-lead-row-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  animation: bb-pulse 2s ease-out infinite;
+}
+@keyframes bb-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+.bb-lead-row-time { font-size: var(--fs-12); color: var(--ink-400); white-space: nowrap; }
+.bb-lead-row-email {
+  font-size: var(--fs-13); color: var(--ink-700);
+  font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bb-lead-row-meta {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--sp-8);
+  margin-top: 4px;
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+}
+
+/* ── StageBadge ─────────────────────────────────────────────────────── */
+.bb-stage-badge {
+  display: inline-flex; align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  letter-spacing: 0.02em;
+}
+.bb-stage-new        { background: rgba(232, 79, 42, 0.10); color: #b3340e; }
+.bb-stage-contacted  { background: rgba(0, 115, 170, 0.10); color: #00567f; }
+.bb-stage-qualified  { background: rgba(147, 51, 234, 0.10); color: #6325ab; }
+.bb-stage-won        { background: rgba(22, 163, 74, 0.10); color: #136a37; }
+.bb-stage-lost       { background: var(--ink-100); color: var(--ink-500); }
+
+/* ── LeadDetail ─────────────────────────────────────────────────────── */
+.bb-lead-detail {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  padding: var(--sp-20);
+  display: flex; flex-direction: column;
+  gap: var(--sp-16);
+  min-width: 0;
+}
+.bb-lead-detail-empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+}
+.bb-lead-detail-placeholder {
+  text-align: center;
+  max-width: 360px;
+  display: flex; flex-direction: column; gap: var(--sp-8);
+  align-items: center;
+}
+.bb-lead-placeholder-headline {
+  font-family: var(--font-display);
+  font-size: var(--fs-22);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.bb-lead-placeholder-body {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.bb-lead-detail-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: var(--sp-12);
+  padding-bottom: var(--sp-16);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-lead-detail-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-24);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.bb-lead-detail-email {
+  font-size: var(--fs-13);
+  font-family: ui-monospace, monospace;
+  color: var(--ink-500);
+  margin-top: 2px;
+}
+.bb-lead-detail-email a { color: var(--ink-500); }
+.bb-lead-detail-email a:hover { color: var(--accent); }
+.bb-lead-detail-sub {
+  display: flex; flex-wrap: wrap; gap: var(--sp-8); align-items: center;
+  font-size: var(--fs-12); color: var(--ink-500);
+  margin-top: var(--sp-8);
+}
+
+/* Chip that lives in the lead header sub-line. Click → opens the
+   chat transcript modal. Subtle but clearly clickable. */
+.bb-lead-detail-chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  background: var(--paper-2);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-full);
+  font: inherit;
+  font-size: var(--fs-12);
+  color: var(--ink-700);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  margin-left: 2px;
+}
+.bb-lead-detail-chat-chip:hover {
+  background: var(--ink-100);
+  border-color: var(--ink-300);
+  color: var(--ink-900);
+}
+
+/* ── LeadChatModal — Radix Dialog overlay + centered card ───────── */
+.bb-lead-chat-overlay {
+  position: fixed; inset: 0;
+  background: rgba(20, 24, 36, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 92;
+  animation: bb-fade-in var(--t-normal) var(--ease);
+}
+.bb-lead-chat-modal {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(640px, 92vw);
+  max-height: 80vh;
+  background: var(--paper);
+  border-radius: var(--r-12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  display: flex; flex-direction: column;
+  z-index: 93;
+  overflow: hidden;
+}
+.bb-lead-chat-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  padding: var(--sp-14) var(--sp-20);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-lead-chat-title {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: var(--fs-18);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0;
+  display: flex; align-items: center; gap: var(--sp-10);
+}
+.bb-lead-chat-count {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  font-weight: 400;
+  font-family: var(--font-body);
+}
+.bb-lead-chat-close {
+  font-size: 18px;
+  background: transparent;
+  border: none;
+  color: var(--ink-500);
+  cursor: pointer;
+  padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--r-8);
+}
+.bb-lead-chat-close:hover { background: var(--ink-100); color: var(--ink-900); }
+.bb-lead-chat-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-16) var(--sp-20);
+  min-height: 0;
+}
+/* Free: the chat and submission chips sit inside the Assistant gate. */
+.bb-lead-detail-locked-chips {
+  padding: 0 var(--sp-20) var(--sp-12);
+}
+.bb-lead-close {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  color: var(--ink-500);
+  font-size: 16px;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-lead-close:hover { background: var(--ink-100); color: var(--ink-900); }
+
+.bb-lead-stages {
+  display: flex; flex-direction: column; gap: var(--sp-6);
+}
+
+/* AI research card */
+.bb-lead-research-summary {
+  font-size: var(--fs-14);
+  color: var(--ink-700);
+  line-height: 1.5;
+  margin: 0 0 var(--sp-12);
+}
+.bb-lead-research-action {
+  background: var(--accent-soft);
+  border-left: 2px solid var(--accent);
+  padding: var(--sp-10) var(--sp-12);
+  border-radius: var(--r-8);
+  margin-bottom: var(--sp-12);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.bb-lead-research-action p {
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+  margin: 0;
+  line-height: 1.5;
+}
+.bb-lead-research-empty {
+  display: flex; flex-direction: column; gap: var(--sp-12);
+}
+.bb-lead-research-empty p {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Transcript */
+.bb-transcript {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-10);
+}
+.bb-msg {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.bb-msg-user { align-items: flex-start; }
+.bb-msg-assistant { align-items: flex-start; }
+.bb-msg-role {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-400);
+}
+.bb-msg-body {
+  font-size: var(--fs-14);
+  color: var(--ink-900);
+  background: var(--paper-2);
+  padding: var(--sp-8) var(--sp-12);
+  border-radius: var(--r-8);
+  margin: 0;
+  max-width: 90%;
+  line-height: 1.5;
+  /* Preserve the sender's line breaks + paragraphs (email bodies, multi-line
+     agent replies) instead of collapsing them into one run-on block. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bb-msg-assistant .bb-msg-body {
+  background: var(--ink-900);
+  color: #fff;
+}
+/* Markdown replies in the Conversations transcript: the bubble keeps its look,
+   the content flows as normal blocks (not pre-wrap) with list markers back. */
+.bb-msg-body.bb-md { white-space: normal; }
+#bitbot-admin-root .bb-msg-body.bb-md ul { list-style: disc; padding-left: 22px; }
+#bitbot-admin-root .bb-msg-body.bb-md ol { list-style: decimal; padding-left: 22px; }
+/* base.css (ID-scoped) zeroes paragraph margins and paints every link like
+   dark body text, which made paragraphs run together and links vanish on the
+   dark bubble. Scoped to the transcript's markdown bubble only. */
+#bitbot-admin-root .bb-msg-body.bb-md p,
+#bitbot-admin-root .bb-msg-body.bb-md ul,
+#bitbot-admin-root .bb-msg-body.bb-md ol { margin: 0 0 var(--sp-8); }
+#bitbot-admin-root .bb-msg-body.bb-md > *:last-child { margin-bottom: 0; }
+#bitbot-admin-root .bb-msg-body.bb-md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.bb-msg-time {
+  font-size: 11px;
+  color: var(--ink-400);
+}
+
+/* Draft email */
+.bb-lead-draft {
+  display: flex; flex-direction: column; gap: var(--sp-10);
+}
+.bb-lead-draft-hint {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  margin: 0;
+  line-height: 1.5;
+}
+.bb-lead-draft-actions {
+  display: flex; justify-content: flex-end; gap: var(--sp-8);
+}
+
+/* Past emails */
+.bb-emails {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-8);
+}
+.bb-email-row {
+  padding: var(--sp-10) var(--sp-12);
+  background: var(--paper-2);
+  border-radius: var(--r-8);
+}
+.bb-email-subject {
+  font-weight: 500;
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+}
+.bb-email-meta {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  text-transform: capitalize;
+}
+
+/* Activity timeline */
+.bb-activity-timeline {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-6);
+}
+.bb-activity-event {
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+  display: flex; flex-wrap: wrap;
+  gap: var(--sp-6); align-items: baseline;
+}
+.bb-activity-type {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-400);
+  font-weight: 600;
+}
+.bb-activity-content { color: var(--ink-900); }
+.bb-activity-time { color: var(--ink-400); font-size: var(--fs-12); margin-left: auto; }
+

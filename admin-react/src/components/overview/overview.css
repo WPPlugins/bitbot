@@ -1,0 +1,816 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Overview tab — section heading, StatRow, ActivityFeed, QuickActions,
+   NextBestStep. Editorial layout with oversized italic numerals.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* ── Section heading ──────────────────────────────────────────────── */
+.bb-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: var(--sp-32);
+  margin-bottom: var(--sp-20);
+}
+.bb-section-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-28);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-12);
+}
+.bb-section-numeral {
+  font-style: italic;
+  font-size: var(--fs-40);
+  color: var(--ink-300);
+  line-height: 1;
+}
+.bb-section-aside {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+}
+/* Settings auto-save status — pulses between "Saving…" and "Saved ✓"
+   as the admin types on Chatbot Look & feel. Reuses .bb-section-aside
+   base styles; modifier adds the chip background + colour. */
+.bb-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-weight: 500;
+  transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-save-status-saving {
+  background: var(--ink-100);
+  color: var(--ink-700);
+}
+.bb-save-status-saved {
+  background: rgba(22, 163, 74, 0.10);
+  color: #136a37;
+}
+
+/* ── StatRow ──────────────────────────────────────────────────────── */
+.bb-statrow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  overflow: hidden;
+  margin-bottom: var(--sp-24);
+}
+.bb-statrow .bb-stat-tile {
+  padding: var(--sp-20) var(--sp-24);
+  border-right: 1px solid var(--ink-200);
+}
+.bb-statrow .bb-stat-tile:last-child { border-right: none; }
+
+@media (max-width: 1100px) {
+  .bb-statrow { grid-template-columns: repeat(2, 1fr); }
+  .bb-statrow .bb-stat-tile:nth-child(2) { border-right: none; }
+  .bb-statrow .bb-stat-tile:nth-child(1),
+  .bb-statrow .bb-stat-tile:nth-child(2) { border-bottom: 1px solid var(--ink-200); }
+}
+@media (max-width: 600px) {
+  .bb-statrow { grid-template-columns: 1fr; }
+  .bb-statrow .bb-stat-tile { border-right: none; border-bottom: 1px solid var(--ink-200); }
+  .bb-statrow .bb-stat-tile:last-child { border-bottom: none; }
+}
+
+/* ── 8/4 grid ─────────────────────────────────────────────────────── */
+.bb-overview-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--sp-20);
+  align-items: start;
+}
+.bb-overview-main { min-width: 0; }
+.bb-overview-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-16);
+}
+
+@media (max-width: 980px) {
+  .bb-overview-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Activity feed ────────────────────────────────────────────────── */
+.bb-eyebrow {
+  font-family: var(--font-body);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+.bb-activity-list {
+  display: flex;
+  flex-direction: column;
+}
+.bb-activity-row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: var(--sp-12);
+  align-items: start;
+  padding: var(--sp-14) var(--sp-20);
+  border-top: 1px solid var(--ink-200);
+}
+.bb-activity-row:first-child { border-top: none; }
+.bb-activity-icon {
+  color: var(--ink-400);
+  padding-top: 2px;
+}
+.bb-activity-body { min-width: 0; }
+.bb-activity-title {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+  margin-bottom: 2px;
+}
+.bb-activity-snippet {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  line-height: 1.45;
+}
+.bb-activity-time {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+/* Per-event-kind left border accent — Mixpanel-style hierarchy hint */
+.bb-activity-lead { border-left: 2px solid var(--accent); }
+.bb-activity-form { border-left: 2px solid var(--success); }
+.bb-activity-conversation { border-left: 2px solid transparent; }
+
+.bb-activity-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-14) var(--sp-20);
+  border-top: 1px solid var(--ink-200);
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+.bb-link {
+  color: var(--ink-900);
+  font-weight: 500;
+}
+.bb-link:hover { color: var(--accent); }
+
+/* ── Quick actions ───────────────────────────────────────────────── */
+.bb-quickactions-list {
+  display: flex;
+  flex-direction: column;
+}
+.bb-quickaction {
+  display: grid;
+  grid-template-columns: 32px 1fr 20px;
+  gap: var(--sp-12);
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-14) var(--sp-20);
+  border-top: 1px solid var(--ink-200);
+  transition: background var(--t-fast) var(--ease);
+}
+.bb-quickaction:first-child { border-top: none; }
+.bb-quickaction:hover {
+  background: var(--paper-2);
+}
+.bb-quickaction-icon {
+  color: var(--ink-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.bb-quickaction-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bb-quickaction-title {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+}
+.bb-quickaction-sub {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+}
+.bb-quickaction-chevron {
+  color: var(--ink-400);
+  display: inline-flex;
+}
+
+/* ── NextBestStep ─────────────────────────────────────────────────── */
+.bb-nbs {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-12);
+  padding: var(--sp-20) var(--sp-20) var(--sp-24);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-nbs-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--sp-4);
+}
+.bb-nbs-eyebrow {
+  font-size: var(--fs-12);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.bb-nbs-headline {
+  font-family: var(--font-display);
+  font-size: var(--fs-20);
+  font-weight: 500;
+  color: var(--ink-900);
+  line-height: 1.25;
+}
+.bb-nbs-body {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  line-height: 1.5;
+  margin-bottom: var(--sp-8);
+}
+
+/* ── Small button variant (used in card actions) ───────────────────── */
+.bb-btn-small {
+  padding: var(--sp-4) var(--sp-10);
+  font-size: var(--fs-12);
+}
+
+/* ─── Insight bento (Section 01) ─────────────────────────────────────
+   2×2 grid of insight cards that replaces the old chronological activity
+   feed. Cards self-contain their loading + empty states so a slow / sparse
+   site still renders cleanly. Below 800px collapses to a single column. */
+.bb-insight-bento {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-16);
+}
+@media (max-width: 800px) {
+  .bb-insight-bento { grid-template-columns: 1fr; }
+}
+
+.bb-insight-card {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  padding: var(--sp-16) var(--sp-20) var(--sp-20);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+  min-width: 0;
+}
+.bb-insight-card-error {
+  color: var(--ink-500);
+  font-size: var(--fs-13);
+  text-align: center;
+  padding: var(--sp-24);
+}
+
+.bb-insight-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-8);
+}
+.bb-insight-aside {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  font-style: italic;
+}
+.bb-insight-empty {
+  font-size: var(--fs-13);
+  color: var(--ink-400);
+  line-height: 1.5;
+  font-style: italic;
+  margin: var(--sp-8) 0 0 0;
+}
+
+/* Hero pair — big number + delta caption. Used by ConversationPulse +
+   LeadCapture. */
+.bb-insight-hero {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-10);
+  margin-top: var(--sp-4);
+}
+.bb-insight-hero-num {
+  font-family: var(--font-display);
+  font-size: var(--fs-40);
+  font-weight: 400;
+  color: var(--ink-900);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.bb-insight-hero-unit {
+  font-size: var(--fs-20);
+  color: var(--ink-500);
+  margin-left: 2px;
+}
+.bb-insight-hero-delta {
+  font-size: var(--fs-12);
+  font-weight: 500;
+}
+.bb-insight-tone-up   { color: #1F8B5C; }
+.bb-insight-tone-down { color: var(--accent); }
+.bb-insight-tone-flat { color: var(--ink-400); font-style: italic; font-weight: 400; }
+
+/* Two-up facts under the hero. */
+.bb-insight-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-10);
+  margin: var(--sp-8) 0 0;
+}
+.bb-insight-fact dt {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  margin-bottom: 2px;
+}
+.bb-insight-fact dd {
+  font-size: var(--fs-14);
+  color: var(--ink-900);
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Ranked list — used by TopQuestions. */
+.bb-insight-list {
+  list-style: none;
+  margin: var(--sp-4) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bb-insight-list-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: var(--sp-10);
+  padding: var(--sp-8) 0;
+  border-top: 1px dashed var(--ink-100);
+  align-items: baseline;
+}
+.bb-insight-list-row:first-child { border-top: none; }
+.bb-insight-list-rank {
+  font-family: var(--font-display);
+  font-size: var(--fs-14);
+  color: var(--ink-400);
+  font-style: italic;
+}
+.bb-insight-list-body { min-width: 0; }
+.bb-insight-list-label {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-transform: capitalize;
+}
+.bb-insight-list-sub {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bb-insight-list-count {
+  font-family: var(--font-display);
+  font-size: var(--fs-18);
+  color: var(--ink-700);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Proportional bars — used by TopCountries. The track ensures every
+   country reads even if the visit share is tiny (4% minimum fill). */
+.bb-insight-bars {
+  list-style: none;
+  margin: var(--sp-4) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-insight-bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: var(--sp-10);
+  align-items: center;
+  font-size: var(--fs-13);
+}
+.bb-insight-bar-label {
+  color: var(--ink-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bb-insight-bar-track {
+  height: 6px;
+  background: var(--ink-100);
+  border-radius: 3px;
+  overflow: hidden;
+  display: block;
+}
+.bb-insight-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink-700);
+  border-radius: 3px;
+}
+.bb-insight-bar-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-700);
+  font-weight: 500;
+  min-width: 28px;
+  text-align: right;
+}
+.bb-insight-bar-other {
+  grid-template-columns: 1fr;
+  color: var(--ink-400);
+  font-style: italic;
+  font-size: var(--fs-12);
+  padding-top: var(--sp-4);
+}
+
+/* ─── Tier-2 cards: Money on the table + Coverage gaps ─────────────── */
+
+/* Returning-visitor inline aside ("warm") after the % */
+.bb-insight-fact-unit { font-size: var(--fs-12); color: var(--ink-500); margin-left: 2px; }
+.bb-insight-fact-aside { font-size: var(--fs-12); color: var(--ink-400); font-style: italic; }
+
+/* "Money on the table" — coral urgency card. */
+.bb-insight-card-urgent {
+  border: 1px solid var(--accent);
+  background: linear-gradient(180deg, var(--accent-soft) 0%, var(--card) 60%);
+}
+.bb-insight-card-quiet {
+  background: var(--paper-2);
+}
+.bb-eyebrow-urgent {
+  color: var(--accent-ink);
+}
+.bb-insight-tone-urgent { color: var(--accent-ink); font-weight: 600; }
+
+/* Verbatim visitor quotes under the count */
+.bb-insight-quotes {
+  list-style: none;
+  margin: var(--sp-8) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+.bb-insight-quote {
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+  font-style: italic;
+  line-height: 1.45;
+  padding-left: var(--sp-10);
+  border-left: 2px solid var(--accent);
+}
+
+/* Coverage Gaps — list of topics with FAQ CTAs */
+.bb-insight-gaps {
+  list-style: none;
+  margin: var(--sp-4) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-12);
+}
+.bb-insight-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-10) 0;
+  border-top: 1px dashed var(--ink-100);
+}
+.bb-insight-gap:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.bb-insight-gap-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.bb-insight-gap-topic {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-transform: capitalize;
+}
+.bb-insight-gap-count {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
+}
+.bb-insight-gap-example {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  font-style: italic;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bb-insight-gap-cta {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  color: var(--accent-ink);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+}
+.bb-insight-gap-cta:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* ─── Top cited pages list ──────────────────────────────────────────── */
+.bb-insight-pages {
+  list-style: none;
+  margin: var(--sp-4) 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bb-insight-page {
+  padding: var(--sp-8) 0;
+  border-top: 1px dashed var(--ink-100);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bb-insight-page:first-child { border-top: none; padding-top: 0; }
+.bb-insight-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-8);
+}
+.bb-insight-page-title {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bb-insight-page-title:hover { color: var(--accent); text-decoration: underline; }
+.bb-insight-page-served {
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+  color: var(--ink-700);
+  font-variant-numeric: tabular-nums;
+}
+.bb-insight-page-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  gap: var(--sp-8);
+}
+.bb-insight-page-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.bb-insight-page-ctr {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* "View all →" button */
+.bb-insight-viewall {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  margin-top: var(--sp-8);
+  padding: 2px 0;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  color: var(--ink-500);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+}
+.bb-insight-viewall:hover { color: var(--ink-900); text-decoration: underline; }
+
+/* ─── Modal ─────────────────────────────────────────────────────────── */
+.bb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Deep, unambiguous dim — covers both light (Youami panel) and dark
+     (WP admin sidebar/topbar) backgrounds at acceptable contrast. */
+  background: rgba(10, 14, 20, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Above WP admin bar (99999) so the dimming layer covers the entire
+     viewport including the WP chrome. */
+  z-index: 100000;
+  padding: var(--sp-20);
+  /* Re-assert pointer events. Modals portal to <body>, and a Radix-style
+     dialog open underneath (e.g. the Account drawer) sets
+     `body { pointer-events: none }` while it's mounted. Without this the
+     portaled modal inherits `none` and every click inside it falls through
+     to the layer behind — the "Cancel and drop to Free does nothing" bug. */
+  pointer-events: auto;
+}
+.bb-modal {
+  background: var(--card);
+  border-radius: var(--r-12);
+  width: min(600px, 100%);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(15, 20, 25, 0.35);
+  overflow: hidden;
+}
+.bb-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--sp-16) var(--sp-20);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-modal-titles { display: flex; flex-direction: column; gap: 2px; }
+.bb-modal-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-20);
+  font-weight: 500;
+  color: var(--ink-900);
+  margin: 0;
+}
+.bb-modal-aside {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  font-style: italic;
+}
+.bb-modal-close {
+  background: none;
+  border: none;
+  font-size: var(--fs-24);
+  color: var(--ink-500);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 8px;
+}
+.bb-modal-close:hover { color: var(--ink-900); }
+
+.bb-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-12) var(--sp-20) var(--sp-20);
+}
+.bb-modal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bb-modal-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: var(--sp-12);
+  align-items: center;
+  padding: var(--sp-10) 0;
+  border-top: 1px dashed var(--ink-100);
+}
+.bb-modal-row:first-child { border-top: none; }
+.bb-modal-rank {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--ink-400);
+  font-size: var(--fs-14);
+}
+.bb-modal-body-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bb-modal-row-title {
+  font-size: var(--fs-14);
+  font-weight: 500;
+  color: var(--ink-900);
+  text-transform: capitalize;
+  text-decoration: none;
+}
+a.bb-modal-row-title:hover { color: var(--accent); text-decoration: underline; }
+.bb-modal-row-sub {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bb-modal-row-count {
+  font-size: var(--fs-14);
+  color: var(--ink-700);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.bb-modal-row-action {
+  background: none;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-4);
+  padding: 4px 10px;
+  font-size: var(--fs-12);
+  cursor: pointer;
+  color: var(--ink-700);
+}
+.bb-modal-row-action:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.bb-modal-row-other {
+  grid-template-columns: 1fr;
+  color: var(--ink-400);
+  font-style: italic;
+}
+
+/* ── Widget status banner (2.0.12) ────────────────────────────────────
+   Surface on Overview when the public widget is hidden or not actually
+   appearing for visitors. Sits above the bento so admins can act
+   before reading insights. */
+.bb-widget-status {
+  display: flex;
+  gap: var(--sp-12);
+  align-items: flex-start;
+  padding: var(--sp-16) var(--sp-20);
+  border-radius: 12px;
+  margin-bottom: var(--sp-20);
+  border: 1px solid transparent;
+  font-size: var(--fs-14);
+  line-height: 1.5;
+}
+.bb-widget-status-warn {
+  background: oklch(96% 0.03 35);
+  border-color: oklch(82% 0.10 35);
+  color: oklch(28% 0.08 30);
+}
+.bb-widget-status-info {
+  background: oklch(96% 0.02 230);
+  border-color: oklch(82% 0.08 230);
+  color: oklch(28% 0.06 230);
+}
+.bb-widget-status-icon {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: currentColor;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  font-style: italic;
+  margin-top: 1px;
+}
+.bb-widget-status-warn .bb-widget-status-icon { background: oklch(58% 0.18 30); }
+.bb-widget-status-info .bb-widget-status-icon { background: oklch(58% 0.12 230); }
+.bb-widget-status-body { flex: 1; min-width: 0; }
+.bb-widget-status-body code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 0.9em;
+  background: rgba(0,0,0,0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* CTA row under the body copy when a status banner has an action. */
+.bb-widget-status-actions {
+  display: flex;
+  gap: var(--sp-8);
+  margin-top: var(--sp-12);
+}

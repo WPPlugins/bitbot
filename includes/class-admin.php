@@ -48,6 +48,9 @@ class BitBot_Admin {
      * languages with built-in text never call the API.
      */
     public function maybe_localize_site_defaults() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         $site_code = BitBot_Languages::site_code( get_locale() );
         if ( '' === $site_code || 'en' === $site_code || BitBot_Widget_Copy::has_builtin_defaults( $site_code ) ) {
             return;
@@ -191,6 +194,7 @@ class BitBot_Admin {
         add_action('admin_init', array($this, 'maybe_redirect_legacy_admin_url'), 1);
 
         // Register settings
+        add_action('init', array(__CLASS__, 'upgrade_agent_role'), 5);
         add_action('admin_init', array($this, 'register_settings'));
         // A site language we have no built-in widget text for gets the English
         // defaults translated once (title, welcome, input hint) and cached.
@@ -301,6 +305,7 @@ class BitBot_Admin {
 
         // Reconnect handler
         add_action('wp_ajax_bitbot_reconnect', array($this, 'ajax_reconnect'));
+        add_action('wp_ajax_bitbot_connect', array($this, 'ajax_connect'));
     }
 
     /**
@@ -351,7 +356,7 @@ class BitBot_Admin {
                 'plan'   => BitBot_Plan::FREE,
                 'limits' => array(
                     'chatMessagesPerMonth' => 100,
-                    'postsPerMonth'        => 3,
+                    'postsPerMonth'        => 1,
                     'postCooldownHours'    => 24,
                     'maxLeads'             => 10,
                     'maxForms'             => 1,
@@ -466,7 +471,7 @@ class BitBot_Admin {
             <div class="notice" style="border-left-color: #22863a; padding: 10px 14px;">
                 <p style="margin: 0; font-size: 14px;">
                     <strong style="color: #22863a;"><?php echo esc_html( $label ); ?></strong>
-                    — <?php esc_html_e( 'all features unlocked. Thanks for supporting BitBot!', 'bitbot' ); ?>
+                    — <?php esc_html_e( 'all features unlocked. Thanks for supporting Youami!', 'bitbot' ); ?>
                 </p>
             </div>
             <?php
@@ -490,12 +495,12 @@ class BitBot_Admin {
                     printf(
                         /* translators: 1: chat used, 2: chat cap, 3: posts used, 4: posts cap, 5: leads used, 6: leads cap */
                         esc_html__( '%1$d / %2$d chat messages · %3$d / %4$d posts · %5$d / %6$d leads this month.', 'bitbot' ),
-                        $chat_used, $chat_cap, $post_used, $post_cap, $leads_used, $leads_cap
+                        absint( $chat_used ), absint( $chat_cap ), absint( $post_used ), absint( $post_cap ), absint( $leads_used ), absint( $leads_cap )
                     );
                     ?>
                 </div>
                 <div>
-                    <a href="<?php echo $upgrade_url; ?>" class="button button-primary">
+                    <a href="<?php echo esc_url( $upgrade_url ); ?>" class="button button-primary">
                         <?php esc_html_e( 'Upgrade plan', 'bitbot' ); ?>
                     </a>
                 </div>
@@ -636,10 +641,10 @@ class BitBot_Admin {
         $top_bubble    = $attention > 0
             ? ' <span class="awaiting-mod update-plugins count-' . absint( $attention ) . '"><span class="pending-count">' . absint( $attention ) . '</span></span>'
             : '';
-        $bitbot_label  = __( 'BitBot', 'bitbot' ) . $top_bubble;
+        $bitbot_label  = __( 'Youami', 'bitbot' ) . $top_bubble;
 
         add_menu_page(
-            __( 'BitBot', 'bitbot' ),
+            __( 'Youami', 'bitbot' ),
             $bitbot_label,
             'manage_options',
             'bitbot',
@@ -666,7 +671,7 @@ class BitBot_Admin {
     public function maybe_redirect_legacy_admin_url() {
         if ( headers_sent() ) return;
         if ( ! isset( $_GET['page'] ) ) return;
-        $page = sanitize_key( $_GET['page'] );
+        $page = sanitize_key( wp_unslash( $_GET['page'] ) );
         $map = array(
             'bitbot-leads'      => 'admin.php?page=bitbot&tab=leads',
             'bitbot-forms'      => 'admin.php?page=bitbot&tab=forms',
@@ -681,7 +686,7 @@ class BitBot_Admin {
         // so the host is always this site; wp_safe_redirect's allowlist
         // check is unnecessary and has caused silent fall-throughs in
         // edge cases (multisite, redirect filters).
-        wp_redirect( admin_url( $map[ $page ] ) );
+        wp_safe_redirect( admin_url( $map[ $page ] ) );
         exit;
     }
 
@@ -891,6 +896,24 @@ class BitBot_Admin {
             'sanitize_callback' => array( 'BitBot_WhatsApp', 'sanitize_enabled' ),
             'default'           => '0',
         ));
+        // Whether Enter sends the visitor's message (default off: they click Send).
+        register_setting('bitbot_settings', 'bitbot_enter_to_send', array(
+            'type'              => 'string',
+            'sanitize_callback' => array( 'BitBot_WhatsApp', 'sanitize_enabled' ),
+            'default'           => '0',
+        ));
+        // Consent switches (default off): the public "Powered by" link and
+        // anonymous usage analytics in wp-admin.
+        register_setting('bitbot_settings', BitBot_Consent::OPT_POWERED_BY, array(
+            'type'              => 'string',
+            'sanitize_callback' => array( 'BitBot_Consent', 'sanitize_flag' ),
+            'default'           => '0',
+        ));
+        register_setting('bitbot_settings', BitBot_Consent::OPT_ANALYTICS, array(
+            'type'              => 'string',
+            'sanitize_callback' => array( 'BitBot_Consent', 'sanitize_flag' ),
+            'default'           => '0',
+        ));
         register_setting('bitbot_settings', 'bitbot_notification_email', array(
             'type'              => 'string',
             'sanitize_callback' => array($this, 'sanitize_notification_email'),
@@ -900,15 +923,6 @@ class BitBot_Admin {
         // panel — no more wp_options + sanitize-on-save path. Consumer
         // key + secret are entered in BitBot → Integrations → WooCommerce
         // and pushed straight to the backend via UpdateWcCredentials.
-
-        // Appointments — one consolidated array option holds all booking
-        // config (enabled, service, duration, timezone, weekly hours, etc.).
-        // Sanitize validates + pushes to backend in one shot.
-        register_setting('bitbot_settings', 'bitbot_appointments_config', array(
-            'type'              => 'array',
-            'sanitize_callback' => array($this, 'sanitize_appointments_config'),
-            'default'           => array(),
-        ));
 
         // Cart recovery — bundled into one setting array for the same
         // reason (single sanitize callback pushes to backend atomically).
@@ -1093,23 +1107,6 @@ class BitBot_Admin {
             'bitbot_leads_section'
         );
 
-        // Appointments section — booking in-house, no third-party integration.
-        // The field renderer shows all config inputs under a single setting.
-        add_settings_section(
-            'bitbot_appointments_section',
-            __( 'Appointments (Agent)', 'bitbot' ),
-            array( $this, 'render_appointments_section' ),
-            'bitbot-settings'
-        );
-
-        add_settings_field(
-            'bitbot_appointments_config',
-            __( 'Booking configuration', 'bitbot' ),
-            array( $this, 'render_appointments_config_field' ),
-            'bitbot-settings',
-            'bitbot_appointments_section'
-        );
-
         // Cart recovery — discount code the Agent can surface to
         // hesitating buyers.
         add_settings_section(
@@ -1161,64 +1158,6 @@ class BitBot_Admin {
     }
 
     /**
-     * Sanitize + push appointment config bundle. Accepts the raw $_POST-shaped
-     * nested array, validates, stores locally, and pushes to the backend via
-     * the UpdateAvailability RPC in a single call.
-     *
-     * @since 1.7.0
-     * @param mixed $value Raw input from the settings form.
-     * @return array Normalized + stored config.
-     */
-    public function sanitize_appointments_config( $value ) {
-        if ( ! is_array( $value ) ) {
-            return (array) get_option( 'bitbot_appointments_config', array() );
-        }
-
-        $days = array( 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat' );
-        $weekly_hours = array();
-        foreach ( $days as $idx => $day_key ) {
-            $row = isset( $value['hours'][ $day_key ] ) && is_array( $value['hours'][ $day_key ] ) ? $value['hours'][ $day_key ] : array();
-            $enabled_day = ! empty( $row['enabled'] );
-            $start = isset( $row['start'] ) ? sanitize_text_field( (string) $row['start'] ) : '';
-            $end   = isset( $row['end'] ) ? sanitize_text_field( (string) $row['end'] ) : '';
-            if ( $enabled_day && preg_match( '/^\d{2}:\d{2}$/', $start ) && preg_match( '/^\d{2}:\d{2}$/', $end ) && $start < $end ) {
-                $weekly_hours[] = array(
-                    'dayOfWeek' => $idx,
-                    'startTime' => $start,
-                    'endTime'   => $end,
-                );
-            }
-        }
-
-        $config = array(
-            'enabled'          => ! empty( $value['enabled'] ),
-            'service_name'     => isset( $value['service_name'] ) ? sanitize_text_field( (string) $value['service_name'] ) : '',
-            'duration_minutes' => isset( $value['duration_minutes'] ) ? max( 5, min( 240, intval( $value['duration_minutes'] ) ) ) : 30,
-            'buffer_minutes'   => isset( $value['buffer_minutes'] ) ? max( 0, min( 120, intval( $value['buffer_minutes'] ) ) ) : 15,
-            'timezone'         => isset( $value['timezone'] ) ? sanitize_text_field( (string) $value['timezone'] ) : 'UTC',
-            'lead_time_hours'  => isset( $value['lead_time_hours'] ) ? max( 0, min( 168, intval( $value['lead_time_hours'] ) ) ) : 2,
-            'max_days_ahead'   => isset( $value['max_days_ahead'] ) ? max( 1, min( 60, intval( $value['max_days_ahead'] ) ) ) : 14,
-            'hours'            => isset( $value['hours'] ) && is_array( $value['hours'] ) ? $value['hours'] : array(),
-        );
-
-        // Push to backend. Failures are non-fatal — the local option still
-        // persists so the admin UI reflects the user's intent, and the next
-        // save will retry the push.
-        $this->api_client->update_availability( array(
-            'enabled'         => $config['enabled'],
-            'serviceName'     => $config['service_name'],
-            'durationMinutes' => $config['duration_minutes'],
-            'bufferMinutes'   => $config['buffer_minutes'],
-            'timezone'        => $config['timezone'],
-            'leadTimeHours'   => $config['lead_time_hours'],
-            'maxDaysAhead'    => $config['max_days_ahead'],
-            'weeklyHours'     => $weekly_hours,
-        ) );
-
-        return $config;
-    }
-
-    /**
      * Handle Sync Now redirect (runs on admin_init, before headers)
      */
     public function handle_sync_redirect() {
@@ -1258,7 +1197,7 @@ class BitBot_Admin {
         <div class="wrap" style="max-width: 1200px;">
             <h1 style="margin-bottom: 8px;"><?php esc_html_e( 'Choose your plan', 'bitbot' ); ?></h1>
             <p style="color: #555; margin-top: 0; margin-bottom: 32px;">
-                <?php esc_html_e( 'Pick the tier that matches how you use BitBot. Upgrade or downgrade any time — billing prorates automatically.', 'bitbot' ); ?>
+                <?php esc_html_e( 'Pick the tier that matches how you use Youami. Upgrade or downgrade any time — billing prorates automatically.', 'bitbot' ); ?>
             </p>
 
             <div id="bitbot-pricing-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
@@ -1327,7 +1266,7 @@ class BitBot_Admin {
             </div>
 
             <p style="margin-top: 32px; color: #666; font-size: 13px;">
-                <?php esc_html_e( 'Cancel any time from BitBot → Dashboard. We don\'t charge for support, setup, or onboarding. All paid plans include fair-use limits — see', 'bitbot' ); ?>
+                <?php esc_html_e( 'Cancel any time from Youami → Dashboard. We don\'t charge for support, setup, or onboarding. All paid plans include fair-use limits — see', 'bitbot' ); ?>
                 <a href="https://youami.ai/fair-use" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'fair-use policy', 'bitbot' ); ?></a>.
             </p>
         </div>
@@ -1468,7 +1407,7 @@ class BitBot_Admin {
         $api_key = get_option('bitbot_api_key', '');
         ?>
         <div class="wrap">
-            <h1><?php esc_html_e('BitBot Dashboard', 'bitbot'); ?></h1>
+            <h1><?php esc_html_e('Youami Dashboard', 'bitbot'); ?></h1>
 
             <p style="color: #666; font-size: 12px;">
                 <?php esc_html_e('API Key:', 'bitbot'); ?> <code><?php echo esc_html($api_key ?: 'NOT SET'); ?></code>
@@ -1593,8 +1532,8 @@ class BitBot_Admin {
                         <?php if ( $is_pro ) : ?>
                             <p style="margin-top: -6px; font-size: 11px; color: #666;">
                                 <?php
-                                /* translators: %s: fair-use policy link */
                                 printf(
+                                    /* translators: %s: fair-use policy link */
                                     esc_html__( 'Fair use applies — %s.', 'bitbot' ),
                                     '<a href="https://youami.ai/fair-use" target="_blank" rel="noopener noreferrer">' . esc_html__( 'see policy', 'bitbot' ) . '</a>'
                                 );
@@ -1885,7 +1824,7 @@ class BitBot_Admin {
                                 /* translators: 1: visible count, 2: total */
                                 esc_html__( 'Showing %1$d of %2$d drafts (most recent first).', 'bitbot' ),
                                 count( $draft_rows ),
-                                $draft_total
+                                absint( $draft_total )
                             );
                             ?>
                         </p>
@@ -1957,7 +1896,7 @@ class BitBot_Admin {
         }
         ?>
         <div class="wrap">
-            <h1><?php esc_html_e('BitBot Settings', 'bitbot'); ?></h1>
+            <h1><?php esc_html_e('Youami Settings', 'bitbot'); ?></h1>
             <?php settings_errors( 'bitbot_messages' ); ?>
             <?php $this->render_plan_banner(); ?>
             <form method="post" action="options.php">
@@ -2047,7 +1986,7 @@ class BitBot_Admin {
             </label>
         </div>
         <p class="description" style="margin-top:8px;">
-            <?php esc_html_e( 'Distance from the chosen corner. If another floating widget is already there, BitBot will automatically stack on top of it — adjust manually if you want a different gap.', 'bitbot' ); ?>
+            <?php esc_html_e( 'Distance from the chosen corner. If another floating widget is already there, Youami will automatically stack on top of it — adjust manually if you want a different gap.', 'bitbot' ); ?>
         </p>
         <?php
     }
@@ -2097,7 +2036,7 @@ class BitBot_Admin {
                     class="regular-text"
                     maxlength="200"
                     placeholder="<?php esc_attr_e( "📋 Want a custom quote?", 'bitbot' ); ?>"
-                    <?php echo $disabled_attr; ?>
+                    <?php echo esc_attr( $disabled_attr ); ?>
                 >
             </label>
 
@@ -2110,7 +2049,7 @@ class BitBot_Admin {
                         value="<?php echo esc_attr( $cta_lbl ); ?>"
                         maxlength="40"
                         placeholder="<?php esc_attr_e( 'Get a Quote', 'bitbot' ); ?>"
-                        <?php echo $disabled_attr; ?>
+                        <?php echo esc_attr( $disabled_attr ); ?>
                     >
                 </label>
                 <label style="display:flex; flex-direction:column; gap:4px; flex:2;">
@@ -2120,7 +2059,7 @@ class BitBot_Admin {
                         id="bitbot-pinned-cta-url"
                         value="<?php echo esc_attr( $cta_url ); ?>"
                         placeholder="https://yoursite.com/contact"
-                        <?php echo $disabled_attr; ?>
+                        <?php echo esc_attr( $disabled_attr ); ?>
                     >
                 </label>
             </div>
@@ -2173,7 +2112,7 @@ class BitBot_Admin {
         ?>
         <div style="display:flex; flex-direction:column; gap:14px; max-width:640px;">
             <label style="display:flex; align-items:center; gap:8px;">
-                <input type="checkbox" id="bitbot-nudge-enabled" value="1" <?php checked( $enabled ); ?> <?php echo $disabled_attr; ?>>
+                <input type="checkbox" id="bitbot-nudge-enabled" value="1" <?php checked( $enabled ); ?> <?php echo esc_attr( $disabled_attr ); ?>>
                 <span style="font-weight:500;"><?php esc_html_e( 'Enable proactive nudge', 'bitbot' ); ?></span>
                 <?php if ( ! $is_paid ) : ?>
                     <span style="background:#e9e3ff; color:#4b2bcc; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600;"><?php esc_html_e( 'Assistant', 'bitbot' ); ?></span>
@@ -2182,19 +2121,19 @@ class BitBot_Admin {
 
             <label style="display:flex; align-items:center; gap:8px;">
                 <span style="font-weight:500;"><?php esc_html_e( 'Show after N seconds:', 'bitbot' ); ?></span>
-                <input type="number" id="bitbot-nudge-delay" min="2" max="60" step="1" value="<?php echo esc_attr( $delay ); ?>" style="width:80px;" <?php echo $disabled_attr; ?>>
+                <input type="number" id="bitbot-nudge-delay" min="2" max="60" step="1" value="<?php echo esc_attr( $delay ); ?>" style="width:80px;" <?php echo esc_attr( $disabled_attr ); ?>>
             </label>
 
             <fieldset style="border:1px solid #ddd; padding:12px; border-radius:6px;">
                 <legend style="padding:0 8px; font-weight:500;"><?php esc_html_e( 'Variant', 'bitbot' ); ?></legend>
                 <label style="display:flex; flex-direction:column; gap:6px;">
-                    <span><input type="radio" name="bitbot-nudge-mode" value="simple" <?php checked( $mode, 'simple' ); ?> <?php echo $disabled_attr; ?>> <?php esc_html_e( 'Simple — one static line', 'bitbot' ); ?></span>
-                    <input type="text" id="bitbot-nudge-simple" maxlength="80" class="regular-text" value="<?php echo esc_attr( $simple ); ?>" placeholder="<?php esc_attr_e( "Need help finding cottages?", 'bitbot' ); ?>" <?php echo $disabled_attr; ?>>
+                    <span><input type="radio" name="bitbot-nudge-mode" value="simple" <?php checked( $mode, 'simple' ); ?> <?php echo esc_attr( $disabled_attr ); ?>> <?php esc_html_e( 'Simple — one static line', 'bitbot' ); ?></span>
+                    <input type="text" id="bitbot-nudge-simple" maxlength="80" class="regular-text" value="<?php echo esc_attr( $simple ); ?>" placeholder="<?php esc_attr_e( "Need help finding cottages?", 'bitbot' ); ?>" <?php echo esc_attr( $disabled_attr ); ?>>
                 </label>
 
                 <label style="display:flex; flex-direction:column; gap:6px; margin-top:12px;">
-                    <span><input type="radio" name="bitbot-nudge-mode" value="page-aware" <?php checked( $mode, 'page-aware' ); ?> <?php echo $disabled_attr; ?>> <?php esc_html_e( 'Page-aware — different text per URL pattern', 'bitbot' ); ?></span>
-                    <textarea id="bitbot-nudge-pages" rows="4" class="large-text code" placeholder="<?php esc_attr_e( "/pricing | Got a question about pricing?\n/contact | Want a quick reply?\n/products/* | Looking for something specific?", 'bitbot' ); ?>" <?php echo $disabled_attr; ?>><?php echo esc_textarea( $page_rules ); ?></textarea>
+                    <span><input type="radio" name="bitbot-nudge-mode" value="page-aware" <?php checked( $mode, 'page-aware' ); ?> <?php echo esc_attr( $disabled_attr ); ?>> <?php esc_html_e( 'Page-aware — different text per URL pattern', 'bitbot' ); ?></span>
+                    <textarea id="bitbot-nudge-pages" rows="4" class="large-text code" placeholder="<?php esc_attr_e( "/pricing | Got a question about pricing?\n/contact | Want a quick reply?\n/products/* | Looking for something specific?", 'bitbot' ); ?>" <?php echo esc_attr( $disabled_attr ); ?>><?php echo esc_textarea( $page_rules ); ?></textarea>
                     <span class="description"><?php esc_html_e( 'One rule per line. Format: `URL pattern | nudge text`. First matching rule wins.', 'bitbot' ); ?></span>
                 </label>
 
@@ -2269,7 +2208,7 @@ class BitBot_Admin {
                     rows="3"
                     class="large-text code"
                     placeholder="<?php esc_attr_e( "/pricing\n/contact\n/get-quote*", 'bitbot' ); ?>"
-                    <?php echo $disabled_attr; ?>
+                    <?php echo esc_attr( $disabled_attr ); ?>
                 ><?php echo esc_textarea( $url_patterns ); ?></textarea>
                 <span class="description"><?php esc_html_e( 'One pattern per line. `*` wildcards supported. Empty = no URL-based trigger.', 'bitbot' ); ?></span>
             </label>
@@ -2284,7 +2223,7 @@ class BitBot_Admin {
                     step="1"
                     value="<?php echo esc_attr( $delay_secs ); ?>"
                     style="width:80px;"
-                    <?php echo $disabled_attr; ?>
+                    <?php echo esc_attr( $disabled_attr ); ?>
                 >
                 <span class="description"><?php esc_html_e( '0 = disabled', 'bitbot' ); ?></span>
             </label>
@@ -2299,7 +2238,7 @@ class BitBot_Admin {
                     step="5"
                     value="<?php echo esc_attr( $scroll_pct ); ?>"
                     style="width:80px;"
-                    <?php echo $disabled_attr; ?>
+                    <?php echo esc_attr( $disabled_attr ); ?>
                 >
                 <span class="description"><?php esc_html_e( '0 = disabled', 'bitbot' ); ?></span>
             </label>
@@ -2310,7 +2249,7 @@ class BitBot_Admin {
                     id="bitbot-auto-open-exit"
                     value="1"
                     <?php checked( $exit_intent ); ?>
-                    <?php echo $disabled_attr; ?>
+                    <?php echo esc_attr( $disabled_attr ); ?>
                 >
                 <span style="font-weight:500;"><?php esc_html_e( 'Open on exit-intent (mouse leaves toward browser top)', 'bitbot' ); ?></span>
             </label>
@@ -2407,9 +2346,11 @@ class BitBot_Admin {
             <span class="description" style="margin-left:8px;">
                 <?php
                 if ( $is_paid ) {
-                    printf( esc_html__( 'Up to %d chips. Shown above the welcome message; visitors click to send.', 'bitbot' ), $cap );
+                    /* translators: %d: maximum number of chips */
+                    printf( esc_html__( 'Up to %d chips. Shown above the welcome message; visitors click to send.', 'bitbot' ), absint( $cap ) );
                 } else {
-                    printf( esc_html__( 'Up to %d chips on Free (paid plans unlock more). Shown above the welcome message.', 'bitbot' ), $cap );
+                    /* translators: %d: maximum number of chips */
+                    printf( esc_html__( 'Up to %d chips on Free (paid plans unlock more). Shown above the welcome message.', 'bitbot' ), absint( $cap ) );
                 }
                 ?>
             </span>
@@ -2507,7 +2448,7 @@ class BitBot_Admin {
                     <?php esc_html_e( 'Remove', 'bitbot' ); ?>
                 </button>
             </div>
-            <p class="description"><?php echo $tier_label; ?></p>
+            <p class="description"><?php echo esc_html( $tier_label ); ?></p>
         </div>
         <script>
         (function(){
@@ -2608,8 +2549,8 @@ class BitBot_Admin {
             printf(
                 /* translators: %1$d current character count, %2$d allowed cap, %3$s plan name */
                 esc_html__( 'Site-specific facts and behaviour notes for the bot. Used in addition to your indexed content. %1$d of %2$d characters used (%3$s plan).', 'bitbot' ),
-                $current_length,
-                $cap,
+                absint( $current_length ),
+                absint( $cap ),
                 esc_html( $plan_label )
             );
             ?>
@@ -2798,7 +2739,7 @@ class BitBot_Admin {
     public function render_leads_section() {
         $is_paid = $this->is_pro();
         if ( $is_paid ) {
-            echo '<p>' . esc_html__( 'Where BitBot should send an email when a new lead comes in. Leave blank to disable notifications.', 'bitbot' ) . '</p>';
+            echo '<p>' . esc_html__( 'Where Youami should send an email when a new lead comes in. Leave blank to disable notifications.', 'bitbot' ) . '</p>';
             return;
         }
 
@@ -2893,13 +2834,13 @@ class BitBot_Admin {
         ?>
         <fieldset style="max-width: 560px; <?php echo $is_pro_plus ? '' : 'opacity: 0.55;'; ?>">
             <label style="display: block; margin-bottom: 12px;">
-                <input type="checkbox" name="bitbot_recovery_config[enabled]" value="1" <?php checked( $enabled, true ); ?> <?php echo $disabled_attr; ?>>
+                <input type="checkbox" name="bitbot_recovery_config[enabled]" value="1" <?php checked( $enabled, true ); ?> <?php echo esc_attr( $disabled_attr ); ?>>
                 <strong><?php esc_html_e( 'Offer a discount code via the Agent', 'bitbot' ); ?></strong>
             </label>
 
             <p>
                 <label style="display: block; font-weight: 600; margin-bottom: 4px;"><?php esc_html_e( 'Coupon code', 'bitbot' ); ?></label>
-                <input type="text" name="bitbot_recovery_config[code]" value="<?php echo esc_attr( $code ); ?>" class="regular-text code" placeholder="SAVE10" <?php echo $disabled_attr; ?>>
+                <input type="text" name="bitbot_recovery_config[code]" value="<?php echo esc_attr( $code ); ?>" class="regular-text code" placeholder="SAVE10" <?php echo esc_attr( $disabled_attr ); ?>>
                 <span class="description" style="display: block; margin-top: 4px;">
                     <?php esc_html_e( 'The code you have configured in WooCommerce or your checkout. The agent will mention it verbatim.', 'bitbot' ); ?>
                 </span>
@@ -2907,156 +2848,12 @@ class BitBot_Admin {
 
             <p>
                 <label style="display: block; font-weight: 600; margin-bottom: 4px;"><?php esc_html_e( 'Offer description', 'bitbot' ); ?></label>
-                <input type="text" name="bitbot_recovery_config[description]" value="<?php echo esc_attr( $description ); ?>" class="regular-text" placeholder="10% off your first order" <?php echo $disabled_attr; ?>>
+                <input type="text" name="bitbot_recovery_config[description]" value="<?php echo esc_attr( $description ); ?>" class="regular-text" placeholder="10% off your first order" <?php echo esc_attr( $disabled_attr ); ?>>
                 <span class="description" style="display: block; margin-top: 4px;">
                     <?php esc_html_e( 'One short phrase describing the deal. Used in the agent\'s reply.', 'bitbot' ); ?>
                 </span>
             </p>
         </fieldset>
-        <?php
-    }
-
-    /**
-     * @since 1.7.0
-     */
-    public function render_appointments_section() {
-        if ( ! $this->is_pro_plus() ) {
-            $this->render_proplus_gate_card(
-                __( 'Appointments is an Agent feature.', 'bitbot' ),
-                __( 'On Agent the chatbot can take real bookings from visitors — consultations, calls, sessions — straight inside the widget. The settings below stay disabled until you upgrade.', 'bitbot' )
-            );
-            return;
-        }
-        ?>
-        <p>
-            <?php esc_html_e( 'Let the chatbot book appointments for you — consultations, calls, sessions, service slots.', 'bitbot' ); ?>
-        </p>
-        <p class="description">
-            <?php esc_html_e( 'Visitors can book available slots inside the chat widget. Confirmation emails go to the visitor and to your notification email automatically.', 'bitbot' ); ?>
-        </p>
-        <?php
-    }
-
-    /**
-     * All-in-one booking config field — grid of weekly hours + service settings.
-     *
-     * @since 1.7.0
-     */
-    public function render_appointments_config_field() {
-        $cfg    = (array) get_option( 'bitbot_appointments_config', array() );
-        $enabled = ! empty( $cfg['enabled'] );
-        $name   = 'bitbot_appointments_config';
-        $tz     = isset( $cfg['timezone'] ) ? (string) $cfg['timezone'] : 'UTC';
-        $hours  = isset( $cfg['hours'] ) && is_array( $cfg['hours'] ) ? $cfg['hours'] : array();
-        $days   = array(
-            'mon' => __( 'Monday', 'bitbot' ),
-            'tue' => __( 'Tuesday', 'bitbot' ),
-            'wed' => __( 'Wednesday', 'bitbot' ),
-            'thu' => __( 'Thursday', 'bitbot' ),
-            'fri' => __( 'Friday', 'bitbot' ),
-            'sat' => __( 'Saturday', 'bitbot' ),
-            'sun' => __( 'Sunday', 'bitbot' ),
-        );
-        $is_pro_plus = $this->is_pro_plus();
-        ?>
-        <fieldset style="max-width: 640px; <?php echo $is_pro_plus ? '' : 'opacity: 0.55;'; ?>" <?php echo $is_pro_plus ? '' : 'disabled'; ?>>
-            <label style="display: block; margin-bottom: 12px;">
-                <input type="checkbox" name="<?php echo esc_attr( $name ); ?>[enabled]" value="1" <?php checked( $enabled, true ); ?>>
-                <strong><?php esc_html_e( 'Enable appointment booking', 'bitbot' ); ?></strong>
-            </label>
-
-            <table class="form-table" role="presentation">
-                <tbody>
-                    <tr>
-                        <th scope="row"><label for="bitbot_appt_service_name"><?php esc_html_e( 'Service name', 'bitbot' ); ?></label></th>
-                        <td>
-                            <input type="text" id="bitbot_appt_service_name" name="<?php echo esc_attr( $name ); ?>[service_name]"
-                                   value="<?php echo esc_attr( $cfg['service_name'] ?? '' ); ?>"
-                                   class="regular-text" placeholder="30-min consultation">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="bitbot_appt_duration"><?php esc_html_e( 'Duration (minutes)', 'bitbot' ); ?></label></th>
-                        <td>
-                            <input type="number" id="bitbot_appt_duration" name="<?php echo esc_attr( $name ); ?>[duration_minutes]"
-                                   value="<?php echo esc_attr( (string) ( $cfg['duration_minutes'] ?? 30 ) ); ?>" min="5" max="240" step="5" class="small-text">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="bitbot_appt_buffer"><?php esc_html_e( 'Buffer between slots (minutes)', 'bitbot' ); ?></label></th>
-                        <td>
-                            <input type="number" id="bitbot_appt_buffer" name="<?php echo esc_attr( $name ); ?>[buffer_minutes]"
-                                   value="<?php echo esc_attr( (string) ( $cfg['buffer_minutes'] ?? 15 ) ); ?>" min="0" max="120" step="5" class="small-text">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="bitbot_appt_tz"><?php esc_html_e( 'Timezone', 'bitbot' ); ?></label></th>
-                        <td>
-                            <input type="text" id="bitbot_appt_tz" name="<?php echo esc_attr( $name ); ?>[timezone]"
-                                   value="<?php echo esc_attr( $tz ); ?>" class="regular-text" placeholder="Australia/Sydney">
-                            <p class="description">
-                                <?php esc_html_e( 'IANA name like Australia/Sydney, Europe/London, America/New_York. See https://en.wikipedia.org/wiki/List_of_tz_database_time_zones', 'bitbot' ); ?>
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="bitbot_appt_lead"><?php esc_html_e( 'Minimum lead time (hours)', 'bitbot' ); ?></label></th>
-                        <td>
-                            <input type="number" id="bitbot_appt_lead" name="<?php echo esc_attr( $name ); ?>[lead_time_hours]"
-                                   value="<?php echo esc_attr( (string) ( $cfg['lead_time_hours'] ?? 2 ) ); ?>" min="0" max="168" class="small-text">
-                            <p class="description"><?php esc_html_e( 'Slots start at least this many hours from now.', 'bitbot' ); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="bitbot_appt_ahead"><?php esc_html_e( 'Max days ahead', 'bitbot' ); ?></label></th>
-                        <td>
-                            <input type="number" id="bitbot_appt_ahead" name="<?php echo esc_attr( $name ); ?>[max_days_ahead]"
-                                   value="<?php echo esc_attr( (string) ( $cfg['max_days_ahead'] ?? 14 ) ); ?>" min="1" max="60" class="small-text">
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h4 style="margin-top: 24px;"><?php esc_html_e( 'Weekly hours', 'bitbot' ); ?></h4>
-            <p class="description">
-                <?php esc_html_e( 'Check days you\'re available, then set the start and end time. Times are in the timezone you chose above.', 'bitbot' ); ?>
-            </p>
-
-            <table class="form-table" role="presentation" style="max-width: 480px;">
-                <tbody>
-                <?php foreach ( $days as $day_key => $day_label ) :
-                    $row          = isset( $hours[ $day_key ] ) && is_array( $hours[ $day_key ] ) ? $hours[ $day_key ] : array();
-                    $day_enabled  = ! empty( $row['enabled'] );
-                    $start        = isset( $row['start'] ) ? (string) $row['start'] : '09:00';
-                    $end          = isset( $row['end'] ) ? (string) $row['end'] : '17:00';
-                ?>
-                    <tr>
-                        <th scope="row" style="width: 120px;">
-                            <label>
-                                <input type="checkbox" name="<?php echo esc_attr( $name ); ?>[hours][<?php echo esc_attr( $day_key ); ?>][enabled]" value="1" <?php checked( $day_enabled, true ); ?>>
-                                <?php echo esc_html( $day_label ); ?>
-                            </label>
-                        </th>
-                        <td>
-                            <input type="time" name="<?php echo esc_attr( $name ); ?>[hours][<?php echo esc_attr( $day_key ); ?>][start]"
-                                   value="<?php echo esc_attr( $start ); ?>" <?php echo $day_enabled ? '' : 'disabled'; ?>>
-                            <span style="margin: 0 8px;">→</span>
-                            <input type="time" name="<?php echo esc_attr( $name ); ?>[hours][<?php echo esc_attr( $day_key ); ?>][end]"
-                                   value="<?php echo esc_attr( $end ); ?>" <?php echo $day_enabled ? '' : 'disabled'; ?>>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        </fieldset>
-        <script>
-        // Enable time inputs when the day checkbox flips on.
-        document.addEventListener('change', function (e) {
-            if (!e.target.matches('input[name^="<?php echo esc_js( $name ); ?>[hours]"][type="checkbox"]')) return;
-            var inputs = e.target.closest('tr').querySelectorAll('input[type="time"]');
-            inputs.forEach(function (i) { i.disabled = !e.target.checked; });
-        });
-        </script>
         <?php
     }
 
@@ -3360,14 +3157,14 @@ class BitBot_Admin {
             return '';
         }
         // Must be HTTPS in production; allow http for dev/localhost only.
-        $scheme = parse_url( $url, PHP_URL_SCHEME );
+        $scheme = wp_parse_url( $url, PHP_URL_SCHEME );
         if ( $scheme !== 'https' && $scheme !== 'http' ) {
             return '';
         }
-        $path  = parse_url( $url, PHP_URL_PATH ) ?: '';
+        $path  = wp_parse_url( $url, PHP_URL_PATH ) ?: '';
         $lower = strtolower( $path );
         // The plugin's own preset avatars are allowed on every tier.
-        $presets = (string) parse_url( BITBOT_PLUGIN_URL . 'assets/avatars/', PHP_URL_PATH );
+        $presets = (string) wp_parse_url( BITBOT_PLUGIN_URL . 'assets/avatars/', PHP_URL_PATH );
         if ( '' !== $presets && 0 === strpos( $path, $presets ) && preg_match( '#^[a-z0-9-]+\.svg$#', substr( $lower, strlen( $presets ) ) ) ) {
             return $url;
         }
@@ -3610,6 +3407,18 @@ class BitBot_Admin {
                 },
                 BitBot_Widget_Copy::normalize( get_option( BitBot_Widget_Copy::OPTION, array() ) )
             ),
+            // What the widget shows while the owner's own field is empty, in the site's language. The admin
+            // shows these as the fields' hints and in the preview, so it never promises English on a Greek site.
+            'widgetDefaults'       => array(
+                'title'       => BitBot_Widget_Copy::default_title( substr( get_locale(), 0, 2 ) ),
+                'welcome'     => BitBot_Widget_Copy::default_welcome( substr( get_locale(), 0, 2 ) ),
+                'placeholder' => BitBot_Widget_Copy::default_placeholder( substr( get_locale(), 0, 2 ) ),
+            ),
+            // The pre-chat form's fixed text per offered language, as the widget config carries it.
+            'gateCopy'             => (object) BitBot_Widget_Copy::gate_copy_map( array_merge(
+                array( substr( get_locale(), 0, 2 ) ),
+                array_column( BitBot_Languages::widget_list( get_option( BitBot_Languages::OPTION, array() ), substr( get_locale(), 0, 2 ), BitBot_Languages::all(), BitBot_Languages::detected() ), 'code' )
+            ) ),
             'widgetPosition'       => (string) get_option( 'bitbot_widget_position', 'bottom-right' ),
             'widgetOffsetX'        => (int)    get_option( 'bitbot_widget_offset_x', 20 ),
             'widgetOffsetY'        => (int)    get_option( 'bitbot_widget_offset_y', 20 ),
@@ -3638,6 +3447,9 @@ class BitBot_Admin {
             'voiceCallsEnabled'    => get_option( 'bitbot_voice_calls_enabled' ) === '1',
             'whatsappNumber'       => (string) get_option( 'bitbot_whatsapp_number', '' ),
             'whatsappEnabled'      => get_option( 'bitbot_whatsapp_enabled' ) === '1',
+            'enterToSend'          => get_option( 'bitbot_enter_to_send' ) === '1',
+            'poweredByEnabled'     => BitBot_Consent::powered_by_enabled(),
+            'analyticsEnabled'     => BitBot_Consent::analytics_enabled(),
         ), 200 );
     }
 
@@ -3696,6 +3508,23 @@ class BitBot_Admin {
         if ( array_key_exists( 'whatsappEnabled', $body ) ) {
             update_option( 'bitbot_whatsapp_enabled', BitBot_WhatsApp::sanitize_enabled( $body['whatsappEnabled'] ) );
             $saved[] = 'whatsappEnabled';
+        }
+
+        // Enter sends the message: stored as '1' / '0', default off.
+        if ( array_key_exists( 'enterToSend', $body ) ) {
+            update_option( 'bitbot_enter_to_send', BitBot_WhatsApp::sanitize_enabled( $body['enterToSend'] ) );
+            $saved[] = 'enterToSend';
+        }
+
+        // Consent switches, default off. Sanitised here as well as through the
+        // registered callbacks, because the REST path never fires admin_init.
+        if ( array_key_exists( 'poweredByEnabled', $body ) ) {
+            update_option( BitBot_Consent::OPT_POWERED_BY, BitBot_Consent::sanitize_flag( $body['poweredByEnabled'] ) );
+            $saved[] = 'poweredByEnabled';
+        }
+        if ( array_key_exists( 'analyticsEnabled', $body ) ) {
+            update_option( BitBot_Consent::OPT_ANALYTICS, BitBot_Consent::sanitize_flag( $body['analyticsEnabled'] ) );
+            $saved[] = 'analyticsEnabled';
         }
 
         // Voice calls switch (default off). The backend is the authority: it
@@ -3847,7 +3676,7 @@ class BitBot_Admin {
             'primaryColor', 'welcomeMessage', 'placeholderText', 'hideOnPages',
             'mobileBehaviour', 'cornerRadius', 'pillHeight', 'widgetShape', 'avatarUrl',
             'avatarTransform', 'nudge', 'autoOpen', 'suggestedQuestions',
-            'whatsappNumber', 'whatsappEnabled', 'widgetCopy',
+            'whatsappNumber', 'whatsappEnabled', 'widgetCopy', 'poweredByEnabled', 'enterToSend',
         );
         if ( array_intersect( $saved, $rendered_in_page_html ) ) {
             $this->purge_page_caches();
@@ -4340,6 +4169,14 @@ class BitBot_Admin {
 
         $kind = (string) $proposal['kind'];
 
+        // Administrative kinds (plugin/theme install, permalinks) are never
+        // applied; report the refusal back so the proposal does not sit open.
+        $refusal = BitBot_Agent_Policy::kind_refusal($kind);
+        if (null !== $refusal) {
+            $this->api_client->update_content_edit_status($proposal_id, 'failed', null, $refusal);
+            return new WP_Error('bitbot_kind_refused', $refusal);
+        }
+
         // create_page is handled here (not in write_content_edit) because its
         // revert data (the created page id + prior homepage settings) only
         // exists AFTER the page is created.
@@ -4509,9 +4346,6 @@ class BitBot_Admin {
             $this->api_client->update_content_edit_status($proposal_id, 'applied', null, null, array('createdPostId' => $post_id));
             return array('proposalId' => $proposal_id, 'status' => 'applied', 'postId' => $post_id);
         }
-        if ('install_theme' === $kind) {
-            $before_value = array('stylesheet' => get_stylesheet());
-        }
         // body: snapshot the post's LIVE content at apply time. The agent's
         // proposePostEdit beforeValue is whatever it held in context — a
         // 663-char stub of a 15k homepage shipped once, and reverting wrote
@@ -4527,14 +4361,6 @@ class BitBot_Admin {
         if ('set_featured_image' === $kind) {
             $before_value = array('prevThumbId' => (int) get_post_thumbnail_id((int) ($proposal['wpPostId'] ?? 0)));
         }
-        if ('permalink_structure' === $kind) {
-            $sample = get_posts(array('post_type' => 'post', 'post_status' => 'publish', 'numberposts' => 1));
-            $before_value = array(
-                'structure'    => (string) get_option('permalink_structure', ''),
-                'sampleOldUrl' => !empty($sample) ? (string) get_permalink($sample[0]) : '',
-                'samplePostId' => !empty($sample) ? (int) $sample[0]->ID : 0,
-            );
-        }
         $applied = $this->write_content_edit(
             (int) ($proposal['wpPostId'] ?? 0),
             $kind,
@@ -4544,36 +4370,6 @@ class BitBot_Admin {
         if (is_wp_error($applied)) {
             $this->api_client->update_content_edit_status($proposal_id, 'failed', null, $applied->get_error_message());
             return $applied;
-        }
-
-        // permalink_structure self-verification, BOTH directions:
-        //   1. the sample post's NEW permalink must resolve (catches a failed
-        //      rewrite flush — the change silently not taking);
-        //   2. the sample post's OLD URL must not 404 (the legacy-redirect
-        //      handler must be answering it).
-        // Either failing → roll back. 0 = loopback blocked, can't verify —
-        // proceed rather than fail-closed on hosts that block self-requests.
-        if ('permalink_structure' === $kind && is_array($before_value) && !empty($before_value['sampleOldUrl'])) {
-            $rollback = function ($msg) use ($before_value, $proposal_id) {
-                global $wp_rewrite;
-                $wp_rewrite->set_permalink_structure((string) ($before_value['structure'] ?? ''));
-                flush_rewrite_rules();
-                $this->api_client->update_content_edit_status($proposal_id, 'failed', null, $msg);
-                return new WP_Error('bitbot_permalink_rollback', $msg);
-            };
-            $new_url = !empty($before_value['samplePostId']) ? (string) get_permalink((int) $before_value['samplePostId']) : '';
-            if ('' !== $new_url) {
-                $check = wp_remote_get($new_url, array('timeout' => 10, 'redirection' => 5));
-                $code  = is_wp_error($check) ? 0 : (int) wp_remote_retrieve_response_code($check);
-                if (in_array($code, array(404, 410), true)) {
-                    return $rollback('Rolled back: the NEW permalink did not resolve after the switch (rewrite rules did not regenerate).');
-                }
-            }
-            $check = wp_remote_get((string) $before_value['sampleOldUrl'], array('timeout' => 10, 'redirection' => 5));
-            $code  = is_wp_error($check) ? 0 : (int) wp_remote_retrieve_response_code($check);
-            if (in_array($code, array(404, 410), true)) {
-                return $rollback('Rolled back: old post URLs stopped resolving under the new permalink structure.');
-            }
         }
 
         // SEO writes are only real when GOOGLE can see them. Saving the field
@@ -4697,6 +4493,19 @@ class BitBot_Admin {
 
 
     /**
+     * permission_callback for the routes the youami.ai backend calls with this
+     * site's own api key. The key is compared in constant time against the
+     * stored one. Never public: a missing, empty or wrong key is refused with a
+     * 401 before any handler runs.
+     *
+     * @param WP_REST_Request $request
+     * @return true|WP_Error
+     */
+    public function permission_api_key($request) {
+        return BitBot_Consent::check_api_key($request);
+    }
+
+    /**
      * Register the backend-callable REST endpoint that runs the auto-apply
      * poller. The backend hits this right after an agent run (interactive or
      * scheduled) that created proposals under "Accept all & run".
@@ -4709,7 +4518,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/wp-apply', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_wp_apply'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // Backend-triggered content sync: lets the AGENT refresh the index
         // itself (new pages — e.g. theme demo pages after a switch — are
@@ -4722,12 +4531,12 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/stamp-generated', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_stamp_generated'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         register_rest_route('bitbot/v1', '/run-sync', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_run_sync'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // Media library listing for the agent's browseMediaLibrary tool — the
         // agent should reach for images the site already OWNS before fetching
@@ -4735,7 +4544,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/list-media', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_list_media'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // Bulk WebP migration (agent's convertLibraryToWebp tool): one BATCH
         // per call — non-destructive twins + content/thumbnail reference
@@ -4743,7 +4552,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/convert-images-webp', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_convert_images_webp'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // ONE read over the whole design surface (agent's getSiteDesign tool):
         // summary tree of every template + part (source, ours, rendered) plus
@@ -4755,7 +4564,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/design-tree', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_design_tree'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // LIVE editable source of one post (agent's getPostSource tool). Reads
         // post_content straight from WordPress so the read reflects the agent's
@@ -4765,7 +4574,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/post-source', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_post_source'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // The GENERAL WordPress read: the agent names any core REST route
         // ({ route, query }) and this dispatches it in-process as the scoped
@@ -4776,7 +4585,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/wp-read', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_wp_read'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
         // Byte-exact grep across post/page bodies (agent's grepPosts tool).
         // Semantic search answers "what talks about X"; this answers "which
@@ -4785,7 +4594,7 @@ class BitBot_Admin {
         register_rest_route('bitbot/v1', '/grep-posts', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'rest_grep_posts'),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array($this, 'permission_api_key'),
         ));
     }
 
@@ -4799,11 +4608,7 @@ class BitBot_Admin {
      * @return WP_REST_Response
      */
     public function rest_grep_posts($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $find = (string) $request->get_param('find');
         if ('' === $find) {
             return new WP_REST_Response(array('error' => 'find required'), 400);
@@ -5149,11 +4954,7 @@ class BitBot_Admin {
     }
 
     public function rest_post_source($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $theme_type = (function_exists('wp_is_block_theme') && wp_is_block_theme()) ? 'block' : 'classic';
         // BATCH: awareness only, no bodies (listEditablePosts, brief section 4).
         // The same route rather than a second one: it is the same read of the
@@ -5239,8 +5040,8 @@ class BitBot_Admin {
      * lazily and idempotently the first time the agent drives WordPress.
      *
      * Its role `bitbot_agent` grants the content / page / media / taxonomy /
-     * comment / theme-options / options caps an admin needs for content and
-     * design work — but NOT create_users / edit_users / delete_users /
+     * comment caps plus edit_theme_options (menus, templates) — NOT
+     * manage_options, switch_themes, activate_plugins, create_users / edit_users / delete_users /
      * promote_users, install_plugins / install_themes / update_core, edit_files
      * (theme/plugin editor), or unfiltered_html. Because apply runs
      * `wp_set_current_user($this)`, WordPress's own current_user_can() becomes
@@ -5251,60 +5052,20 @@ class BitBot_Admin {
      * @return int User id, or 0 on failure.
      */
     private function ensure_agent_user() {
-        $role_key = 'bitbot_agent';
+        $role_key = BitBot_Agent_Policy::ROLE_KEY;
         if (!get_role($role_key)) {
-            add_role($role_key, 'BitBot Agent', array(
-                'read'                   => true,
-                'edit_posts'             => true,
-                'edit_others_posts'      => true,
-                'edit_published_posts'   => true,
-                'edit_private_posts'     => true,
-                'publish_posts'          => true,
-                'delete_posts'           => true,
-                'delete_others_posts'    => true,
-                'delete_published_posts' => true,
-                'read_private_posts'     => true,
-                'edit_pages'             => true,
-                'edit_others_pages'      => true,
-                'edit_published_pages'   => true,
-                'edit_private_pages'     => true,
-                'publish_pages'          => true,
-                'delete_pages'           => true,
-                'delete_others_pages'    => true,
-                'delete_published_pages' => true,
-                'read_private_pages'     => true,
-                'upload_files'           => true,
-                'manage_categories'      => true,
-                'moderate_comments'      => true,
-                'edit_theme_options'     => true,
-                'manage_options'         => true,
-            ));
+            add_role($role_key, BitBot_Agent_Policy::ROLE_NAME, BitBot_Agent_Policy::role_caps());
+            update_option(BitBot_Agent_Policy::ROLE_OPTION, BitBot_Agent_Policy::ROLE_VERSION, true);
         }
-        $user = get_user_by('login', 'bitbot-agent');
-        if ($user) {
-            if (!in_array($role_key, (array) $user->roles, true)) {
-                $user->set_role($role_key);
+        self::upgrade_agent_role();
+        // Only an account the plugin can prove is its own (BitBot_Agent_User):
+        // an account that merely has the login is never adopted or promoted.
+        $uid = BitBot_Agent_User::ensure($role_key);
+        if ($uid) {
+            $user = get_user_by('id', $uid);
+            if ($user) {
+                self::harden_agent_user($user);
             }
-            return (int) $user->ID;
-        }
-        $uid = wp_insert_user(array(
-            'user_login'   => 'bitbot-agent',
-            'user_pass'    => wp_generate_password(48, true, true),
-            // Reserved .invalid TLD (RFC 2606) with a random localpart: a real,
-            // unique, non-deliverable address that passes is_email().
-            'user_email'   => 'agent-' . wp_generate_password(10, false) . '@bitbot.invalid',
-            // Public bylines on agent-authored posts read as the site, not
-            // "bitbot-agent".
-            'display_name' => get_bloginfo('name'),
-            'description'  => 'BitBot AI agent — applies content and design changes.',
-            'role'         => $role_key,
-        ));
-        if (is_wp_error($uid)) {
-            // Lost a concurrent first-provisioning race (two reads hit
-            // wp_insert_user with the same login at once) → the other request
-            // created it. Reuse that user instead of failing.
-            $again = get_user_by('login', 'bitbot-agent');
-            return $again ? (int) $again->ID : 0;
         }
         return (int) $uid;
     }
@@ -5326,63 +5087,136 @@ class BitBot_Admin {
      * @return bool
      */
     private function agent_route_allowed($method, $route, $params = array()) {
-        $method = strtoupper((string) $method);
-        if (!in_array($method, array('GET', 'POST', 'PUT', 'PATCH', 'DELETE'), true)) {
-            return false;
-        }
-        $params = is_array($params) ? $params : array();
-        // Match against the LOWERCASED path. WordPress dispatches routes
-        // case-INSENSITIVELY (WP_REST_Server matches with the /i flag), so
-        // '/wp/v2/Settings' resolves to the real settings controller — a
-        // case-sensitive guard here would wave it through and let the agent
-        // reach siteurl/admin_email. Everything below matches the lowercase form.
-        $path = strtolower('/' . trim((string) strtok((string) $route, '?'), '/'));
+        return BitBot_Agent_Policy::route_allowed($method, $route, $params);
+    }
 
-        // Core namespace only.
-        if ('/wp/v2' !== $path && 0 !== strpos($path, '/wp/v2/')) {
-            return false;
+    /**
+     * Bring an existing `bitbot_agent` role in line with the current policy.
+     * Installs created before the policy tightened hold manage_options in
+     * their database; add_role() is skipped when the role exists, so this
+     * removes every capability the policy no longer grants. Idempotent and
+     * guarded by a stored version, so it costs one option read when current.
+     * Runs on `init` and again whenever the agent user is provisioned.
+     */
+    public static function upgrade_agent_role() {
+        if ((int) get_option(BitBot_Agent_Policy::ROLE_OPTION, 0) >= BitBot_Agent_Policy::ROLE_VERSION) {
+            return;
         }
-        // Hard-denied sub-trees (privilege / infrastructure), every method.
-        foreach (array('#^/wp/v2/users(/|$)#', '#^/wp/v2/plugins(/|$)#') as $re) {
-            if (preg_match($re, $path)) {
-                return false;
+        $role = get_role(BitBot_Agent_Policy::ROLE_KEY);
+        $clean = true;
+        if ($role) {
+            // The role belongs to the plugin's own account alone (ROLE_VERSION 5).
+            // The version is recorded only once no other account holds it, so an
+            // unfinished cleanup runs again on the next load.
+            $clean = BitBot_Agent_User::demote_strangers(BitBot_Agent_Policy::ROLE_KEY);
+            self::rename_agent_role_and_user();
+            foreach (BitBot_Agent_Policy::caps_to_remove($role->capabilities) as $cap) {
+                $role->remove_cap($cap);
             }
-        }
-        // Themes: READ is allowed, WRITE never. Reading which theme is active
-        // (and its stylesheet directory) is how the agent learns what the
-        // site runs. Writing stays denied: POST/PUT/PATCH/DELETE on this tree
-        // installs, activates or deletes themes, which is a takeover vector
-        // and belongs to the theme install proposal (approval-gated), not to
-        // core REST.
-        if (preg_match('#^/wp/v2/themes(/|$)#', $path) && 'GET' !== $method) {
-            return false;
-        }
-        if ('GET' === $method) {
-            return true;
-        }
-        // Permanent force-delete: allowed ONLY for resources that have no trash
-        // bin (taxonomy terms + media attachments — force IS the normal delete
-        // there). For posts/pages/CPTs, which trash, permanent force-delete
-        // stays off so the reversible path (trash) is the only one.
-        if ('DELETE' === $method) {
-            $force = array_key_exists('force', $params) ? filter_var($params['force'], FILTER_VALIDATE_BOOLEAN) : false;
-            $force_ok = 1 === preg_match('#^/wp/v2/(categories|tags|media)(/|$)#', $path);
-            if ($force && !$force_ok) {
-                return false;
-            }
-        }
-        // Settings: the endpoint exposes a fixed set of core options, but
-        // changing the site URL or admin email is a lockout / takeover vector.
-        // (agent_rest_dispatch also registers pre_update_option guards on those
-        // options while the agent user is current — defence in depth.)
-        if (preg_match('#^/wp/v2/settings/?$#', $path)) {
-            foreach (array('url', 'email') as $blocked) {
-                if (array_key_exists($blocked, $params)) {
-                    return false;
+            foreach (BitBot_Agent_Policy::role_caps() as $cap => $grant) {
+                if (empty($role->capabilities[$cap])) {
+                    $role->add_cap($cap, $grant);
                 }
             }
         }
-        return true;
+        if ($clean) {
+            update_option(BitBot_Agent_Policy::ROLE_OPTION, BitBot_Agent_Policy::ROLE_VERSION, true);
+        }
+    }
+
+    /**
+     * Idempotent rename of what owners can read: the role's display name and
+     * the agent user's profile description. The role key and the user login
+     * never change. Called from the role upgrade, so it runs once per
+     * ROLE_VERSION.
+     */
+    /**
+     * The agent user holds exactly the agent role and no direct capability.
+     * Extra roles or capabilities an earlier state left on the account are removed.
+     */
+    private static function harden_agent_user($user) {
+        $role_key = BitBot_Agent_Policy::ROLE_KEY;
+        foreach (BitBot_Agent_Policy::stray_user_entries((array) $user->caps, $role_key) as $entry) {
+            $user->remove_cap($entry);
+        }
+        if (!in_array($role_key, (array) $user->roles, true) || count((array) $user->roles) !== 1) {
+            $user->set_role($role_key);
+        }
+    }
+
+    private static function rename_agent_role_and_user() {
+        $wp_roles = wp_roles();
+        $key      = BitBot_Agent_Policy::ROLE_KEY;
+        if (isset($wp_roles->roles[$key]) && BitBot_Agent_Policy::ROLE_NAME !== ($wp_roles->roles[$key]['name'] ?? '')) {
+            $wp_roles->roles[$key]['name']      = BitBot_Agent_Policy::ROLE_NAME;
+            $wp_roles->role_names[$key]         = BitBot_Agent_Policy::ROLE_NAME;
+            update_option($wp_roles->role_key, $wp_roles->roles);
+        }
+        $user = BitBot_Agent_User::get();
+        if ($user) {
+            self::harden_agent_user($user);
+        }
+        if ($user && BitBot_Agent_Policy::AGENT_DESCRIPTION !== (string) $user->description) {
+            wp_update_user(array('ID' => (int) $user->ID, 'description' => BitBot_Agent_Policy::AGENT_DESCRIPTION));
+        }
+    }
+
+    /**
+     * The agent's site settings, in plugin code. Reads return only the keys in
+     * BitBot_Agent_Policy::settings_map() (shaped like core's /wp/v2/settings so
+     * existing readers keep working); writes validate against the same fixed
+     * list and call update_option on it. Reached only after the apiKey check
+     * on /wp-read and /wp-apply. No site URL, admin email, language, timezone
+     * or any other option is readable or writable, and no user is impersonated.
+     *
+     * @param string $method GET|POST|PUT|PATCH|DELETE
+     * @param string $route  The settings route (may carry a query string).
+     * @param array  $params Query (GET) or body params.
+     * @return array|WP_Error
+     */
+    private function agent_settings($method, $route, $params) {
+        $map = BitBot_Agent_Policy::settings_map();
+        if ('GET' !== $method) {
+            if (!in_array($method, array('POST', 'PUT', 'PATCH'), true)) {
+                return new WP_Error('bitbot_route_denied', 'That WordPress route is not permitted for the agent: ' . $method . ' ' . $route, array('status' => 403));
+            }
+            $plan = BitBot_Agent_Policy::settings_write_plan($params);
+            if (empty($plan['ok'])) {
+                return new WP_Error('bitbot_bad_settings', $plan['error'], array('status' => 400));
+            }
+            foreach ($plan['pages'] as $page_id) {
+                if ('page' !== get_post_type($page_id) || 'trash' === get_post_status($page_id)) {
+                    return new WP_Error('bitbot_bad_settings', 'Page ' . (int) $page_id . ' does not exist.', array('status' => 400));
+                }
+            }
+            foreach ($plan['media'] as $att_id) {
+                if ('attachment' !== get_post_type($att_id) || 0 !== strpos((string) get_post_mime_type($att_id), 'image/')) {
+                    return new WP_Error('bitbot_bad_settings', 'Attachment ' . (int) $att_id . ' is not an image in the media library.', array('status' => 400));
+                }
+            }
+            foreach ($plan['options'] as $option => $value) {
+                update_option($option, $value);
+            }
+        }
+        $query = array();
+        $qpos  = strpos((string) $route, '?');
+        if (false !== $qpos) {
+            parse_str(substr((string) $route, $qpos + 1), $query);
+        }
+        $fields = 'GET' === $method ? array_merge($query, $params) : array();
+        $keys   = array_keys($map);
+        if (!empty($fields['_fields'])) {
+            $want = array_map('trim', explode(',', is_array($fields['_fields']) ? implode(',', $fields['_fields']) : (string) $fields['_fields']));
+            $keys = array_values(array_intersect($keys, $want));
+        }
+        $out = array();
+        foreach ($keys as $key) {
+            $value = get_option($map[$key]);
+            $out[$key] = in_array($key, array('page_on_front', 'page_for_posts', 'posts_per_page', 'site_logo', 'site_icon'), true)
+                ? (int) $value
+                : (string) $value;
+        }
+        return $out;
     }
 
     /**
@@ -5402,20 +5236,11 @@ class BitBot_Admin {
         $method = strtoupper((string) $method);
         $route  = '/' . ltrim((string) $route, '/');
         $params = is_array($params) ? $params : array();
-        if (!$this->agent_route_allowed($method, $route, $params)) {
-            return new WP_Error('bitbot_route_denied', 'That WordPress route is not permitted for the agent: ' . $method . ' ' . $route, array('status' => 403));
+        // Site settings are served by the plugin itself, on a fixed key list,
+        // and never reach core's settings controller or the agent user.
+        if (BitBot_Agent_Policy::is_settings_route($route)) {
+            return $this->agent_settings($method, $route, $params);
         }
-        if (!function_exists('rest_do_request') || !class_exists('WP_REST_Request')) {
-            return new WP_Error('bitbot_no_rest', 'The WordPress REST API is unavailable.', array('status' => 500));
-        }
-        $uid = $this->ensure_agent_user();
-        if ($uid <= 0) {
-            return new WP_Error('bitbot_no_agent_user', 'Could not provision the agent user.', array('status' => 500));
-        }
-        // Ensure the REST server is up (our handlers are REST requests so it
-        // usually is, but the cron retry path may reach here cold).
-        rest_get_server();
-
         // Split an inline query string off the route. The agent (and our own
         // tool/prompt copy) commonly passes '/wp/v2/pages/23?context=edit';
         // WP_REST_Request needs the BARE path to match a registered route (a
@@ -5429,6 +5254,22 @@ class BitBot_Admin {
                 parse_str($qs, $inline);
             }
         }
+
+        // Authorise the FINAL request: the route's own query string, the explicit
+        // params and the body all count, so ?force=true cannot slip past the guard.
+        if (!$this->agent_route_allowed($method, $route, array_merge($inline, $params))) {
+            return new WP_Error('bitbot_route_denied', 'That WordPress route is not permitted for the agent: ' . $method . ' ' . $route, array('status' => 403));
+        }
+        if (!function_exists('rest_do_request') || !class_exists('WP_REST_Request')) {
+            return new WP_Error('bitbot_no_rest', 'The WordPress REST API is unavailable.', array('status' => 500));
+        }
+        $uid = $this->ensure_agent_user();
+        if ($uid <= 0) {
+            return new WP_Error('bitbot_no_agent_user', 'Could not provision the agent user.', array('status' => 500));
+        }
+        // Ensure the REST server is up (our handlers are REST requests so it
+        // usually is, but the cron retry path may reach here cold).
+        rest_get_server();
 
         // Defence in depth: while the agent user is current, hard-reject any
         // change to the site URL / home / admin email options — a second lock
@@ -5516,11 +5357,7 @@ class BitBot_Admin {
 
     public function rest_wp_read($request) {
         $this->unwrap_opaque_payload($request);
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $route = (string) $request->get_param('route');
         if ('' === trim($route)) {
             return new WP_REST_Response(array('error' => 'route required'), 400);
@@ -5595,7 +5432,7 @@ class BitBot_Admin {
                 return new WP_Error(
                     'bitbot_owner_content_template',
                     sprintf(
-                        'Post %d was not created by BitBot, so its template is the owner\'s to choose and cannot be changed here. Its CONTENT is still editable — text, images, blocks, SEO. To give it a different layout, the owner assigns the template in WordPress.',
+                        'Post %d was not created by Youami, so its template is the owner\'s to choose and cannot be changed here. Its CONTENT is still editable — text, images, blocks, SEO. To give it a different layout, the owner assigns the template in WordPress.',
                         $tpl_target
                     )
                 );
@@ -5798,11 +5635,7 @@ class BitBot_Admin {
      * @return WP_REST_Response
      */
     public function rest_design_tree($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         if (!function_exists('wp_is_block_theme') || !wp_is_block_theme()) {
             // A bare 400 taught the agent the theme type only by FAILING —
             // it planned template work, attempted it, then backtracked
@@ -5911,7 +5744,7 @@ class BitBot_Admin {
             'parts'        => $parts,
             'nav'          => array('managedMenuId' => $nav_ref, 'live' => $nav_ref && 'publish' === get_post_status($nav_ref)),
             'identity'     => array('title' => (string) get_option('blogname', ''), 'tagline' => (string) get_option('blogdescription', '')),
-            'customCssLen' => strlen((string) get_option('bitbot_custom_css', '')),
+            'customCssLen' => strlen(BitBot_Site_Css::read_additional_css()),
             'overlay'      => $manifest,
             'pageTitle'    => BitBot_Page_Title::fact(),
         ), $this->reading_items()), 200);
@@ -5931,11 +5764,7 @@ class BitBot_Admin {
      * @return WP_REST_Response
      */
     public function rest_convert_images_webp($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         global $wpdb;
         $batch  = max(1, min(20, (int) ($request->get_param('batchSize') ?: 10)));
         $cursor = max(0, (int) $request->get_param('cursor'));
@@ -6036,11 +5865,7 @@ class BitBot_Admin {
      * @return WP_REST_Response
      */
     public function rest_list_media($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $search = sanitize_text_field((string) $request->get_param('search'));
         $page   = max(1, (int) $request->get_param('page'));
         $query  = new WP_Query(array(
@@ -6088,11 +5913,7 @@ class BitBot_Admin {
      * Idempotent; ignores ids that are not posts/pages.
      */
     public function rest_stamp_generated($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $ids = $request->get_param('ids');
         if (!is_array($ids)) {
             return new WP_REST_Response(array('error' => 'ids[] required'), 400);
@@ -6114,11 +5935,7 @@ class BitBot_Admin {
     }
 
     public function rest_run_sync($request) {
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $plugin = class_exists('BitBot') ? BitBot::get_instance() : null;
         if (!$plugin || !method_exists($plugin, 'start_background_sync')) {
             return new WP_REST_Response(array('error' => 'sync unavailable'), 500);
@@ -6148,11 +5965,7 @@ class BitBot_Admin {
      */
     public function rest_wp_apply($request) {
         $this->unwrap_opaque_payload($request);
-        $key    = (string) $request->get_param('apiKey');
-        $stored = (string) get_option('bitbot_api_key', '');
-        if ('' === $stored || '' === $key || !hash_equals($stored, $key)) {
-            return new WP_REST_Response(array('ok' => false, 'error' => 'unauthorized'), 401);
-        }
+        // Authenticated by permission_api_key() before this runs.
         $proposal = $request->get_param('proposal');
         if (!is_array($proposal) || empty($proposal['id']) || empty($proposal['kind'])) {
             return new WP_REST_Response(array('ok' => false, 'error' => 'proposal {id, kind, …} required'), 400);
@@ -6294,61 +6107,19 @@ class BitBot_Admin {
     private function write_content_edit($post_id, $kind, $value) {
         // Site-scoped kinds (no post) are handled before the post lookup.
         if ('custom_css' === $kind) {
-            // Stored in OUR option and printed by BitBot::render_site_css(),
-            // NOT wp_update_custom_css_post: the Customizer channel runs KSES
-            // for admins without unfiltered_html (all of multisite), which
-            // escapes '>' to '&gt;' and silently breaks every child-combinator
-            // rule the agent writes. Strip </style> so the block can't be
-            // broken out of; otherwise the CSS lands verbatim.
-            update_option('bitbot_custom_css', str_ireplace('</style>', '', (string) $value));
-            return true;
+            // 2.2.7: paused. The WordPress.org review of 2.2.6 objected to the
+            // plugin saving free-form CSS; the replacement (writing the theme's
+            // own Additional CSS through BitBot_Site_Css::write_additional_css,
+            // markup refused) is kept in code but not switched on until a
+            // reviewer has accepted it. The owner's own Additional CSS is
+            // untouched and the agent still reads it.
+            return new WP_Error('bitbot_css_paused', 'Refused: Additional CSS changes are paused in this version of the plugin. The site owner can add CSS under Appearance > Customize > Additional CSS.');
         }
-        if ('permalink_structure' === $kind) {
-            // afterValue = { structure } (vetted backend-side to /%postname%/
-            // or /%category%/%postname%/); beforeValue on revert carries the
-            // genuine prior structure ('' = plain). Setting + flushing is the
-            // whole apply; the caller self-verifies old URLs and rolls back on
-            // breakage (see apply_proposal).
-            $structure = is_array($value) && array_key_exists('structure', $value) ? (string) $value['structure'] : null;
-            if (null === $structure) {
-                return new WP_Error('bitbot_bad_permalinks', 'permalink_structure needs a structure.');
-            }
-            if ('' !== $structure && 0 !== strpos($structure, '/')) {
-                return new WP_Error('bitbot_bad_permalinks', 'Invalid permalink structure.');
-            }
-            // MUST go through $wp_rewrite: update_option alone leaves the
-            // in-memory structure stale, so flush_rewrite_rules() regenerates
-            // the OLD rules and the change silently doesn't take.
-            global $wp_rewrite;
-            $wp_rewrite->set_permalink_structure($structure);
-            flush_rewrite_rules();
-            // Old date-based URLs are answered by the always-on 404→slug 301
-            // rescue (BitBot::maybe_redirect_legacy_permalink), so every
-            // previously indexed/bookmarked URL keeps resolving.
-            return true;
-        }
-        if ('install_theme' === $kind) {
-            // Apply value = { slug }; revert value = { stylesheet } (switch back).
-            if (is_array($value) && !empty($value['stylesheet'])) {
-                switch_theme(sanitize_key((string) $value['stylesheet']));
-                return true;
-            }
-            $slug = is_array($value) && !empty($value['slug']) ? sanitize_key((string) $value['slug']) : '';
-            if ('' === $slug) {
-                return new WP_Error('bitbot_bad_theme', 'No theme slug.');
-            }
-            return $this->install_and_activate_theme($slug);
-        }
-        if ('install_plugin' === $kind) {
-            // Apply value = { slug }; revert value = { slug, deactivate:true }.
-            $slug = is_array($value) && !empty($value['slug']) ? sanitize_key((string) $value['slug']) : '';
-            if ('' === $slug) {
-                return new WP_Error('bitbot_bad_plugin', 'No plugin slug.');
-            }
-            if (is_array($value) && !empty($value['deactivate'])) {
-                return $this->deactivate_plugin_by_slug($slug);
-            }
-            return $this->install_and_activate_plugin($slug);
+        // Administrative kinds are refused here as well as in apply_proposal,
+        // so no path (apply or revert) can reach them.
+        $refusal = BitBot_Agent_Policy::kind_refusal($kind);
+        if (null !== $refusal) {
+            return new WP_Error('bitbot_kind_refused', $refusal);
         }
 
         $post = get_post($post_id);
@@ -6997,7 +6768,7 @@ class BitBot_Admin {
         if (!BitBot::is_bitbot_generated($post_id)) {
             return new WP_Error(
                 'bitbot_owner_content_structure',
-                sprintf('Post %d was not created by BitBot, so its structure is the owner\'s. Blocks cannot be removed from it. Its TEXT is still editable with proposeReplaceText, and its metadata with proposePostEdit.', (int) $post_id)
+                sprintf('Post %d was not created by Youami, so its structure is the owner\'s. Blocks cannot be removed from it. Its TEXT is still editable with proposeReplaceText, and its metadata with proposePostEdit.', (int) $post_id)
             );
         }
 
@@ -8085,7 +7856,7 @@ class BitBot_Admin {
             'post_name'    => $target_slug,
             'post_title'   => ucwords(str_replace('-', ' ', $target_slug)),
             'post_content' => wp_slash($markup),
-            'post_excerpt' => 'BitBot: agent-designed ' . $area_term . '.',
+            'post_excerpt' => 'Youami: agent-designed ' . $area_term . '.',
         );
         if ($update_id) {
             $postarr['ID'] = $update_id;
@@ -8378,7 +8149,7 @@ class BitBot_Admin {
             'post_name'    => $slug,
             'post_title'   => ucwords(str_replace('-', ' ', $slug)),
             'post_content' => wp_slash($markup),
-            'post_excerpt' => 'BitBot: agent-designed ' . $slug . ' template.',
+            'post_excerpt' => 'Youami: agent-designed ' . $slug . ' template.',
         );
         if ($update_id) {
             $postarr['ID'] = $update_id;
@@ -8787,8 +8558,16 @@ class BitBot_Admin {
         $placed       = array('assignedTo' => array(), 'locationFact' => null);
 
         if ($stores['classicMenu']) {
-            $menu_name = 'BitBot Primary';
+            $menu_name = BitBot_Nav_Location::MENU_NAME;
             $existing_menu = wp_get_nav_menu_object($menu_name);
+            if (!$existing_menu) {
+                // Installs made before the rename hold the menu under its old name: adopt and rename it.
+                $legacy_menu = wp_get_nav_menu_object(BitBot_Nav_Location::LEGACY_MENU_NAME);
+                if ($legacy_menu) {
+                    wp_update_nav_menu_object((int) $legacy_menu->term_id, array('menu-name' => $menu_name));
+                    $existing_menu = wp_get_nav_menu_object($menu_name);
+                }
+            }
             if ($existing_menu) {
                 $menu_id = (int) $existing_menu->term_id;
                 // Clear its items so we rebuild cleanly (no duplicates on re-apply).
@@ -8908,14 +8687,9 @@ class BitBot_Admin {
             $links .= '<!-- wp:navigation-link ' . $attrs . " /-->\n";
         }
 
-        $existing = get_posts(array(
-            'post_type'      => 'wp_navigation',
-            'title'          => 'BitBot Primary',
-            'post_status'    => array('publish'),
-            'numberposts'    => 1,
-        ));
+        $existing = BitBot_Nav_Location::find_navigation_posts();
         $postarr = array(
-            'post_title'   => 'BitBot Primary',
+            'post_title'   => BitBot_Nav_Location::MENU_NAME,
             // wp_insert_post expects SLASHED input — without wp_slash every
             // backslash in the block JSON is eaten on save, so the &
             // escapes wp_json_encode emits render as literal "u0026" garbage
@@ -9019,7 +8793,7 @@ class BitBot_Admin {
             'post_name'    => 'front-page',
             'post_title'   => 'Front Page',
             'post_content' => wp_slash($content), // WordPress expects slashed input; unslashed, a literal \n loses its backslash and renders as "n"
-            'post_excerpt' => 'BitBot: keep the static front page in charge on this theme.',
+            'post_excerpt' => 'Youami: keep the static front page in charge on this theme.',
         ), true);
         if (is_wp_error($post_id) || !$post_id) {
             return 0;
@@ -9176,7 +8950,7 @@ class BitBot_Admin {
                 return $why('the header was customised in the Site Editor, so it was left as it is'); // the USER customised this part — hands off
             }
         } elseif ($recorded && 'publish' !== get_post_status($recorded)) {
-            return $why('the header override BitBot made earlier was removed in the Site Editor, so it was not made again'); // user deleted our override — their choice is final
+            return $why('the header override Youami made earlier was removed in the Site Editor, so it was not made again'); // user deleted our override — their choice is final
         }
 
         // Base = the theme's ORIGINAL part file (never our own output, so
@@ -9208,7 +8982,7 @@ class BitBot_Admin {
             // wp_slash: wp_insert_post eats unslashed backslashes, corrupting
             // the \u escapes serialize_blocks emits in block-attr JSON.
             'post_content' => wp_slash($swapped),
-            'post_excerpt' => 'BitBot: theme part with the site menu wired in.',
+            'post_excerpt' => 'Youami: theme part with the site menu wired in.',
         );
         if ($update_id) {
             $postarr['ID'] = $update_id;
@@ -9311,121 +9085,6 @@ class BitBot_Admin {
             unset($sideloaded[$i]['from']);
         }
         return array('content' => $rw['content'], 'imagesSideloaded' => $sideloaded, 'imagesFailed' => $failed);
-    }
-
-    /**
-     * Install (if needed) + activate a theme from the wordpress.org repo by
-     * slug. The slug comes from an approved install_theme proposal, checked
-     * by the backend as a directory slug and resolved here through
-     * themes_api (wordpress.org), so it is never a URL or a path. Uses the
-     * silent Automatic_Upgrader_Skin (no output).
-     *
-     * @since 2.1.54
-     * @param string $slug
-     * @return true|WP_Error
-     */
-    private function install_and_activate_theme($slug) {
-        $existing = wp_get_theme($slug);
-        if ($existing && $existing->exists()) {
-            switch_theme($slug);
-            return true;
-        }
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/misc.php';
-        require_once ABSPATH . 'wp-admin/includes/theme.php';
-        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-
-        $api = themes_api('theme_information', array('slug' => $slug, 'fields' => array('sections' => false)));
-        if (is_wp_error($api)) {
-            return $api;
-        }
-        $upgrader = new Theme_Upgrader(new Automatic_Upgrader_Skin());
-        $result   = $upgrader->install($api->download_link);
-        if (is_wp_error($result)) {
-            return $result;
-        }
-        if (!$result) {
-            return new WP_Error('bitbot_theme_install_failed', 'Theme installation failed.');
-        }
-        switch_theme($slug);
-        return true;
-    }
-
-    /**
-     * Install (if needed) + activate an allowlisted plugin by slug.
-     *
-     * @since 2.1.54
-     * @param string $slug
-     * @return true|WP_Error
-     */
-    private function install_and_activate_plugin($slug) {
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/misc.php';
-        require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        require_once ABSPATH . 'wp-admin/includes/plugin-install.php';
-        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-
-        $file = $this->plugin_file_for_slug($slug);
-        if (!$file) {
-            $api = plugins_api('plugin_information', array('slug' => $slug, 'fields' => array('sections' => false)));
-            if (is_wp_error($api)) {
-                return $api;
-            }
-            $upgrader = new Plugin_Upgrader(new Automatic_Upgrader_Skin());
-            $result   = $upgrader->install($api->download_link);
-            if (is_wp_error($result)) {
-                return $result;
-            }
-            if (!$result) {
-                return new WP_Error('bitbot_plugin_install_failed', 'Plugin installation failed.');
-            }
-            $file = $this->plugin_file_for_slug($slug);
-        }
-        if (!$file) {
-            return new WP_Error('bitbot_plugin_not_found', 'Plugin installed but its entry file was not found.');
-        }
-        $activated = activate_plugin($file);
-        if (is_wp_error($activated)) {
-            return $activated;
-        }
-        return true;
-    }
-
-    /**
-     * Deactivate an installed plugin by slug (used for revert). Leaves it
-     * installed.
-     *
-     * @since 2.1.54
-     * @param string $slug
-     * @return true
-     */
-    private function deactivate_plugin_by_slug($slug) {
-        require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        $file = $this->plugin_file_for_slug($slug);
-        if ($file) {
-            deactivate_plugins($file);
-        }
-        return true;
-    }
-
-    /**
-     * Resolve a plugin's main file (e.g. "rank-math/rank-math.php") from its
-     * slug directory. Null if not installed.
-     *
-     * @since 2.1.54
-     * @param string $slug
-     * @return string|null
-     */
-    private function plugin_file_for_slug($slug) {
-        if (!function_exists('get_plugins')) {
-            require_once ABSPATH . 'wp-admin/includes/plugin.php';
-        }
-        foreach (get_plugins() as $file => $data) {
-            if (0 === strpos($file, $slug . '/') || $file === $slug . '.php') {
-                return $file;
-            }
-        }
-        return null;
     }
 
     /**
@@ -9811,18 +9470,47 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Page URL is required'));
         }
 
-        $result = $this->api_client->resync_page($page_url);
+        // Optional: the page to switch off when this one takes its slot (Free page limit).
+        $replace_page_id = isset( $_POST['replace_page_id'] ) ? sanitize_text_field( wp_unslash( $_POST['replace_page_id'] ) ) : '';
+
+        $result = $this->api_client->resync_page($page_url, $replace_page_id);
 
         if ($result['success']) {
             wp_send_json_success($result['data']);
         } else {
-            wp_send_json_error(array('error' => $result['error']));
+            $failure = array('error' => $result['error']);
+            if (!empty($result['code'])) {
+                $failure['code'] = $result['code'];
+            }
+            wp_send_json_error($failure);
         }
     }
 
     /**
      * AJAX handler for manual reconnect
      */
+    /**
+     * The administrator pressed "Connect to youami.ai". Records consent,
+     * registers the site and queues the first content sync.
+     */
+    public function ajax_connect() {
+        check_ajax_referer('bitbot_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('error' => 'Permission denied'));
+        }
+        // The optional analytics box on the Connect screen: stored only when the
+        // administrator ticked it. Absent or unticked leaves the option as it is (off by default).
+        // Only the first connection can carry it (BitBot_Consent): a replayed
+        // Connect request never overrides a later choice in Account.
+        BitBot_Consent::apply_connect_analytics_choice( isset( $_POST['analytics'] ) ? sanitize_text_field( wp_unslash( $_POST['analytics'] ) ) : null );
+        $result = BitBot::get_instance()->connect_site();
+        if (!empty($result['success'])) {
+            wp_send_json_success(array('connected' => true));
+        }
+        // Consent stays recorded; registration is retried on the next admin load.
+        wp_send_json_success(array('connected' => true, 'registered' => false, 'message' => isset($result['error']) ? (string) $result['error'] : ''));
+    }
+
     public function ajax_reconnect() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
 
@@ -9843,7 +9531,7 @@ class BitBot_Admin {
     public function ajax_run_lead_research() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field($_POST['lead_id']) : '';
+        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field(wp_unslash( $_POST['lead_id'] )) : '';
         $result = $this->api_client->run_lead_research($lead_id);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
     }
@@ -9851,7 +9539,7 @@ class BitBot_Admin {
     public function ajax_draft_lead_email() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field($_POST['lead_id']) : '';
+        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field(wp_unslash( $_POST['lead_id'] )) : '';
         $result = $this->api_client->draft_lead_email($lead_id);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
     }
@@ -9864,8 +9552,8 @@ class BitBot_Admin {
      * Render form builder page — routes to list, create, or edit
      */
     public function render_form_builder_page() {
-        $form_id = isset($_GET['form_id']) ? sanitize_text_field($_GET['form_id']) : '';
-        $action = isset($_GET['action']) ? sanitize_text_field($_GET['action']) : '';
+        $form_id = isset($_GET['form_id']) ? sanitize_text_field(wp_unslash( $_GET['form_id'] )) : '';
+        $action = isset($_GET['action']) ? sanitize_text_field(wp_unslash( $_GET['action'] )) : '';
 
         if ($action === 'new') {
             $this->render_form_create_page();
@@ -10287,7 +9975,7 @@ class BitBot_Admin {
      * Render leads page — list view or detail view based on ?lead_id param
      */
     public function render_leads_page() {
-        $lead_id = isset($_GET['lead_id']) ? sanitize_text_field($_GET['lead_id']) : '';
+        $lead_id = isset($_GET['lead_id']) ? sanitize_text_field(wp_unslash( $_GET['lead_id'] )) : '';
 
         if ($lead_id) {
             $this->render_lead_detail_page($lead_id);
@@ -10300,8 +9988,8 @@ class BitBot_Admin {
      * Render leads list page
      */
     private function render_leads_list_page() {
-        $stage_filter = isset($_GET['stage']) ? sanitize_text_field($_GET['stage']) : '';
-        $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+        $stage_filter = isset($_GET['stage']) ? sanitize_text_field(wp_unslash( $_GET['stage'] )) : '';
+        $search = isset($_GET['s']) ? sanitize_text_field(wp_unslash( $_GET['s'] )) : '';
         ?>
         <div class="wrap">
             <h1><?php esc_html_e('Leads', 'bitbot'); ?></h1>
@@ -10326,7 +10014,7 @@ class BitBot_Admin {
                     if ($search) $url = add_query_arg('s', $search, $url);
                 ?>
                     <li>
-                        <a href="<?php echo esc_url($url); ?>"<?php echo $current; ?>><?php echo esc_html($label); ?></a>
+                        <a href="<?php echo esc_url($url); ?>"<?php echo ( $stage_filter === $key ) ? ' class="current"' : ''; ?>><?php echo esc_html($label); ?></a>
                         <?php if ($i < count($stages) - 1) echo ' |'; ?>
                     </li>
                 <?php $i++; endforeach; ?>
@@ -10878,8 +10566,8 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $stage     = isset($_POST['stage']) ? sanitize_text_field($_POST['stage']) : '';
-        $search    = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+        $stage     = isset($_POST['stage']) ? sanitize_text_field(wp_unslash( $_POST['stage'] )) : '';
+        $search    = isset($_POST['search']) ? sanitize_text_field(wp_unslash( $_POST['search'] )) : '';
         $page      = isset($_POST['page']) ? max(1, absint($_POST['page'])) : 1;
         $page_size = isset($_POST['pageSize']) ? max(1, min(200, absint($_POST['pageSize']))) : 50;
 
@@ -10898,7 +10586,7 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field($_POST['lead_id']) : '';
+        $lead_id = isset($_POST['lead_id']) ? sanitize_text_field(wp_unslash( $_POST['lead_id'] )) : '';
         if (empty($lead_id)) {
             wp_send_json_error(array('error' => 'Lead ID required'));
         }
@@ -10925,8 +10613,8 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $lead_id = sanitize_text_field($_POST['lead_id'] ?? '');
-        $stage = sanitize_text_field($_POST['stage'] ?? '');
+        $lead_id = sanitize_text_field(wp_unslash( $_POST['lead_id'] ?? '' ));
+        $stage = sanitize_text_field(wp_unslash( $_POST['stage'] ?? '' ));
         if (empty($lead_id) || empty($stage)) {
             wp_send_json_error(array('error' => 'Lead ID and stage required'));
         }
@@ -10946,8 +10634,8 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $lead_id = sanitize_text_field($_POST['lead_id'] ?? '');
-        $content = sanitize_textarea_field($_POST['content'] ?? '');
+        $lead_id = sanitize_text_field(wp_unslash( $_POST['lead_id'] ?? '' ));
+        $content = sanitize_textarea_field(wp_unslash( $_POST['content'] ?? '' ));
         if (empty($lead_id) || empty($content)) {
             wp_send_json_error(array('error' => 'Lead ID and content required'));
         }
@@ -10966,7 +10654,7 @@ class BitBot_Admin {
             wp_send_json_error(array('error' => 'Permission denied'));
         }
 
-        $lead_id = sanitize_text_field($_POST['lead_id'] ?? '');
+        $lead_id = sanitize_text_field(wp_unslash( $_POST['lead_id'] ?? '' ));
         if (empty($lead_id)) {
             wp_send_json_error(array('error' => 'Lead ID required'));
         }
@@ -10994,17 +10682,39 @@ class BitBot_Admin {
     public function ajax_get_form() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : '';
+        $form_id = isset($_POST['form_id']) ? sanitize_text_field(wp_unslash( $_POST['form_id'] )) : '';
         $result = $this->api_client->get_form($form_id);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
+    }
+
+    /**
+     * The form fields posted by the admin screen as JSON: decoded first (a text
+     * sanitizer would damage the JSON), then every field reduced to its allowed
+     * shape by BitBot_Form_Markup::sanitize_fields. Malformed JSON or a non-list
+     * is an error, never an empty field list that would wipe the form.
+     *
+     * @return array|WP_Error
+     */
+    private function form_fields_from_request() {
+        // Nonce and capability are checked by every caller before this runs.
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- JSON: decoded, then each field sanitized below.
+        $raw = isset($_POST['fields']) ? wp_unslash( $_POST['fields'] ) : '';
+        // A JSON array of field objects. Decoded without assoc first so that an
+        // object at the top ({} or {"0":...}) is told apart from a list ([]).
+        $shape = is_string($raw) ? json_decode($raw) : null;
+        if (!is_array($shape)) {
+            return new WP_Error('bitbot_bad_fields', 'The form fields could not be read.');
+        }
+        return BitBot_Form_Markup::sanitize_fields(json_decode($raw, true));
     }
 
     public function ajax_create_form() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $name = isset($_POST['name']) ? sanitize_text_field($_POST['name']) : '';
-        $description = isset($_POST['description']) ? sanitize_text_field($_POST['description']) : '';
-        $fields = isset($_POST['fields']) ? json_decode(stripslashes($_POST['fields']), true) : array();
+        $name = isset($_POST['name']) ? sanitize_text_field(wp_unslash( $_POST['name'] )) : '';
+        $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash( $_POST['description'] )) : '';
+        $fields = $this->form_fields_from_request();
+        if (is_wp_error($fields)) { wp_send_json_error(array('error' => $fields->get_error_message())); }
         $result = $this->api_client->create_form($name, $description, $fields);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
     }
@@ -11012,11 +10722,15 @@ class BitBot_Admin {
     public function ajax_update_form() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : '';
+        $form_id = isset($_POST['form_id']) ? sanitize_text_field(wp_unslash( $_POST['form_id'] )) : '';
         $data = array();
-        if (isset($_POST['name'])) $data['name'] = sanitize_text_field($_POST['name']);
-        if (isset($_POST['fields'])) $data['fields'] = json_decode(stripslashes($_POST['fields']), true);
-        if (isset($_POST['enabled'])) $data['enabled'] = rest_sanitize_boolean($_POST['enabled']);
+        if (isset($_POST['name'])) $data['name'] = sanitize_text_field(wp_unslash( $_POST['name'] ));
+        if (isset($_POST['fields'])) {
+            $fields = $this->form_fields_from_request();
+            if (is_wp_error($fields)) { wp_send_json_error(array('error' => $fields->get_error_message())); }
+            $data['fields'] = $fields;
+        }
+        if (isset($_POST['enabled'])) $data['enabled'] = rest_sanitize_boolean(wp_unslash( $_POST['enabled'] ));
         // The editor saves through this handler (so the gate's cached schema refreshes); it sends the success message too.
         if (isset($_POST['success_message'])) $data['success_message'] = sanitize_textarea_field(wp_unslash($_POST['success_message']));
         $result = $this->api_client->update_form($form_id, $data);
@@ -11052,7 +10766,7 @@ class BitBot_Admin {
     public function ajax_delete_form() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : '';
+        $form_id = isset($_POST['form_id']) ? sanitize_text_field(wp_unslash( $_POST['form_id'] )) : '';
         $result = $this->api_client->delete_form($form_id);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
     }
@@ -11060,7 +10774,7 @@ class BitBot_Admin {
     public function ajax_generate_form() {
         check_ajax_referer('bitbot_admin_nonce', 'nonce');
         if (!current_user_can('manage_options')) { wp_send_json_error(array('error' => 'Permission denied')); }
-        $description = isset($_POST['description']) ? sanitize_text_field($_POST['description']) : '';
+        $description = isset($_POST['description']) ? sanitize_text_field(wp_unslash( $_POST['description'] )) : '';
         $result = $this->api_client->generate_form($description);
         $result['success'] ? wp_send_json_success($result['data']) : wp_send_json_error(array('error' => $result['error']));
     }
@@ -11078,7 +10792,7 @@ class BitBot_Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( array( 'error' => 'Permission denied' ) );
         }
-        $enabled = isset( $_POST['enabled'] ) && $_POST['enabled'] === '1';
+        $enabled = isset( $_POST['enabled'] ) && sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) === '1';
         $result  = $this->api_client->set_chat_gate( $enabled );
         if ( ! $result['success'] ) {
             wp_send_json_error( array( 'error' => $result['error'] ) );
@@ -11130,7 +10844,7 @@ class BitBot_Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( array( 'error' => 'Permission denied' ) );
         }
-        $enabled = isset( $_POST['enabled'] ) && '1' === (string) $_POST['enabled'];
+        $enabled = isset( $_POST['enabled'] ) && '1' === sanitize_text_field( wp_unslash( $_POST['enabled'] ) );
         update_option( 'bitbot_enabled', $enabled ? true : false, true );
         wp_send_json_success( array( 'widgetEnabled' => $enabled ) );
     }
@@ -11188,6 +10902,9 @@ class BitBot_Admin {
      * @since 2.0.12
      */
     public function ajax_widget_seen() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            wp_send_json_error( array( 'error' => 'not_connected' ), 404 );
+        }
         update_option( 'bitbot_widget_last_seen_at', time(), false );
         wp_send_json_success( array( 'ok' => true ) );
     }
@@ -11208,7 +10925,7 @@ class BitBot_Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( array( 'error' => 'Permission denied' ) );
         }
-        $verdict = isset( $_POST['verdict'] ) ? sanitize_key( (string) $_POST['verdict'] ) : '';
+        $verdict = isset( $_POST['verdict'] ) ? sanitize_key( (string) wp_unslash( $_POST['verdict'] ) ) : '';
         if ( 'rate' === $verdict || 'dismiss' === $verdict ) {
             update_option( 'bitbot_rate_us_dismissed', '1', false );
         } elseif ( 'remind' === $verdict ) {
@@ -11229,7 +10946,7 @@ class BitBot_Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( array( 'error' => 'Permission denied' ) );
         }
-        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['conversation_id'] ) ) : '';
         if ( ! $conversation_id ) {
             wp_send_json_error( array( 'error' => 'conversation_id is required' ) );
         }
@@ -11249,7 +10966,7 @@ class BitBot_Admin {
         }
         check_admin_referer( 'bitbot_live_chats_reply' );
 
-        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['conversation_id'] ) ) : '';
         $message         = isset( $_POST['message'] ) ? wp_kses_post( wp_unslash( (string) $_POST['message'] ) ) : '';
 
         if ( $conversation_id && trim( $message ) !== '' ) {
@@ -11274,7 +10991,7 @@ class BitBot_Admin {
         }
         check_admin_referer( 'bitbot_live_chats_close' );
 
-        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['conversation_id'] ) ) : '';
         if ( $conversation_id ) {
             $this->api_client->close_live_thread( $conversation_id );
         }
@@ -11301,7 +11018,7 @@ class BitBot_Admin {
         }
         check_admin_referer( 'bitbot_live_chats_takeover' );
 
-        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) $_POST['conversation_id'] ) : '';
+        $conversation_id = isset( $_POST['conversation_id'] ) ? sanitize_text_field( (string) wp_unslash( $_POST['conversation_id'] ) ) : '';
         $opener          = isset( $_POST['opener'] ) ? wp_kses_post( wp_unslash( (string) $_POST['opener'] ) ) : '';
 
         if ( $conversation_id ) {
@@ -11329,7 +11046,7 @@ class BitBot_Admin {
      * @since 1.7.0
      */
     public function render_live_chats_page() {
-        $active_id = isset( $_GET['thread'] ) ? sanitize_text_field( (string) $_GET['thread'] ) : '';
+        $active_id = isset( $_GET['thread'] ) ? sanitize_text_field( (string) wp_unslash( $_GET['thread'] ) ) : '';
 
         $list_response = $this->api_client->get_live_chats();
         $chats = array();
@@ -11647,184 +11364,4 @@ class BitBot_Admin {
         <?php
     }
 
-    /**
-     * Render the BitBot Calendar admin surface.
-     *
-     * Pure visibility — no Accept/Decline/Send-Email buttons. Lists every
-     * appointment captured by the chat agent in a FullCalendar.js view.
-     * Clicking an entry navigates to the matching lead detail page so
-     * the owner gets full context (conversation transcript, AI research,
-     * activity feed). Communication and meeting setup live entirely in
-     * the owner's own tools.
-     *
-     * FullCalendar.js v6 (MIT, ~70KB gzipped) loaded via CDN as a single
-     * standalone bundle — no CommonJS plumbing, no build step, no
-     * unpkg.com lookups blocked by site CSP. Falls back to a tabular
-     * list if the script fails to load.
-     *
-     * @since 1.7.0
-     */
-    public function render_calendar_page() {
-        $response = $this->api_client->get_appointments();
-
-        $appointments  = array();
-        $site_timezone = 'UTC';
-        $api_error     = '';
-        if ( ! empty( $response['success'] ) && isset( $response['data']['appointments'] ) ) {
-            $appointments  = $response['data']['appointments'];
-            $site_timezone = isset( $response['data']['siteTimezone'] ) ? (string) $response['data']['siteTimezone'] : 'UTC';
-        } elseif ( isset( $response['error'] ) ) {
-            $api_error = (string) $response['error'];
-        }
-
-        // Pre-shape rows as FullCalendar event objects. Each entry's
-        // `url` field is the lead detail page so a click navigates the
-        // browser without us needing to wire eventClick handlers.
-        //
-        // Title is the visitor's full email (or name if shared). It
-        // can overflow the cell on dense days — FullCalendar truncates
-        // with the standard ellipsis and the full string stays
-        // visible in the hover tooltip + the cell expands when you
-        // switch to week / day view.
-        $events = array();
-        foreach ( $appointments as $a ) {
-            if ( empty( $a['startsAt'] ) || empty( $a['endsAt'] ) ) {
-                continue;
-            }
-            if ( ! empty( $a['visitorName'] ) ) {
-                $title = (string) $a['visitorName'];
-            } elseif ( ! empty( $a['visitorEmail'] ) ) {
-                $title = (string) $a['visitorEmail'];
-            } else {
-                $title = 'Appointment';
-            }
-
-            $url = ! empty( $a['leadId'] )
-                ? admin_url( 'admin.php?page=bitbot-leads&lead_id=' . urlencode( $a['leadId'] ) )
-                : '';
-
-            // Two-state model: un-viewed = green (highlighted, draws
-            // the eye -- this matches the menu badge count), viewed =
-            // muted grey. No cancelled treatment because there is no
-            // cancel UI in BitBot today; if we ever add one, paint it
-            // strikethrough or hide it rather than surface a third
-            // legend entry.
-            $unviewed = empty( $a['viewedAt'] );
-            if ( $unviewed ) {
-                $bg     = '#46b450';
-                $border = '#3a9241';
-            } else {
-                $bg     = '#c7cdd3';
-                $border = '#a8b0b8';
-            }
-
-            $events[] = array(
-                'id'              => isset( $a['id'] ) ? $a['id'] : '',
-                'title'           => $title,
-                'start'           => $a['startsAt'],
-                'end'             => $a['endsAt'],
-                'url'             => $url,
-                'backgroundColor' => $bg,
-                'borderColor'     => $border,
-                'extendedProps'   => array(
-                    'topic'        => isset( $a['topic'] ) ? $a['topic'] : '',
-                    'visitorEmail' => isset( $a['visitorEmail'] ) ? $a['visitorEmail'] : '',
-                    'serviceName'  => isset( $a['serviceName'] ) ? $a['serviceName'] : '',
-                    'status'       => isset( $a['status'] ) ? $a['status'] : '',
-                    'unviewed'     => $unviewed,
-                ),
-            );
-        }
-        ?>
-        <div class="wrap bitbot-calendar">
-            <h1><?php esc_html_e( 'Calendar', 'bitbot' ); ?></h1>
-            <p class="description" style="margin-bottom: 12px;">
-                <?php esc_html_e( 'Every appointment your chatbot has booked. Click any entry to open the matching lead — full conversation, AI research, and notes are there. Use your own email and calendar tools to confirm and share meeting links with the visitor.', 'bitbot' ); ?>
-            </p>
-            <p class="description" style="margin-bottom: 16px; font-size: 12px; color: #666;">
-                <span style="display:inline-block;width:10px;height:10px;background:#46b450;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><?php esc_html_e( 'New', 'bitbot' ); ?>
-            </p>
-
-            <?php if ( $api_error ) : ?>
-                <div class="notice notice-error"><p><?php echo esc_html( $api_error ); ?></p></div>
-            <?php endif; ?>
-
-            <?php if ( empty( $events ) ) : ?>
-                <div style="padding: 40px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; text-align: center;">
-                    <p style="font-size: 16px; color: #555; margin: 0;">
-                        <?php esc_html_e( 'No appointments yet — the calendar fills up as visitors book sessions through your chatbot.', 'bitbot' ); ?>
-                    </p>
-                </div>
-            <?php else : ?>
-                <!--
-                    FullCalendar v6 standalone build. CDN URLs intentionally
-                    pinned to a specific version so a future breaking
-                    upstream release can't yank our admin UI.
-                -->
-                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css">
-                <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
-
-                <div id="bitbot-calendar-app" style="background: #fff; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px;"></div>
-                <noscript>
-                    <p style="padding: 12px; background: #fff8e5; border: 1px solid #f0c33c; border-radius: 4px;">
-                        <?php esc_html_e( 'JavaScript is required to render the calendar view. The bookings are still all in the Leads list.', 'bitbot' ); ?>
-                    </p>
-                </noscript>
-
-                <script>
-                document.addEventListener('DOMContentLoaded', function () {
-                    var el = document.getElementById('bitbot-calendar-app');
-                    if (!el || typeof FullCalendar === 'undefined') return;
-                    var events = <?php echo wp_json_encode( $events ); ?>;
-                    var calendar = new FullCalendar.Calendar(el, {
-                        initialView: 'dayGridMonth',
-                        // 'local' = the owner's browser timezone. Using
-                        // the site's configured appointments_timezone
-                        // (e.g. "Australia/Sydney") would require the
-                        // FullCalendar Luxon / moment-timezone plugin
-                        // -- without it, FullCalendar silently falls
-                        // back to UTC for any named tz, which is why
-                        // a Sydney-tz site was rendering bookings on
-                        // the day-before cell. The browser tz is the
-                        // right answer for the owner ~95% of the time
-                        // (they're using their own machine in their
-                        // own location); revisit if traveling-owner
-                        // complaints come in.
-                        timeZone: 'local',
-                        height: 'auto',
-                        nowIndicator: true,
-                        // Force every event to render as a coloured block.
-                        // FullCalendar's default "auto" mode renders short
-                        // timed events as a dot + text (no background fill)
-                        // when multiple events stack on the same day —
-                        // which kills our amber-vs-green un-viewed/viewed
-                        // visual cue. Block mode keeps the colour cue
-                        // consistent across views and stack positions.
-                        eventDisplay: 'block',
-                        headerToolbar: {
-                            left: 'prev,next today',
-                            center: 'title',
-                            right: 'dayGridMonth,timeGridWeek,timeGridDay'
-                        },
-                        events: events,
-                        // Tooltip shown on hover — full visitor email,
-                        // service, and topic (the visible cell only
-                        // shows the visitor's name / handle, so the
-                        // hover is where the rest lives).
-                        eventDidMount: function (info) {
-                            var props = info.event.extendedProps || {};
-                            var bits = [];
-                            if (props.serviceName) bits.push(props.serviceName);
-                            if (props.visitorEmail) bits.push(props.visitorEmail);
-                            if (props.topic) bits.push(props.topic);
-                            if (bits.length > 0) info.el.title = bits.join(' · ');
-                        },
-                    });
-                    calendar.render();
-                });
-                </script>
-            <?php endif; ?>
-        </div>
-        <?php
-    }
 }

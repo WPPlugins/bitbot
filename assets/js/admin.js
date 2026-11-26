@@ -703,7 +703,7 @@
         $('#bitbot-cancel-btn').on('click', function(e) {
             e.preventDefault();
 
-            if (!confirm('Are you sure you want to cancel your subscription? You will lose access to BitBot features at the end of your billing period.')) {
+            if (!confirm('Are you sure you want to cancel your subscription? You will lose access to Youami features at the end of your billing period.')) {
                 return;
             }
 

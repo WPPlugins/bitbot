@@ -1,0 +1,579 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Conversations tab — list + thread layout, message bubbles, live-mode
+   composer. Re-uses .bb-transcript / .bb-msg styling from leads.css for
+   transcript bubbles so user-facing chat looks identical everywhere.
+
+   Row-state colour system — five semantic states keyed by what the admin
+   should do next. Defined as local custom properties so the row rail and
+   the matching badge stay in lock-step (change a colour once, both
+   surfaces update).
+   ───────────────────────────────────────────────────────────────────── */
+
+.bb-conv-grid {
+  /* Component-scoped state palette. Coral re-uses the global --accent
+     so "Needs you" stays in the same urgency family as paid-CTA pills
+     and the trial-expiry banner — coral = pay attention. */
+  --conv-state-admin:      #1F8B5C;
+  --conv-state-admin-soft: #DCF3E7;
+  --conv-state-admin-ink:  #0A4E32;
+
+  --conv-state-bot:        #0EA5A5;
+  --conv-state-bot-soft:   #D6F2F1;
+  --conv-state-bot-ink:    #0A5C5C;
+
+  --conv-state-urgent:     var(--accent);
+  --conv-state-urgent-soft:var(--accent-soft);
+  --conv-state-urgent-ink: var(--accent-ink);
+
+  display: grid;
+  grid-template-columns: minmax(0, 380px) 1fr;
+  gap: var(--sp-20);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .bb-conv-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Section-aside numbers ───────────────────────────────────────────── */
+.bb-conv-aside-urgent {
+  color: var(--conv-state-urgent-ink);
+}
+.bb-conv-aside-urgent strong { font-weight: 600; }
+
+/* ── Threads list ────────────────────────────────────────────────────── */
+.bb-conv-list-card {
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-12);
+  overflow: hidden;
+}
+
+/* Filter chip strip — small, horizontal, lives between the card header
+   and the list. Acts as a tab control without taking dashboard real
+   estate (the alternative was a row of buttons above the section head,
+   which conflicted with the existing section-aside copy). */
+.bb-conv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  padding: var(--sp-10) var(--sp-16);
+  border-bottom: 1px solid var(--ink-100);
+  background: var(--paper);
+}
+.bb-conv-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--ink-200);
+  background: var(--card);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.bb-conv-filter:hover {
+  background: var(--paper-2);
+  color: var(--ink-700);
+}
+.bb-conv-filter-count {
+  font-size: 11px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+.bb-conv-filter-active {
+  background: var(--ink-900);
+  border-color: var(--ink-900);
+  color: #fff;
+}
+.bb-conv-filter-active .bb-conv-filter-count { opacity: 0.85; }
+
+/* Urgent variant — surfaces the "Needs you" chip whenever the count is
+   non-zero. Coral border + soft coral fill so it pulls eye even when
+   inactive; pressing it flips to solid coral. */
+.bb-conv-filter-urgent {
+  border-color: var(--conv-state-urgent);
+  background: var(--conv-state-urgent-soft);
+  color: var(--conv-state-urgent-ink);
+}
+.bb-conv-filter-urgent:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.bb-conv-filter-urgent.bb-conv-filter-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Empty state inside a filtered list (e.g. picked "Needs you" but the
+   bot's handling everything). Quiet so it doesn't look like an error. */
+.bb-conv-filter-empty {
+  padding: var(--sp-24) var(--sp-16);
+  font-size: var(--fs-13);
+  color: var(--ink-400);
+  text-align: center;
+  font-style: italic;
+}
+
+.bb-conv-list {
+  max-height: calc(100vh - 340px);
+  overflow-y: auto;
+}
+
+/* Row — three lines + a 3px state rail on the left. Padding-left makes
+   room for the rail so it never overlaps content. */
+.bb-conv-row {
+  width: 100%;
+  text-align: left;
+  position: relative;
+  padding: var(--sp-14) var(--sp-16) var(--sp-14) var(--sp-20);
+  border-top: 1px solid var(--ink-100);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: transparent;
+  border-left: 0;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.bb-conv-row:first-child { border-top: none; }
+.bb-conv-row:hover { background: var(--paper-2); }
+
+/* The state rail. ::before lives flush against the left edge, ~70% row
+   height, rounded inside so it reads as an accent rather than a divider. */
+.bb-conv-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-top-right-radius: 2px;
+  border-bottom-right-radius: 2px;
+  background: transparent;
+  transition: background 150ms ease;
+}
+.bb-conv-row-state-live-admin::before  { background: var(--conv-state-admin); }
+.bb-conv-row-state-live-bot::before    { background: var(--conv-state-bot); }
+.bb-conv-row-state-needs-human::before { background: var(--conv-state-urgent); }
+.bb-conv-row-state-idle::before        { background: var(--ink-300); }
+/* ended → no rail by design — past threads should fade into context */
+
+/* Active selection — replace the inset accent rail with a stronger fill
+   so the state rail stays visible. Bold the name a touch so the selected
+   thread reads as "the one you're looking at". */
+.bb-conv-row-active {
+  background: var(--paper-2);
+}
+.bb-conv-row-active::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ink-900);
+}
+.bb-conv-row-active .bb-conv-row-id {
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.bb-conv-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-8);
+}
+.bb-conv-row-id {
+  font-family: var(--font-display);
+  font-size: var(--fs-15);
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+}
+.bb-conv-row-time {
+  font-size: var(--fs-12);
+  color: var(--ink-400);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bb-conv-row-mid {
+  display: flex;
+  gap: var(--sp-8);
+  align-items: center;
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+.bb-conv-row-muted { font-size: var(--fs-12); color: var(--ink-400); }
+
+/* "3 new" pill — coral filled so a stack of unread admin replies pulls
+   eye even at a glance. Lives in the mid row, right of location. */
+.bb-conv-row-unread {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-left: auto;
+}
+
+.bb-conv-row-status { margin-top: 2px; }
+
+/* ── State badge ─────────────────────────────────────────────────────── */
+.bb-conv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  background: transparent;
+  color: var(--ink-500);
+}
+.bb-conv-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.bb-conv-badge-admin {
+  background: var(--conv-state-admin-soft);
+  color: var(--conv-state-admin-ink);
+}
+.bb-conv-badge-admin .bb-conv-badge-dot {
+  background: var(--conv-state-admin);
+  animation: bb-conv-pulse 2.4s ease-in-out infinite;
+}
+
+.bb-conv-badge-bot {
+  background: var(--conv-state-bot-soft);
+  color: var(--conv-state-bot-ink);
+}
+.bb-conv-badge-bot .bb-conv-badge-dot {
+  background: var(--conv-state-bot);
+  animation: bb-conv-pulse 2.4s ease-in-out infinite;
+}
+
+.bb-conv-badge-urgent {
+  background: var(--conv-state-urgent-soft);
+  color: var(--conv-state-urgent-ink);
+  font-weight: 600;
+}
+.bb-conv-badge-arrow {
+  margin-left: 2px;
+  font-weight: 500;
+}
+
+/* 'Open' — async FB / IG threads. Reads as "in your inbox, takeable
+   right now" without falsely implying real-time presence. Neutral
+   tone so it doesn't compete with Live · Bot for attention. */
+.bb-conv-badge-open {
+  background: var(--surface-2, #eef2f6);
+  color: var(--ink-700, #243042);
+}
+
+/* Channel badge — sits next to the displayLabel in the row and the
+   thread header. Identifies which surface the conversation arrived
+   on (Messenger / Instagram) so admin knows their reply lands in
+   the right inbox. Web widget gets no badge (the default). */
+.bb-conv-channel {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.bb-conv-channel-messenger {
+  background: #e7f0ff;
+  color: #0866ff;
+}
+.bb-conv-channel-instagram {
+  background: linear-gradient(135deg, #feda77 0%, #f58529 25%, #dd2a7b 50%, #8134af 75%, #515bd4 100%);
+  color: #fff;
+}
+.bb-conv-channel-email {
+  background: var(--ink-100);
+  color: var(--ink-600);
+}
+
+/* Honour reduced-motion preferences — kill the pulse for users with the
+   OS setting, since the dot is still legible without animation. */
+@keyframes bb-conv-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-conv-badge-admin .bb-conv-badge-dot,
+  .bb-conv-badge-bot   .bb-conv-badge-dot { animation: none; }
+}
+
+/* ── Thread / detail ─────────────────────────────────────────────────── */
+.bb-conv-detail-card {
+  min-height: 480px;
+}
+.bb-conv-placeholder-body {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  line-height: 1.5;
+  margin: 0;
+}
+.bb-conv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-12);
+  padding-bottom: var(--sp-12);
+  border-bottom: 1px solid var(--ink-200);
+  margin-bottom: var(--sp-14);
+}
+.bb-conv-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  flex-wrap: wrap;
+}
+.bb-conv-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-22);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0;
+}
+.bb-conv-sub {
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  margin-top: 4px;
+}
+.bb-conv-transcript {
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: var(--sp-4);
+}
+
+/* Live composer */
+.bb-conv-composer {
+  margin-top: var(--sp-14);
+  padding-top: var(--sp-14);
+  border-top: 1px solid var(--ink-200);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-conv-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-8);
+}
+
+/* ============================================================
+   Bulk-delete: checkboxes on each row + header action bar +
+   confirm modal. Same multi-select pattern as HistoryDrawerBody.
+   ============================================================ */
+
+/* The header row above the list — "Select all" toggle + actions when
+   selection ≥1. Sticky-ish at the top of the scrollable list. */
+.bb-conv-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-8);
+  padding: var(--sp-8) var(--sp-16);
+  border-bottom: 1px solid var(--ink-100);
+  background: var(--paper-2);
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.bb-conv-bulk-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  cursor: pointer;
+  user-select: none;
+}
+.bb-conv-bulk-actions {
+  display: flex;
+  gap: var(--sp-8);
+}
+
+/* Row now hosts the checkbox + the original clickable body. Was a single
+   button; refactored to <div> wrapping a checkbox label + button. */
+.bb-conv-row {
+  display: flex !important;
+  flex-direction: row !important;
+  padding: 0 !important;
+  gap: 0;
+  align-items: stretch;
+}
+.bb-conv-row-check {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-12);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.bb-conv-row:hover .bb-conv-row-check,
+.bb-conv-row-check-visible {
+  opacity: 1;
+}
+.bb-conv-row-body {
+  flex: 1 1 auto;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--sp-14) var(--sp-8) var(--sp-14) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+.bb-conv-row-selected {
+  background: rgba(20, 100, 200, 0.05);
+}
+
+/* Trash icon — single-row delete. Hidden until row hover, mirrors the
+   checkbox-on-hover affordance. Same confirm modal as bulk delete so
+   the lead-keep prompt still fires for one-off deletes. */
+.bb-conv-row-delete {
+  background: transparent;
+  border: none;
+  padding: 0 var(--sp-12);
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--ink-400);
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.bb-conv-row:hover .bb-conv-row-delete {
+  opacity: 1;
+}
+.bb-conv-row-delete:hover {
+  color: var(--ink-900);
+}
+
+/* Modal styles for the "delete N threads" confirmation live in the
+   canonical .bb-modal-backdrop / .bb-modal definitions in overview.css.
+   Removed local duplicates here (2026-06-08) — they were shadowing the
+   canonical z-index and breaking the ChangePlanModal overlay on WP
+   admin pages where the WP admin bar sits at z-index 99999. */
+
+/* Free-tier transcript lock. Matches the leads list locked-empty
+   state — metadata visible (in the header above), contents hidden,
+   one prominent Upgrade CTA. */
+.bb-conv-thread-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-12);
+  padding: var(--sp-40) var(--sp-24);
+  text-align: center;
+  min-height: 280px;
+}
+.bb-conv-thread-locked-headline {
+  font-family: var(--font-display);
+  font-size: var(--fs-22);
+  margin: 0;
+  color: var(--ink-900);
+}
+.bb-conv-thread-locked-body {
+  margin: 0;
+  max-width: 44ch;
+  color: var(--ink-600);
+  line-height: 1.5;
+}
+
+/* Channel filter dropdown (Conversations toolbar) */
+.bb-conv-channel-filter-wrap { padding: 0 var(--sp-12) var(--sp-8); }
+.bb-conv-channel-filter {
+  width: 100%;
+  font-size: var(--fs-13);
+  padding: var(--sp-6) var(--sp-8);
+}
+
+/* Unviewed (new) conversation indicator — same dot the Leads list uses
+   (bb-lead-row-dot): accent, pulsing, viewed_at === null. */
+.bb-conv-row-newdot {
+  display: inline-block; flex: 0 0 auto;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  margin-right: 7px; vertical-align: middle;
+  animation: bb-pulse 2s ease-out infinite;
+}
+
+/* Email message display in the transcript — subject header + body */
+.bb-msg-email { display: flex; flex-direction: column; gap: 4px; }
+.bb-msg-email-subject {
+  font-weight: 600; font-size: var(--fs-13, 13px);
+  padding-bottom: 4px; border-bottom: 1px solid var(--ink-200, rgba(0,0,0,0.08));
+  opacity: 0.85;
+}
+.bb-msg-email-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Transcript message-order toggle (newest / oldest first) */
+.bb-conv-sort {
+  margin-left: 8px;
+  background: none; border: none; padding: 0;
+  font: inherit; font-size: var(--fs-12, 12px);
+  color: var(--accent, #e8542a);
+  cursor: pointer; white-space: nowrap;
+}
+.bb-conv-sort:hover { text-decoration: underline; }
+
+/* Free: the open thread is read-only; takeover and replies are Assistant. */
+.bb-conv-free-note {
+  margin: 0;
+  padding: var(--sp-10) var(--sp-20);
+  border-top: 1px solid var(--ink-100);
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+
+/* The pane header: eyebrow = who, meta line = facts + sort; badges and take-over right. */
+.bb-conv-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+  font-family: var(--font-body);
+  font-size: var(--fs-13);
+  font-weight: 400;
+  color: var(--ink-500);
+}
+.bb-conv-meta a { color: inherit; }
+.bb-conv-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+}
+.bb-conv-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Country flag next to the thread label; the place name is on hover. */
+.bb-conv-row-flag {
+  margin-left: var(--sp-6);
+  font-size: var(--fs-13);
+  cursor: default;
+}

@@ -63,6 +63,11 @@ class BitBot_Widget {
             return;
         }
 
+        // A site that never pressed Connect prints nothing on the front end.
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
+
         // 2.0.16: skip the host div on excluded URLs too. The script
         // enqueue path already bails on these, but the host markup
         // was rendered unconditionally on wp_footer, leaving a dead
@@ -209,13 +214,14 @@ class BitBot_Widget {
 
                     <!-- Input Area -->
                     <form id="bitbot-form" class="bitbot-input-area">
-                        <input
-                            type="text"
+                        <?php // A multi-line box: Enter starts a new line unless the owner turned "Press Enter to send" on. ?>
+                        <textarea
                             id="bitbot-input"
                             class="bitbot-input"
+                            rows="1"
                             placeholder="<?php echo esc_attr( $input_placeholder ); ?>"
                             autocomplete="off"
-                        >
+                        ></textarea>
                         <button type="submit" class="bitbot-send" aria-label="<?php esc_attr_e( 'Send message', 'bitbot' ); ?>">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -224,13 +230,13 @@ class BitBot_Widget {
                         </button>
                     </form>
 
-                    <?php if ( ! $this->is_pro() ) : ?>
+                    <?php if ( BitBot_Consent::powered_by_enabled() ) : ?>
                         <div class="bitbot-branding">
                             <?php esc_html_e( 'Powered by', 'bitbot' ); ?>
-                            <a href="https://youami.ai/?utm_source=widget&utm_medium=branding&utm_campaign=free_tier"
+                            <a href="https://youami.ai/?utm_source=widget&utm_medium=branding&utm_campaign=powered_by"
                                target="_blank"
                                rel="noopener">
-                               BitBot
+                               Youami
                             </a>
                         </div>
                     <?php endif; ?>
@@ -239,24 +245,6 @@ class BitBot_Widget {
             </div>
         </template>
         <?php
-    }
-
-    /**
-     * Read the persisted plan snapshot. Written by admin-side refreshes
-     * and the scheduled refresh cron, so the widget sees a reasonably
-     * fresh plan even on sites where an admin rarely opens the dashboard.
-     *
-     * Front-end code MUST NOT hit the API on every page view, so we
-     * default to Free (show branding) when the cache is missing — a
-     * conservative default that favours paying customers briefly seeing
-     * branding during a first-visit race, not losing them forever.
-     *
-     * @since 1.6.0 (persistent-cache rewrite in 1.7.0)
-     * @return bool True if the site is on a paid plan (pro or pro_plus).
-     */
-    private function is_pro() {
-        $status = BitBot_Plan::get_cached_status();
-        return BitBot_Plan::is_paid( $status['plan'] ?? null );
     }
 
     /**
@@ -287,6 +275,18 @@ class BitBot_Widget {
     }
 
     /**
+     * A visitor/session token the widget generated (UUID or "temp-<ms>"):
+     * letters, digits, dash and underscore, at most 100 characters. Public
+     * visitor routes refuse anything else before it reaches the backend.
+     *
+     * @param string $value Already sanitized value.
+     * @return bool
+     */
+    public static function is_valid_token( $value ) {
+        return 1 === preg_match( '/^[A-Za-z0-9_-]{1,100}$/', (string) $value );
+    }
+
+    /**
      * Handle chat request (REST API)
      *
      * @since 1.0.0
@@ -294,7 +294,9 @@ class BitBot_Widget {
      * @return WP_REST_Response REST response.
      */
     public function handle_chat_request( $request ) {
-        $message          = sanitize_text_field( $request->get_param( 'message' ) );
+        // A message may run over several lines: keep its line breaks (the streaming path does the same).
+        $raw_message      = $request->get_param( 'message' );
+        $message          = is_string( $raw_message ) ? sanitize_textarea_field( $raw_message ) : '';
         $history          = $request->get_param( 'history' ) ?? array();
         $session_id       = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
         $visitor_id       = sanitize_text_field( $request->get_param( 'visitorId' ) ?? '' );
@@ -314,11 +316,12 @@ class BitBot_Widget {
         $sanitized_history = array();
         if ( is_array( $history ) ) {
             foreach ( $history as $msg ) {
-                if ( isset( $msg['role'] ) && isset( $msg['content'] ) ) {
+                // Only text is a message: an array or object here is malformed input, not a turn.
+                if ( is_array( $msg ) && isset( $msg['role'], $msg['content'] ) && is_string( $msg['role'] ) && is_string( $msg['content'] ) ) {
                     $role = sanitize_text_field( $msg['role'] );
                     $sanitized_history[] = array(
                         'role'    => in_array( $role, array( 'user', 'assistant' ), true ) ? $role : 'user',
-                        'content' => sanitize_text_field( $msg['content'] ),
+                        'content' => sanitize_textarea_field( $msg['content'] ),
                     );
                 }
             }
@@ -381,7 +384,7 @@ class BitBot_Widget {
         }
 
         $visitor_id = sanitize_text_field( $request->get_param( 'visitorId' ) ?? '' );
-        if ( '' === $visitor_id ) {
+        if ( ! self::is_valid_token( $visitor_id ) ) {
             return new WP_REST_Response( array( 'success' => false, 'code' => 'failed', 'error' => 'visitorId required' ), 400 );
         }
 
@@ -424,7 +427,7 @@ class BitBot_Widget {
     public function handle_voice_call_links( $request ) {
         $session_id = sanitize_text_field( $request->get_param( 'session' ) ?? '' );
         $after      = sanitize_text_field( $request->get_param( 'after' ) ?? '' );
-        if ( '' === $session_id ) {
+        if ( '' === $session_id || strlen( $session_id ) > 200 ) {
             return $this->uncached_links_response( array( 'success' => false, 'error' => 'session required' ), 400 );
         }
 
@@ -478,7 +481,7 @@ class BitBot_Widget {
         $session_id      = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
         $since_message_id = sanitize_text_field( $request->get_param( 'sinceMessageId' ) ?? '' );
 
-        if ( empty( $session_id ) ) {
+        if ( ! self::is_valid_token( $session_id ) ) {
             return new WP_REST_Response( array(
                 'success' => false,
                 'error'   => 'sessionId required',
@@ -506,7 +509,7 @@ class BitBot_Widget {
      */
     public function handle_visitor_heartbeat( $request ) {
         $session_id = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
-        if ( empty( $session_id ) ) {
+        if ( ! self::is_valid_token( $session_id ) ) {
             return new WP_REST_Response( array( 'success' => false ), 400 );
         }
         $result = $this->api_client->visitor_heartbeat( $session_id );
@@ -529,7 +532,7 @@ class BitBot_Widget {
      */
     public function handle_visitor_left( $request ) {
         $session_id = sanitize_text_field( $request->get_param( 'sessionId' ) ?? '' );
-        if ( empty( $session_id ) ) {
+        if ( ! self::is_valid_token( $session_id ) ) {
             return new WP_REST_Response( array( 'success' => false ), 400 );
         }
         $this->api_client->visitor_left( $session_id );

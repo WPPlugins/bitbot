@@ -1,0 +1,206 @@
+/* Change Plan modal — single entry point that replaces the scattered
+   tier CTAs across PlanCard and AccountDrawer. Spec lives at
+   `Obsidian Vault/bitbot/BitBot/Freemium Migration Spec.md`. */
+
+.bb-changeplan-modal {
+  max-width: 880px;
+  width: calc(100vw - 32px);
+}
+
+.bb-changeplan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 720px) {
+  .bb-changeplan-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bb-changeplan-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--rule, #e5e0d6);
+  border-radius: 10px;
+  background: var(--paper, #fbf9f4);
+}
+
+.bb-changeplan-col-current {
+  border-color: var(--ink-300, #6c7a8c);
+  background: var(--paper-0, #ffffff);
+}
+
+.bb-changeplan-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 0 0 4px;
+}
+
+.bb-changeplan-price {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  line-height: 1;
+}
+
+.bb-changeplan-price-sub {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink-500, #4a5a6e);
+}
+
+.bb-changeplan-tagline {
+  font-size: 13px;
+  color: var(--ink-500, #4a5a6e);
+  margin: 0;
+}
+
+.bb-changeplan-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-700, #243042);
+  flex: 1;
+}
+
+.bb-changeplan-features li {
+  padding-left: 18px;
+  position: relative;
+  line-height: 1.4;
+}
+
+.bb-changeplan-features li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--ink-700, #243042);
+  font-weight: 600;
+}
+
+.bb-changeplan-btn-danger {
+  color: #b3261e;
+  border-color: #b3261e30;
+}
+
+.bb-changeplan-btn-danger:hover {
+  background: #fce8e6;
+}
+
+.bb-changeplan-cancel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--rule, #e5e0d6);
+}
+
+.bb-changeplan-cancel-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink-500, #4a5a6e);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bb-changeplan-cancel-link:hover {
+  color: var(--ink-700, #243042);
+}
+
+.bb-changeplan-cancel-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bb-changeplan-cancel-note {
+  font-size: 11px;
+  color: var(--ink-400, #6c7a8c);
+}
+
+/* Downgrade confirmation — stacked on top of the main modal backdrop.
+   The base .bb-modal-backdrop sits at z-index 100000 (above the WP admin
+   bar), so this MUST be higher or the confirm renders behind the main
+   modal's dim layer and the click looks like a no-op. */
+.bb-modal-backdrop-stack {
+  z-index: 100010;
+}
+
+.bb-changeplan-confirm {
+  max-width: 520px;
+  width: calc(100vw - 32px);
+}
+
+.bb-changeplan-confirm-lede {
+  font-size: 14px;
+  color: var(--ink-700, #243042);
+  margin: 0 0 16px;
+}
+
+.bb-changeplan-confirm-section {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-700, #243042);
+  margin: 0 0 8px;
+}
+
+.bb-changeplan-confirm-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-700, #243042);
+}
+
+.bb-changeplan-confirm-list li {
+  padding-left: 18px;
+  position: relative;
+  line-height: 1.5;
+}
+
+.bb-changeplan-confirm-list li::before {
+  content: '✗';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #b3261e;
+  font-weight: 600;
+}
+
+.bb-changeplan-confirm-list li small {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-500, #4a5a6e);
+  margin-top: 2px;
+}
+
+.bb-changeplan-confirm-note {
+  font-size: 12px;
+  color: var(--ink-500, #4a5a6e);
+  font-style: italic;
+  margin: 0 0 16px;
+}
+
+.bb-changeplan-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

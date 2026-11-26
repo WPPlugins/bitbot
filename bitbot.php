@@ -1,6 +1,6 @@
 <?php
 /**
- * BitBot - AI Chatbot & Content Generator
+ * Youami – AI Chat, Voice Calls, Forms & Leads
  *
  * @package           BitBot
  * @author            youami.ai
@@ -8,11 +8,11 @@
  * @license           GPL-2.0-or-later
  *
  * @wordpress-plugin
- * Plugin Name:       BitBot
+ * Plugin Name:       Youami – AI Chat, Voice Calls, Forms & Leads
  * Plugin URI:        https://youami.ai
  * Description:       AI text chat, voice calls, content tools and a leads inbox for your WordPress site.
- * Version:           2.2.5
- * Requires at least: 5.8
+ * Version:           2.2.9
+ * Requires at least: 6.2
  * Requires PHP:      7.4
  * Author:            youami.ai
  * Text Domain:       bitbot
@@ -52,7 +52,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'BITBOT_VERSION', '2.2.5' );
+define( 'BITBOT_VERSION', '2.2.9' );
 define( 'BITBOT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BITBOT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 // API endpoint.
@@ -64,6 +64,10 @@ define( 'BITBOT_API_URL', 'https://www.youami.ai/api' );
 
 
 // Include required files
+require_once BITBOT_PLUGIN_DIR . 'includes/class-consent.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-site-css.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-post-credit.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-agent-user.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-plan.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-api-client.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-gather-core.php';
@@ -75,7 +79,9 @@ require_once BITBOT_PLUGIN_DIR . 'includes/class-languages.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-widget-copy.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-form-markup.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-page-title.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-post-id-order.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-nav-location.php';
+require_once BITBOT_PLUGIN_DIR . 'includes/class-agent-policy.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-page-images.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-read-revision.php';
 require_once BITBOT_PLUGIN_DIR . 'includes/class-admin.php';
@@ -219,7 +225,7 @@ class BitBot {
         if ( isset( $_GET['rest_route'] ) && '' !== $_GET['rest_route'] ) return true;
         if ( empty( $_SERVER['REQUEST_URI'] ) ) return false;
         $prefix = function_exists( 'rest_get_url_prefix' ) ? rest_get_url_prefix() : 'wp-json';
-        return strpos( $_SERVER['REQUEST_URI'], '/' . $prefix . '/' ) !== false;
+        return strpos( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ), '/' . $prefix . '/' ) !== false;
     }
 
     /**
@@ -253,7 +259,7 @@ class BitBot {
                 'message' => (string) $e['message'],
                 'file'    => (string) $e['file'],
                 'line'    => (int) $e['line'],
-                'url'     => isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '',
+                'url'     => isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) ) : '',
                 'time'    => gmdate( 'c' ),
             ), false );
         } );
@@ -347,6 +353,11 @@ class BitBot {
         // behaviour applied at render so every existing and future post gets
         // it without content edits. Internal links stay same-tab.
         add_filter( 'the_content', array( $this, 'external_links_new_tab' ), 20 );
+        // A credit an earlier version saved into a generated post is never displayed.
+        add_filter( 'the_content', array( 'BitBot_Post_Credit', 'filter_content' ), 5 );
+        // 2.2.7: the agent's CSS moves from the plugin's own option into the theme's
+        // Additional CSS. Checked on every load (one autoloaded flag) until it is done.
+        add_action( 'init', array( 'BitBot_Site_Css', 'migrate_legacy' ), 20 );
 
         add_action( 'wp_enqueue_scripts', array( $this, 'maybe_enqueue_toc_assets' ) );
 
@@ -376,6 +387,11 @@ class BitBot {
         // consent-guarded via the overlay manifest), and push a fresh style
         // snapshot so the agent styles the RIGHT theme.
         add_action( 'after_switch_theme', array( $this, 'on_theme_switched' ), 10, 2 );
+        // The site title is the one name the visitor chat uses. It rides the style
+        // snapshot, so a rename must push a fresh one now instead of waiting for
+        // the next content sync (until then the chat kept the old name).
+        add_action( 'update_option_blogname', array( $this, 'on_site_title_changed' ), 10, 0 );
+        add_action( 'update_option_blogdescription', array( $this, 'on_site_title_changed' ), 10, 0 );
 
         // The admin React bundle is shipped as an ES module — Vite emits
         // cross-chunk imports between admin.js, module.js, and the lazy
@@ -543,12 +559,12 @@ class BitBot {
         ?>
         <div class="notice notice-info is-dismissible" id="bitbot-rate-us-notice" style="padding: 14px 16px;">
             <p style="margin: 0 0 8px; font-size: 14px;">
-                <strong><?php esc_html_e( 'Enjoying BitBot?', 'bitbot' ); ?></strong>
+                <strong><?php esc_html_e( 'Enjoying Youami?', 'bitbot' ); ?></strong>
                 <?php esc_html_e( 'Drop us a 5-star rating on WordPress.org — it helps other small business owners find us.', 'bitbot' ); ?>
             </p>
             <p style="margin: 0;">
                 <a href="<?php echo esc_url( $rate_url ); ?>" target="_blank" rel="noopener" class="button button-primary" id="bitbot-rate-us-rate">
-                    <?php esc_html_e( 'Rate BitBot', 'bitbot' ); ?> &rarr;
+                    <?php esc_html_e( 'Rate Youami', 'bitbot' ); ?> &rarr;
                 </a>
                 <button type="button" class="button button-secondary" id="bitbot-rate-us-remind" style="margin-left: 6px;">
                     <?php esc_html_e( 'Remind me later', 'bitbot' ); ?>
@@ -618,6 +634,10 @@ class BitBot {
      * @since 2.0.181
      */
     public function maybe_register_site() {
+        // Nothing leaves this site until the administrator connects it.
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         // Registered under THIS plugin version: nothing to do. Any other value
         // (older version, or the pre-2.1 boolean) re-registers with the existing
         // key so the backend learns the plugin version after an update; the
@@ -640,6 +660,11 @@ class BitBot {
      * @since 1.6.0
      */
     public function maybe_run_upgrade_tasks() {
+        // Nothing to upgrade, purge or schedule on a site that never connected;
+        // the tasks run on the first admin load after Connect.
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         $stored = get_option( 'bitbot_db_version', '0' );
         if ( version_compare( $stored, BITBOT_VERSION, '>=' ) ) {
             return;
@@ -648,19 +673,12 @@ class BitBot {
         // 1.6.0: backfill notification_email on the backend for sites that installed
         // pre-1.5.2 (migration 009 added the column as NULL for existing rows).
         if ( version_compare( $stored, '1.6.0', '<' ) ) {
+            // Only an address the owner set themselves is carried over. The
+            // site's admin_email is never used: notifications are opt-in.
             $local_notification = get_option( 'bitbot_notification_email', '' );
-            $admin_email        = get_option( 'admin_email', '' );
-            $email              = ! empty( $local_notification ) ? $local_notification : $admin_email;
-
-            if ( ! empty( $email ) && is_email( $email ) ) {
-                // Fire and forget — backend update. Failure is non-fatal; next
-                // time the user opens Settings the sanitize callback will retry.
-                $this->api_client->update_notification_email( $email );
-
-                // Mirror into the local option so the Settings UI shows the correct value.
-                if ( empty( $local_notification ) ) {
-                    update_option( 'bitbot_notification_email', $email );
-                }
+            if ( ! empty( $local_notification ) && is_email( $local_notification ) ) {
+                // Fire and forget: failure is non-fatal, Settings retries on save.
+                $this->api_client->update_notification_email( $local_notification );
             }
         }
 
@@ -669,7 +687,7 @@ class BitBot {
         // cache + kick sync + schedule the refresh crons. Same deferral
         // pattern as a fresh install — outbound calls never block the
         // admin page load.
-        if ( version_compare( $stored, '1.7.0', '<' ) ) {
+        if ( version_compare( $stored, '1.7.0', '<' ) && BitBot_Consent::is_connected() ) {
             if ( ! wp_next_scheduled( self::FIRST_BOOT_CRON_HOOK ) ) {
                 wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
             }
@@ -755,6 +773,9 @@ class BitBot {
      * @param WP_Post $post    Post object.
      */
     public function on_post_saved( $post_id, $post ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         // Skip autosaves, revisions, and non-public post types
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
         if ( wp_is_post_revision( $post_id ) ) return;
@@ -785,6 +806,9 @@ class BitBot {
      * @param int $post_id Post ID.
      */
     public function run_deferred_post_sync( $post_id ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         // A bulk sync covers every post. Single-post syncs queued before it started
         // used to run ahead of the chain's next event (cron runs events in time
         // order) and starve it, so while the bulk sync runs they wait.
@@ -855,15 +879,25 @@ class BitBot {
         global $wpdb;
         $run_id = (string) $run_id;
         $stored = maybe_serialize( $value );
-        $sql    = "UPDATE {$wpdb->options} p JOIN {$wpdb->options} r ON r.option_name = %s
-                      SET p.option_value = %s
-                    WHERE p.option_name = %s AND r.option_value = %s";
-        $args   = array( self::SYNC_RUN_OPTION, $stored, self::SYNC_PROGRESS_OPTION, $run_id );
         if ( $match_progress ) {
-            $sql   .= ' AND p.option_value LIKE %s';
-            $args[] = '%' . $wpdb->esc_like( serialize( 'run_id' ) . serialize( $run_id ) ) . '%';
+            $like = '%' . $wpdb->esc_like( serialize( 'run_id' ) . serialize( $run_id ) ) . '%';
+            $wpdb->query( $wpdb->prepare(
+                "UPDATE {$wpdb->options} p JOIN {$wpdb->options} r ON r.option_name = %s SET p.option_value = %s WHERE p.option_name = %s AND r.option_value = %s AND p.option_value LIKE %s",
+                self::SYNC_RUN_OPTION,
+                $stored,
+                self::SYNC_PROGRESS_OPTION,
+                $run_id,
+                $like
+            ) );
+        } else {
+            $wpdb->query( $wpdb->prepare(
+                "UPDATE {$wpdb->options} p JOIN {$wpdb->options} r ON r.option_name = %s SET p.option_value = %s WHERE p.option_name = %s AND r.option_value = %s",
+                self::SYNC_RUN_OPTION,
+                $stored,
+                self::SYNC_PROGRESS_OPTION,
+                $run_id
+            ) );
         }
-        $wpdb->query( $wpdb->prepare( $sql, $args ) );
         $affected = (int) $wpdb->rows_affected;
         wp_cache_delete( self::SYNC_PROGRESS_OPTION, 'options' );
         wp_cache_delete( self::SYNC_RUN_OPTION, 'options' );
@@ -1009,6 +1043,9 @@ class BitBot {
      * recover(). Throttled to once per 30 s.
      */
     public function watch_sync_chain() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( ( defined( 'DOING_CRON' ) && DOING_CRON ) || false !== get_transient( 'bitbot_sync_watch' ) ) {
             return;
         }
@@ -1311,6 +1348,9 @@ class BitBot {
      * @param int $post_id Post ID.
      */
     public function on_post_deleted( $post_id ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         $post = get_post( $post_id );
         if ( ! $post || ! in_array( $post->post_type, array( 'post', 'page' ), true ) ) return;
 
@@ -1348,6 +1388,12 @@ class BitBot {
 
     public function mark_bitbot_request( $result, $server, $request ) {
         if ( 0 === strpos( (string) $request->get_route(), '/bitbot/v1/' ) ) {
+            // Until the owner presses Connect, the plugin's routes answer only
+            // to the administrator's own dashboard: no visitor route and no
+            // api-key route runs, whatever key the request carries.
+            if ( ! BitBot_Consent::is_connected() && ! current_user_can( 'manage_options' ) ) {
+                return new WP_Error( 'bitbot_not_connected', 'Not connected.', array( 'status' => 404 ) );
+            }
             $key    = (string) $request->get_param( 'apiKey' );
             $stored = (string) get_option( 'bitbot_api_key', '' );
             if ( '' !== $stored && '' !== $key && hash_equals( $stored, $key ) ) {
@@ -1397,7 +1443,7 @@ class BitBot {
         $needs_author = 0 === $author_id;
         if ( ! $needs_author ) {
             $current = get_user_by( 'id', $author_id );
-            if ( ! $current || 'bitbot-agent' === $current->user_login ) {
+            if ( ! $current || BitBot_Agent_User::is_agent( $current->ID ) ) {
                 $needs_author = true;
             }
         }
@@ -1466,25 +1512,47 @@ class BitBot {
         // Flush rewrite rules
         flush_rewrite_rules();
 
-        // Defer every outbound HTTP call to a single-shot wp_cron so
-        // activation finishes cleanly — TasteWP-style sandboxes, shared
-        // hosts with short max_execution_time, and cheap hostgators
-        // routinely kill activation mid-register_site / trigger_sync,
-        // leaving the plugin half-seeded and the chatbot pointed at
-        // an empty corpus forever. The cron runs on the next WP tick,
-        // a few seconds after activation.
-        if ( ! wp_next_scheduled( self::FIRST_BOOT_CRON_HOOK ) ) {
-            wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
-        }
-
-        // Hourly safety-net: retries the first sync until the site has
-        // at least one indexed page. Self-unregisters on success.
-        if ( ! wp_next_scheduled( self::FIRST_SYNC_CRON_HOOK ) ) {
-            wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'hourly', self::FIRST_SYNC_CRON_HOOK );
+        // Activation never contacts youami.ai. A fresh install waits until the
+        // administrator presses Connect (see connect_site()). A site that is
+        // already connected (re-activation of a registered install) keeps its
+        // first-boot and retry crons exactly as before.
+        if ( BitBot_Consent::is_connected() ) {
+            $this->schedule_first_boot();
         }
 
         // Flag to redirect to dashboard and auto-sync on first load
         set_transient( 'bitbot_activation_redirect', true, 60 );
+    }
+
+    /**
+     * Queue the deferred first boot (register, plan seed, first sync) and the
+     * hourly first-sync safety net. Deferred to wp_cron so a slow API can never
+     * brick a request on cheap hosts. Only called once the site is connected.
+     */
+    private function schedule_first_boot() {
+        if ( ! wp_next_scheduled( self::FIRST_BOOT_CRON_HOOK ) ) {
+            wp_schedule_single_event( time() + 1, self::FIRST_BOOT_CRON_HOOK );
+        }
+        if ( ! wp_next_scheduled( self::FIRST_SYNC_CRON_HOOK ) ) {
+            wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'hourly', self::FIRST_SYNC_CRON_HOOK );
+        }
+    }
+
+    /**
+     * The administrator pressed Connect: record consent, register the site
+     * now so the result is visible, and queue the first content sync.
+     * Only call from a capability-checked, nonce-checked admin action.
+     *
+     * @return array The RegisterSite result ({ success, data|error }).
+     */
+    public function connect_site() {
+        BitBot_Consent::mark_connected();
+        $this->ensure_api_key();
+        // Template repair is skipped until now, so run it once on Connect.
+        $this->self_heal_theme_proofing();
+        $result = $this->api_client->register_site();
+        $this->schedule_first_boot();
+        return $result;
     }
 
     /**
@@ -1496,6 +1564,9 @@ class BitBot {
      * @since 1.7.0
      */
     public function first_boot_cron() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         // Give this cron invocation more runway — shared hosts often
         // inherit a 30s max_execution_time from the parent wp-cron.php
         // request, which kills trigger_sync mid-POST. Raise both time +
@@ -1546,6 +1617,9 @@ class BitBot {
      * @since 1.7.0
      */
     public function retry_first_sync_cron() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         $status = $this->api_client->get_sync_status();
         if ( ! empty( $status['success'] ) ) {
             $pages_count = (int) ( $status['data']['pagesCount'] ?? 0 );
@@ -1587,6 +1661,9 @@ class BitBot {
      * @return string
      */
     public function filter_seo_document_title( $title ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return $title;
+        }
         if ( $this->seo_incumbent_emitting() || ! is_singular() ) {
             return $title;
         }
@@ -1604,6 +1681,9 @@ class BitBot {
      * @since 2.1.182
      */
     public function render_seo_head() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( $this->seo_incumbent_emitting() || ! is_singular() ) {
             return;
         }
@@ -1615,7 +1695,7 @@ class BitBot {
         $title = trim( wp_strip_all_tags( '' !== $meta['title'] ? $meta['title'] : get_the_title( $post_id ) ) );
         $desc  = trim( wp_strip_all_tags( (string) $meta['description'] ) );
 
-        echo "\n<!-- BitBot SEO -->\n";
+        echo "\n<!-- Youami SEO -->\n";
         if ( '' !== $desc ) {
             echo '<meta name="description" content="' . esc_attr( $desc ) . '" />' . "\n";
         }
@@ -1631,7 +1711,7 @@ class BitBot {
         if ( $img ) {
             echo '<meta property="og:image" content="' . esc_url( $img ) . '" />' . "\n";
         }
-        echo "<!-- /BitBot SEO -->\n";
+        echo "<!-- /Youami SEO -->\n";
     }
 
     /**
@@ -1644,6 +1724,9 @@ class BitBot {
      * @since 2.1.64
      */
     public function render_canvas_hide_css() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( ! is_singular( 'page' ) ) {
             return;
         }
@@ -1670,7 +1753,7 @@ class BitBot {
         $css .= $s . ' :has(> .wp-block-post-title):not(:has(.wp-block-post-content)){display:none!important}'
               . $s . ' .wp-block-template-part{display:none!important}'
               . $s . ' .wp-site-blocks{padding-top:0!important}';
-        echo "<style id=\"bitbot-canvas\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
+        echo "<style id=\"bitbot-canvas\">" . BitBot_Site_Css::for_style_tag( $css ) . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput -- fixed rules built above from constants and an integer id, passed through for_style_tag like every style print.
     }
 
     /**
@@ -1682,15 +1765,18 @@ class BitBot {
      * @since 2.1.73
      */
     public function render_page_css() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( ! is_singular( 'page' ) ) {
             return;
         }
         $id  = get_queried_object_id();
-        $css = $id ? get_post_meta( $id, '_bitbot_page_css', true ) : '';
-        if ( ! $css ) {
+        $css = BitBot_Site_Css::for_style_tag( $id ? get_post_meta( $id, '_bitbot_page_css', true ) : '' );
+        if ( '' === $css ) {
             return;
         }
-        echo "<style id=\"bitbot-page-css\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
+        echo "<style id=\"bitbot-page-css\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput -- CSS made safe for a style element by BitBot_Site_Css::for_style_tag (no tags, no "<").
     }
 
     /**
@@ -1702,14 +1788,17 @@ class BitBot {
      * @since 2.1.74
      */
     public function render_post_css() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( ! is_singular( 'post' ) ) {
             return;
         }
-        $css = get_option( 'bitbot_post_css', '' );
-        if ( ! $css ) {
+        $css = BitBot_Site_Css::for_style_tag( get_option( 'bitbot_post_css', '' ) );
+        if ( '' === $css ) {
             return;
         }
-        echo "<style id=\"bitbot-post-css\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
+        echo "<style id=\"bitbot-post-css\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput -- CSS made safe for a style element by BitBot_Site_Css::for_style_tag (no tags, no "<").
     }
 
     /**
@@ -1721,21 +1810,18 @@ class BitBot {
      * @since 2.1.75
      */
     public function render_site_css() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( is_admin() ) {
             return;
         }
-        $css = get_option( 'bitbot_site_css', '' );
-        if ( $css ) {
-            echo "<style id=\"bitbot-site-css\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
+        $css = BitBot_Site_Css::for_style_tag( get_option( 'bitbot_site_css', '' ) );
+        if ( '' !== $css ) {
+            echo "<style id=\"bitbot-site-css\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput -- CSS made safe for a style element by BitBot_Site_Css::for_style_tag (no tags, no "<").
         }
-        // The agent's Additional CSS (custom_css proposals). Printed by US, not
-        // the Customizer channel: wp_update_custom_css_post routes through KSES
-        // for admins without unfiltered_html (all of multisite), which escapes
-        // '>' to '&gt;' and silently kills every child-combinator rule.
-        $custom = get_option( 'bitbot_custom_css', '' );
-        if ( $custom ) {
-            echo "<style id=\"bitbot-custom-css\">" . $custom . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
-        }
+        // The agent's Additional CSS lives in WordPress's own Additional CSS for
+        // the active theme (BitBot_Site_Css) and is printed by WordPress itself.
     }
 
     /**
@@ -1748,6 +1834,9 @@ class BitBot {
      * @return string
      */
     public function external_links_new_tab( $content ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return $content;
+        }
         if ( ! is_string( $content ) || false === strpos( $content, '<a' ) ) {
             return $content;
         }
@@ -1789,7 +1878,7 @@ class BitBot {
      * @since 2.1.191
      */
     public function maybe_enqueue_toc_assets() {
-        if ( ! is_singular( 'post' ) ) {
+        if ( ! is_singular( 'post' ) || ! BitBot_Consent::is_connected() ) {
             return;
         }
         wp_enqueue_style(
@@ -1817,6 +1906,9 @@ class BitBot {
      * @since 2.1.121
      */
     public function maybe_enqueue_chrome_assets() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         $manifest = $this->get_overlay_manifest();
         $has_header = !empty( $manifest['headerOverrides'] ) && is_array( $manifest['headerOverrides'] );
         $has_footer = !empty( $manifest['footerOverrides'] ) && is_array( $manifest['footerOverrides'] );
@@ -1841,10 +1933,13 @@ class BitBot {
      * @since 2.1.88
      */
     public function maybe_serve_llms_txt() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( get_option( 'bitbot_llms_txt_disabled' ) ) {
             return;
         }
-        $path = isset( $_SERVER['REQUEST_URI'] ) ? (string) parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
+        $path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ), PHP_URL_PATH ) : '';
         if ( '/llms.txt' !== $path ) {
             return;
         }
@@ -1898,10 +1993,13 @@ class BitBot {
      * @since 2.1.93
      */
     public function maybe_redirect_legacy_permalink() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( ! is_404() || get_option( 'bitbot_legacy_permalink_redirect_disabled' ) ) {
             return;
         }
-        $path = isset( $_SERVER['REQUEST_URI'] ) ? (string) parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
+        $path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ), PHP_URL_PATH ) : '';
         $segments = array_values( array_filter( explode( '/', trim( $path, '/' ) ) ) );
         if ( empty( $segments ) ) {
             return;
@@ -1924,7 +2022,7 @@ class BitBot {
             return;
         }
         // Never redirect to ourselves (avoids loops if the permalink IS 404ing).
-        $target_path = (string) parse_url( $target, PHP_URL_PATH );
+        $target_path = (string) wp_parse_url( $target, PHP_URL_PATH );
         if ( untrailingslashit( $target_path ) === untrailingslashit( $path ) ) {
             return;
         }
@@ -1935,7 +2033,7 @@ class BitBot {
     /**
      * The overlay manifest — the registry of every presentation "goodie"
      * BitBot has injected, layered PER THEME (one layer per theme, like an
-     * Effect layer): { layers: { <stylesheet>: { siteCss, customCss, postCss,
+     * Effect layer): { layers: { <stylesheet>: { siteCss, postCss,
      * archivedAt } }, overrides: { <stylesheet>: <wp_template post id> },
      * history: [ { event, ... , at } ] }. The base site (content, menus,
      * media, SEO meta) is vanilla WordPress and never lives here.
@@ -1962,6 +2060,19 @@ class BitBot {
         $m = $this->get_overlay_manifest();
         $m['history'][] = array_merge( array( 'event' => (string) $event, 'at' => gmdate( 'c' ) ), $detail );
         $this->save_overlay_manifest( $m );
+    }
+
+    /**
+     * Site title or tagline changed: send the backend a fresh snapshot, once per
+     * request (a settings save fires both options), after the response.
+     */
+    public function on_site_title_changed() {
+        static $queued = false;
+        if ( $queued || ! ( $this->api_client instanceof BitBot_API_Client ) ) {
+            return;
+        }
+        $queued = true;
+        add_action( 'shutdown', array( $this->api_client, 'push_style_snapshot' ) );
     }
 
     /**
@@ -1992,25 +2103,39 @@ class BitBot {
         $m = $this->get_overlay_manifest();
 
         // 1. Archive the outgoing theme's layer + suspend it.
+        // The agent's Additional CSS is not part of the layer: WordPress keeps
+        // Additional CSS per theme itself, so it follows the theme on its own.
         $active = array(
-            'siteCss'   => (string) get_option( 'bitbot_site_css', '' ),
-            'customCss' => (string) get_option( 'bitbot_custom_css', '' ),
-            'postCss'   => (string) get_option( 'bitbot_post_css', '' ),
+            'siteCss' => (string) get_option( 'bitbot_site_css', '' ),
+            'postCss' => (string) get_option( 'bitbot_post_css', '' ),
         );
-        if ( '' !== $old_stylesheet && ( $active['siteCss'] || $active['customCss'] || $active['postCss'] ) ) {
+        // CSS of an earlier version still waiting to move into the outgoing
+        // theme's Additional CSS (a failed write) stays archived with its layer.
+        $pending = isset( $m['layers'][ $old_stylesheet ]['customCss'] ) && is_string( $m['layers'][ $old_stylesheet ]['customCss'] ) ? $m['layers'][ $old_stylesheet ]['customCss'] : '';
+        if ( '' !== $old_stylesheet && ( $active['siteCss'] || $active['postCss'] || '' !== $pending ) ) {
             $m['layers'][ $old_stylesheet ] = array_merge( $active, array( 'archivedAt' => gmdate( 'c' ) ) );
+            if ( '' !== $pending ) {
+                $m['layers'][ $old_stylesheet ]['customCss'] = $pending;
+            }
             $m['history'][] = array( 'event' => 'layer_archived', 'theme' => $old_stylesheet, 'at' => gmdate( 'c' ) );
         }
         update_option( 'bitbot_site_css', '' );
-        update_option( 'bitbot_custom_css', '' );
         update_option( 'bitbot_post_css', '' );
 
         // 2. Restore the incoming theme's layer if one was archived earlier.
         if ( ! empty( $m['layers'][ $new_stylesheet ] ) && is_array( $m['layers'][ $new_stylesheet ] ) ) {
             $layer = $m['layers'][ $new_stylesheet ];
             update_option( 'bitbot_site_css', (string) ( $layer['siteCss'] ?? '' ) );
-            update_option( 'bitbot_custom_css', (string) ( $layer['customCss'] ?? '' ) );
             update_option( 'bitbot_post_css', (string) ( $layer['postCss'] ?? '' ) );
+            // A layer archived by an earlier version may hold the agent's CSS of
+            // that time: move it into the theme's Additional CSS once.
+            if ( ! empty( $layer['customCss'] ) && is_string( $layer['customCss'] ) ) {
+                $moved = null !== BitBot_Site_Css::refusal( $layer['customCss'] ) || true === BitBot_Site_Css::append_additional_css( $layer['customCss'] );
+                if ( $moved ) {
+                    // Only once it is in the theme's Additional CSS (or is not CSS at all).
+                    unset( $m['layers'][ $new_stylesheet ]['customCss'] );
+                }
+            }
             $m['history'][] = array( 'event' => 'layer_restored', 'theme' => $new_stylesheet, 'at' => gmdate( 'c' ) );
         }
 
@@ -2026,7 +2151,9 @@ class BitBot {
         $this->self_heal_theme_proofing();
 
         // 4. The agent's memory: full trace rides inside the style snapshot.
-        if ( $this->api_client instanceof BitBot_API_Client ) {
+        // Steps 4 and 5 talk to the backend, so they wait for Connect; the
+        // debounce transient is not set before it either.
+        if ( BitBot_Consent::is_connected() && $this->api_client instanceof BitBot_API_Client ) {
             $this->api_client->push_style_snapshot();
 
             // 5. Proactive agent run: tell the backend so the agent gives the
@@ -2051,13 +2178,11 @@ class BitBot {
      * @since 2.1.81
      */
     public function self_heal_theme_proofing() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( post_type_exists( 'wp_navigation' ) ) {
-            $nav = get_posts( array(
-                'post_type'   => 'wp_navigation',
-                'title'       => 'BitBot Primary',
-                'post_status' => 'publish',
-                'numberposts' => 1,
-            ) );
+            $nav = BitBot_Nav_Location::find_navigation_posts();
             if ( ! empty( $nav ) ) {
                 update_option( 'bitbot_nav_post_id', (int) $nav[0]->ID );
             }
@@ -2070,6 +2195,10 @@ class BitBot {
 
     public function enqueue_frontend_assets() {
         if ( ! get_option( 'bitbot_enabled', true ) ) {
+            return;
+        }
+        // Not connected to youami.ai yet: the widget has nothing to talk to.
+        if ( ! BitBot_Consent::is_connected() ) {
             return;
         }
 
@@ -2121,6 +2250,15 @@ class BitBot {
             true
         );
 
+        // Where a link in the chat opens (unit tested in tests/widget-links.test.js).
+        wp_enqueue_script(
+            'bitbot-widget-links',
+            BITBOT_PLUGIN_URL . 'assets/js/widget-links.js',
+            array(),
+            BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/js/widget-links.js' ),
+            true
+        );
+
         // WhatsApp click-to-chat link logic (unit tested in tests/widget-whatsapp.test.js).
         $wa_ver = BITBOT_VERSION . '.' . (int) @filemtime( BITBOT_PLUGIN_DIR . 'assets/js/widget-whatsapp.js' );
         wp_enqueue_script(
@@ -2165,7 +2303,7 @@ class BitBot {
         wp_enqueue_script(
             'bitbot-widget',
             BITBOT_PLUGIN_URL . 'assets/js/widget.js',
-            array( 'bitbot-widget-voice', 'bitbot-widget-whatsapp', 'bitbot-widget-language', 'bitbot-widget-stream', 'bitbot-widget-form' ),
+            array( 'bitbot-widget-voice', 'bitbot-widget-whatsapp', 'bitbot-widget-language', 'bitbot-widget-stream', 'bitbot-widget-form', 'bitbot-widget-links' ),
             $js_ver,
             true
         );
@@ -2278,6 +2416,11 @@ class BitBot {
             // re-checks it on every call start; this only decides whether the
             // widget shows its Call button.
             'voiceCallsEnabled'    => get_option( 'bitbot_voice_calls_enabled' ) === '1',
+            // The pre-chat form's fixed text for the site language and every language the visitor can pick.
+            'gateCopy'             => BitBot_Widget_Copy::gate_copy_map( array_merge(
+                array( $language_code ),
+                array_column( BitBot_Languages::widget_list( get_option( BitBot_Languages::OPTION, array() ), $language_code, BitBot_Languages::all(), BitBot_Languages::detected() ), 'code' )
+            ) ),
             // Languages the visitor can pick (empty = no choice, no globe).
             'languages'            => BitBot_Languages::widget_list( get_option( BitBot_Languages::OPTION, array() ), $language_code, BitBot_Languages::all(), BitBot_Languages::detected() ),
             // Title + welcome message per selected language (site language =
@@ -2290,6 +2433,8 @@ class BitBot {
                 get_option( 'bitbot_whatsapp_number', '' ),
                 get_option( 'bitbot_whatsapp_enabled', '0' )
             ),
+            // Off by default: Enter does nothing in the message box and the visitor clicks Send.
+            'enterToSend'          => get_option( 'bitbot_enter_to_send', '0' ) === '1',
             'siteName'             => wp_specialchars_decode( wp_strip_all_tags( (string) get_option( 'blogname', '' ) ), ENT_QUOTES ), // the option is stored HTML-escaped ("People&#039;s"); the widget uses this as plain text in the WhatsApp opening line '' ) ),
         ) );
     }
@@ -2390,6 +2535,9 @@ class BitBot {
      * @return bool
      */
     public function guard_content_bomb( $maybe_empty, $postarr ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return $maybe_empty;
+        }
         $content = isset( $postarr['post_content'] ) ? (string) $postarr['post_content'] : '';
         if ( '' === $content ) {
             return $maybe_empty;
@@ -2416,6 +2564,9 @@ class BitBot {
      * @return stdClass|WP_Error
      */
     public function guard_content_bomb_rest( $prepared_post, $request ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return $prepared_post;
+        }
         if ( is_wp_error( $prepared_post ) || ! isset( $prepared_post->post_content ) ) {
             return $prepared_post;
         }
@@ -2444,17 +2595,16 @@ class BitBot {
      * @return WP_REST_Response
      */
     public function rest_last_fatal( $request ) {
-        $key    = (string) $request->get_param( 'apiKey' );
-        $stored = (string) get_option( 'bitbot_api_key', '' );
-        if ( '' === $stored || '' === $key || ! hash_equals( $stored, $key ) ) {
-            return new WP_REST_Response( array( 'ok' => false, 'error' => 'unauthorized' ), 401 );
-        }
+        // Authenticated by BitBot_Admin::permission_api_key() before this runs.
         $fatal = get_option( 'bitbot_last_fatal', null );
         return new WP_REST_Response( array( 'ok' => true, 'fatal' => is_array( $fatal ) ? $fatal : null ), 200 );
     }
 
 
     public function rest_widget_config( $request ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return new WP_Error( 'bitbot_not_connected', 'Not connected.', array( 'status' => 404 ) );
+        }
         // Refresh the cached plan snapshot so accessPaused is accurate: a
         // capped / expired site stays hidden, a reset / upgrade brings the
         // widget back. The widget fetches this endpoint on every page load,
@@ -2681,8 +2831,8 @@ class BitBot {
             return false;
         }
 
-        $request_uri  = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/';
-        $request_path = parse_url( $request_uri, PHP_URL_PATH ) ?: '/';
+        $request_uri  = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '/';
+        $request_path = wp_parse_url( $request_uri, PHP_URL_PATH ) ?: '/';
         $full_url     = home_url( $request_uri );
 
         $lines = preg_split( '/\r\n|\r|\n/', $raw_patterns );
@@ -2748,6 +2898,9 @@ class BitBot {
      * @return array
      */
     public function exclude_current_from_related_rail( $query, $block ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return $query;
+        }
         if ( ! is_singular() ) {
             return $query;
         }
@@ -2773,6 +2926,11 @@ class BitBot {
 
     public function enqueue_admin_bridge() {
         if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        // The assistant only exists on a connected site, so an unconnected
+        // one loads nothing of ours outside the plugin's own page.
+        if ( ! BitBot_Consent::is_connected() ) {
             return;
         }
         wp_enqueue_script( 'bitbot-admin-bridge', BITBOT_PLUGIN_URL . 'assets/admin/admin-browser-bridge.js', array(), BITBOT_VERSION, true );
@@ -2860,7 +3018,7 @@ class BitBot {
                 wp_enqueue_script(
                     'bitbot-admin-react',
                     BITBOT_PLUGIN_URL . 'assets/admin/admin.js',
-                    array(), // No jQuery / no other deps — React is self-contained
+                    array( 'react', 'react-dom' ), // WordPress's own React 18 (global window.React / window.ReactDOM); the bundle does not inline a copy.
                     $react_js_ver,
                     true
                 );
@@ -2891,36 +3049,31 @@ class BitBot {
                     ? $this->admin->get_current_plan()
                     : 'free';
 
-                // PostHog telemetry — key is fetched from the BitBot
-                // backend (RegisterSite response + GetTelemetryConfig RPC)
-                // and stored in wp_options. Source-of-truth lives on
-                // Vercel env vars (POSTHOG_KEY + POSTHOG_HOST) so we
-                // never ship the key in the public plugin source.
-                //
-                // Customers can override either:
-                //   define( 'BITBOT_POSTHOG_KEY', 'phc_yourKey' ); — use your own project
-                //   define( 'BITBOT_POSTHOG_KEY', '' );           — disable telemetry entirely
-                // OR via WP option `bitbot_posthog_key` (same precedence).
-                if ( defined( 'BITBOT_POSTHOG_KEY' ) ) {
-                    $posthog_key = BITBOT_POSTHOG_KEY;
-                } else {
-                    $posthog_key = (string) get_option( 'bitbot_posthog_key', '' );
-                    // Backfill for installs that registered BEFORE the
-                    // backend started returning the key. One-off RPC hit
-                    // — once the option is set, this branch is skipped.
-                    // Throttled to once-per-day via transient so a
-                    // mis-configured server doesn't hammer the API.
-                    if ( $posthog_key === '' && ! get_transient( 'bitbot_posthog_backfill_tried' ) ) {
-                        set_transient( 'bitbot_posthog_backfill_tried', 1, DAY_IN_SECONDS );
-                        $cfg = $this->api_client->fetch_telemetry_config();
-                        if ( ! empty( $cfg['posthogKey'] ) ) {
-                            $posthog_key = (string) $cfg['posthogKey'];
+                // PostHog telemetry is opt-in. Until the administrator switches
+                // on "anonymous usage analytics" no key or host reaches the
+                // browser, nothing is fetched from the backend and no
+                // PostHog script is loaded. Once on, the key comes from the
+                // BitBot backend (stored in wp_options), or from the
+                // BITBOT_POSTHOG_KEY / BITBOT_POSTHOG_HOST constants.
+                $posthog_key  = '';
+                $posthog_host = '';
+                if ( BitBot_Consent::analytics_enabled() ) {
+                    if ( defined( 'BITBOT_POSTHOG_KEY' ) ) {
+                        $posthog_key = BITBOT_POSTHOG_KEY;
+                    } else {
+                        $posthog_key = (string) get_option( 'bitbot_posthog_key', '' );
+                        if ( $posthog_key === '' && BitBot_Consent::is_connected() && ! get_transient( 'bitbot_posthog_backfill_tried' ) ) {
+                            set_transient( 'bitbot_posthog_backfill_tried', 1, DAY_IN_SECONDS );
+                            $cfg = $this->api_client->fetch_telemetry_config();
+                            if ( ! empty( $cfg['posthogKey'] ) ) {
+                                $posthog_key = (string) $cfg['posthogKey'];
+                            }
                         }
                     }
+                    $posthog_host = defined( 'BITBOT_POSTHOG_HOST' )
+                        ? BITBOT_POSTHOG_HOST
+                        : (string) get_option( 'bitbot_posthog_host', 'https://us.i.posthog.com' );
                 }
-                $posthog_host = defined( 'BITBOT_POSTHOG_HOST' )
-                    ? BITBOT_POSTHOG_HOST
-                    : (string) get_option( 'bitbot_posthog_host', 'https://us.i.posthog.com' );
 
                 wp_localize_script( 'bitbot-admin-react', 'bitbotAdminConfig', array(
                     'apiKey'        => (string) get_option( 'bitbot_api_key', '' ),
@@ -2951,6 +3104,8 @@ class BitBot {
                     // Real, site-specific hooks for the Agent upsell, from WP ground
                     // truth. Only computed for non-Pro+ (the locked-pitch audience).
                     'agentTeaser'   => ( 'pro_plus' !== $current_plan ) ? $this->build_agent_teaser() : array(),
+                    'connected'     => BitBot_Consent::is_connected(),
+                    'analyticsOptIn' => BitBot_Consent::analytics_enabled(),
                     'posthogKey'    => sanitize_text_field( $posthog_key ),
                     'posthogHost'   => esc_url_raw( $posthog_host ),
                     // 2.0.12: widget-health flags consumed by Overview's
@@ -3054,6 +3209,7 @@ class BitBot {
         // settings change shows immediately even when the page itself is
         // frozen by a full-page cache (LiteSpeed/WP Rocket/CDN). Public — same
         // data already inlined (and public) on every page.
+        // Public on purpose: the widget reads it for anonymous visitors; it returns only data already printed on every page.
         register_rest_route( 'bitbot/v1', '/widget-config', array(
             'methods'             => 'GET',
             'callback'            => array( $this, 'rest_widget_config' ),
@@ -3066,10 +3222,11 @@ class BitBot {
         register_rest_route( 'bitbot/v1', '/last-fatal', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'rest_last_fatal' ),
-            'permission_callback' => '__return_true',
+            'permission_callback' => array( $this->admin, 'permission_api_key' ),
         ) );
 
         // Chat endpoint (for the widget)
+        // Public on purpose: anonymous visitors chat through the widget; input is sanitized and the backend rate limits per site.
         register_rest_route( 'bitbot/v1', '/chat', array(
             'methods'             => 'POST',
             'callback'            => array( $this->widget, 'handle_chat_request' ),
@@ -3096,6 +3253,7 @@ class BitBot {
         // Voice call start (public). The widget asks the SITE for a session;
         // the site asks the backend (which holds the Habitat key). The key
         // never reaches the browser.
+        // Public on purpose: visitors start calls anonymously; input is validated, the Habitat key stays on the backend and the owner switch plus rate limits are enforced there. A page nonce would go stale on cached pages.
         register_rest_route( 'bitbot/v1', '/voice-call/start', array(
             'methods'             => 'POST',
             'callback'            => array( $this->widget, 'handle_voice_call_start' ),
@@ -3103,6 +3261,7 @@ class BitBot {
         ) );
 
         // Citation links of the spoken answer just finished (public, read only).
+        // Public on purpose: read only for the anonymous visitor on the call; the session id is validated and the backend scopes it to this site.
         register_rest_route( 'bitbot/v1', '/voice-call/links', array(
             'methods'             => 'GET',
             'callback'            => array( $this->widget, 'handle_voice_call_links' ),
@@ -3110,6 +3269,7 @@ class BitBot {
         ) );
 
         // Form submission endpoint (public)
+        // Public on purpose: visitors submit forms anonymously; every field is sanitized, name and email are validated and the backend de-duplicates by submission key. A page nonce would go stale on cached pages.
         register_rest_route( 'bitbot/v1', '/form-submit', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'handle_form_submit' ),
@@ -3118,6 +3278,7 @@ class BitBot {
 
         // Live-mode update poll (public — used by the widget while a
         // conversation is in live handover mode).
+        // Public on purpose: anonymous visitors poll their own conversation; the session id is validated and the backend scopes it to this site.
         register_rest_route( 'bitbot/v1', '/live-updates', array(
             'methods'             => 'POST',
             'callback'            => array( $this->widget, 'handle_live_updates_request' ),
@@ -3127,11 +3288,13 @@ class BitBot {
         // Visitor presence: heartbeat while widget is open, beforeunload
         // beacon on tab close. Both are public — the backend scopes them
         // to (site, sessionId) after looking up the API key.
+        // Public on purpose: sent by anonymous visitors from the widget; the session id is validated and the backend scopes it to this site.
         register_rest_route( 'bitbot/v1', '/visitor-heartbeat', array(
             'methods'             => 'POST',
             'callback'            => array( $this->widget, 'handle_visitor_heartbeat' ),
             'permission_callback' => '__return_true',
         ) );
+        // Public on purpose: a sendBeacon from anonymous visitors; the session id is validated and the backend scopes it to this site.
         register_rest_route( 'bitbot/v1', '/visitor-left', array(
             'methods'             => 'POST',
             'callback'            => array( $this->widget, 'handle_visitor_left' ),
@@ -3141,6 +3304,7 @@ class BitBot {
         // Citation click beacon (public). Used by the widget when the
         // visitor opens a cited page link inside a bot reply — drives
         // the Overview Top Cited Pages CTR.
+        // Public on purpose: a beacon from anonymous visitors; the URL is sanitized and the backend records it for this site only.
         register_rest_route( 'bitbot/v1', '/citation-click', array(
             'methods'             => 'POST',
             'callback'            => array( $this->widget, 'handle_citation_click' ),
@@ -3253,7 +3417,7 @@ class BitBot {
         if ( $ip_address ) {
             $ip_address = explode( ',', $ip_address )[0]; // First IP in chain
         } else {
-            $ip_address = isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : '';
+            $ip_address = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
         }
         $ip_address = sanitize_text_field( trim( $ip_address ) );
 
@@ -3285,6 +3449,9 @@ class BitBot {
      * @return string
      */
     public function render_form_shortcode( $atts = array() ) {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return '';
+        }
         // 2.0.4: per-page instance counter so multiple shortcode invocations
         // on the same page get unique DOM IDs (was: hardcoded ids collided →
         // duplicate submit listeners → duplicate submissions).
@@ -3337,7 +3504,7 @@ class BitBot {
             $notice = '';
             if ( current_user_can( 'edit_posts' ) ) {
                 $notice = '<div style="border:1px dashed #c00;color:#c00;padding:10px 14px;font-size:13px;">'
-                    . esc_html__( 'BitBot form could not be loaded (check the shortcode id or the API connection). Only editors see this notice.', 'bitbot' )
+                    . esc_html__( 'Youami form could not be loaded (check the shortcode id or the API connection). Only editors see this notice.', 'bitbot' )
                     . '</div>';
             }
             return '<!-- bitbot_form: no form resolved (id="' . esc_attr( $form_id ) . '") — nothing rendered -->' . $notice;
@@ -3398,7 +3565,7 @@ class BitBot {
                  query string. -->
             <form id="<?php echo esc_attr( $form_dom_id ); ?>" class="bitbot-lead-form-el" novalidate onsubmit="return false;">
                 <input type="hidden" name="bitbot_submission_key" value="">
-                <?php echo BitBot_Form_Markup::render_fields( $fields, 'bitbot-field' . $suffix ); // Escaped inside. ?>
+                <?php echo wp_kses( BitBot_Form_Markup::render_fields( $fields, 'bitbot-field' . $suffix ), BitBot_Form_Markup::allowed_html() ); ?>
 
                 <div class="bitbot-form-message"></div>
 
@@ -3566,7 +3733,7 @@ class BitBot {
                     var xhr = new XMLHttpRequest();
                     xhr.open('POST', '<?php echo esc_url( rest_url( 'bitbot/v1/form-submit' ) ); ?>');
                     xhr.setRequestHeader('Content-Type', 'application/json');
-                    xhr.setRequestHeader('X-WP-Nonce', '<?php echo wp_create_nonce( 'wp_rest' ); ?>');
+                    xhr.setRequestHeader('X-WP-Nonce', '<?php echo esc_js( wp_create_nonce( 'wp_rest' ) ); ?>');
                     xhr.onload = function() {
                         btn.disabled = false;
                         btn.textContent = '<?php echo esc_js( __( 'Submit', 'bitbot' ) ); ?>';
@@ -3649,7 +3816,7 @@ class BitBot {
         if ( is_admin() || empty( $_GET['bb_view'] ) ) {
             return false;
         }
-        return function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+        return BitBot_Consent::is_connected() && function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
     }
 
     /**
@@ -3721,6 +3888,9 @@ class BitBot {
     }
 
     public function maybe_render_form_embed() {
+        if ( ! BitBot_Consent::is_connected() ) {
+            return;
+        }
         if ( empty( $_GET['bitbot_form_embed'] ) ) {
             return;
         }

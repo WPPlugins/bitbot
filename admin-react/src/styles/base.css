@@ -1,0 +1,143 @@
+/* =========================================================================
+   Scope reset — mitigates Risk 1 from BLUEPRINT.md.
+   wp-admin.css applies cascading rules to bare h1-h6, button, input, table,
+   a. We `all: unset` the root to give our React tree a clean slate, then
+   re-establish base typography + layout. Every component class is prefixed
+   .bb- so we never collide with the host page.
+   ========================================================================= */
+
+#bitbot-admin-root {
+  all: unset;
+  display: block;
+  font-family: var(--font-body);
+  font-size: var(--fs-15);
+  line-height: 1.5;
+  color: var(--ink-900);
+  background: var(--paper);
+  font-feature-settings: "ss01" on, "cv11" on;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* Portal-scope wrapper — mirrors the typography/font defaults so
+   modals portaled to <body> don't inherit WP admin's font/colour. */
+.bb-portal-scope {
+  font-family: var(--font-body);
+  font-size: var(--fs-15);
+  line-height: 1.5;
+  color: var(--ink-900);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#bitbot-admin-root *,
+#bitbot-admin-root *::before,
+#bitbot-admin-root *::after,
+.bb-portal-scope *,
+.bb-portal-scope *::before,
+.bb-portal-scope *::after {
+  box-sizing: border-box;
+}
+
+/* Reset semantic-element defaults to a neutral baseline. Components
+   re-style what they need. */
+#bitbot-admin-root h1,
+#bitbot-admin-root h2,
+#bitbot-admin-root h3,
+#bitbot-admin-root h4,
+#bitbot-admin-root h5,
+#bitbot-admin-root h6 {
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+#bitbot-admin-root p { margin: 0; }
+#bitbot-admin-root ul,
+#bitbot-admin-root ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Reset is wrapped in :where() so it contributes ZERO specificity.
+   That way any `.bb-…` class can override padding/background without
+   needing a chained ancestor selector. Without :where(), the ID + type
+   pair beats single-class rules like .bb-seg.
+   Also applied to .bb-portal-scope so portaled modals get the same
+   reset (otherwise WP-admin button hover/focus styles bleed in). */
+:where(#bitbot-admin-root button, .bb-portal-scope button) {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+:where(#bitbot-admin-root input,
+       #bitbot-admin-root textarea,
+       #bitbot-admin-root select,
+       .bb-portal-scope input,
+       .bb-portal-scope textarea,
+       .bb-portal-scope select) {
+  font: inherit;
+  color: inherit;
+}
+
+#bitbot-admin-root a {
+  color: var(--ink-900);
+  text-decoration: none;
+}
+#bitbot-admin-root a:hover {
+  color: var(--accent);
+}
+
+#bitbot-admin-root svg {
+  display: block;
+}
+
+/* Container — caps content at 1280px and supplies horizontal gutters.
+ *
+ * `width: 100%` is the load-bearing line: bb-app is a column flex
+ * parent, and without an explicit width the browser sizes each flex
+ * item to its content's max-intrinsic width and then auto-centres via
+ * the auto margin. That makes the container width VARY by tab — wide
+ * tabs (Overview bento) hit the 1280 cap, narrower tabs (Agent, Forms,
+ * Leads) shrink to their natural content width. Result: tabs render at
+ * different visual widths and switching tabs feels jumpy. Setting
+ * width: 100% forces stretch-to-parent before max-width caps it, so
+ * every tab is exactly min(parent, 1280px). */
+.bb-container {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--sp-24) var(--gutter);
+}
+/* Agent tab is a full-width workspace — drop the content cap so the chat
+   uses the whole admin area (gutter padding still gives breathing room). */
+.bb-container-wide { max-width: none; }
+
+/* Loading skeleton — used while React Query is fetching initial data. */
+.bb-skeleton {
+  background: var(--ink-100);
+  border-radius: var(--r-6);
+  position: relative;
+  overflow: hidden;
+}
+.bb-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+  animation: bb-shimmer 1.4s infinite;
+}
+@keyframes bb-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-skeleton::after { animation: none; }
+}

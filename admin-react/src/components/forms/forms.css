@@ -1,0 +1,691 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Forms tab — slim row list + click-to-open modal. The actual editing
+   surface (visual field editor, embed snippets, responses table) lives
+   inside FormEditorModal so the list stays calm and scannable.
+   ───────────────────────────────────────────────────────────────────── */
+
+.bb-forms-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--sp-20);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .bb-forms-grid { grid-template-columns: 1fr; }
+}
+.bb-forms-main {
+  display: flex; flex-direction: column;
+  gap: var(--sp-12);
+  min-width: 0;
+}
+.bb-forms-aside { min-width: 0; }
+
+/* ── Form list row (slim, click-to-open) ───────────────────────────── */
+.bb-form-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-16);
+  padding: var(--sp-14) var(--sp-16);
+  background: var(--paper);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  cursor: pointer;
+  /* Rest elevation so the row reads as a tappable tile, not a flat container. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.bb-form-row:hover {
+  border-color: var(--accent, #e9633b);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.09);
+  transform: translateY(-2px);
+}
+.bb-form-row:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+.bb-form-row:focus-visible {
+  outline: 2px solid var(--accent, #e9633b);
+  outline-offset: 2px;
+}
+/* Title nudges toward the accent on hover, reinforcing "this opens". */
+.bb-form-row:hover .bb-form-row-title > span:first-child { color: var(--accent, #e9633b); }
+.bb-form-row-disabled { opacity: 0.65; }
+.bb-form-row-main { flex: 1; min-width: 0; }
+.bb-form-row-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  font-family: var(--font-display);
+  font-size: var(--fs-18);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin-bottom: var(--sp-4);
+}
+.bb-form-row-badge {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: rgba(232, 79, 42, 0.10);
+  color: var(--accent);
+}
+.bb-form-row-badge-off {
+  background: var(--ink-100);
+  color: var(--ink-500);
+}
+.bb-form-row-meta {
+  display: flex; flex-wrap: wrap; gap: var(--sp-6);
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+.bb-form-row-summary {
+  color: var(--ink-700);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Per-form "new entries" indicator — small accent dot to the right of
+   "N responses" when there are submissions newer than the admin's
+   last-visited timestamp for this form. */
+.bb-form-row-newdot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(232, 79, 42, 0.18);
+}
+/* Server-driven "N new" pill — unread (un-opened) responses for this form.
+   Reads as actionable ("N new") rather than an ambiguous dot, and matches
+   the tab + menu badge counts exactly. */
+.bb-form-row-newpill {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+}
+/* 2.0.24: pre-chat-gate is now controlled by the row toggle alone.
+   This is just an inline hint explaining what the toggle does for the
+   default form — no input, no interaction. */
+.bb-form-row-chatgate-info {
+  margin: var(--sp-8) 0 0;
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+.bb-form-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  flex-shrink: 0;
+}
+.bb-form-delete:hover { color: var(--accent); }
+
+/* ── Toggle switch (kept from previous design) ─────────────────────── */
+.bb-form-toggle { position: relative; cursor: pointer; display: inline-block; }
+.bb-form-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.bb-form-toggle-track {
+  display: inline-block;
+  width: 36px; height: 20px;
+  border-radius: var(--r-full);
+  background: var(--ink-200);
+  position: relative;
+  transition: background var(--t-fast) var(--ease);
+}
+.bb-form-toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: var(--paper);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform var(--t-fast) var(--ease);
+}
+.bb-form-toggle input:checked ~ .bb-form-toggle-track {
+  background: var(--success);
+}
+.bb-form-toggle input:checked ~ .bb-form-toggle-track .bb-form-toggle-thumb {
+  transform: translateX(16px);
+}
+
+/* ── Generated form result preview in the Create panel ────────────── */
+.bb-form-result {
+  margin-top: var(--sp-16);
+  padding: var(--sp-14);
+  background: var(--paper-2);
+  border-radius: var(--r-10);
+  display: flex; flex-direction: column; gap: var(--sp-6);
+}
+.bb-form-result-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0;
+}
+.bb-form-result-fields {
+  margin: var(--sp-6) 0 0;
+  padding-left: var(--sp-16);
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   FormEditorModal — the dedicated screen for editing one form. Three
+   tabs (Build, Embed, Responses) inside a centered card that uses ~80%
+   of the viewport so the side-by-side preview + field editor breathes.
+   ───────────────────────────────────────────────────────────────────── */
+
+.bb-form-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(20, 24, 36, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 90;
+  animation: bb-fade-in var(--t-normal) var(--ease);
+}
+.bb-form-modal {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(1080px, 92vw);
+  max-height: 88vh;
+  background: var(--paper);
+  border-radius: var(--r-12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  display: flex; flex-direction: column;
+  z-index: 91;
+  overflow: hidden;
+}
+.bb-form-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  padding: var(--sp-16) var(--sp-20);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-form-modal-title-row {
+  display: flex; align-items: center; gap: var(--sp-10);
+  flex: 1; min-width: 0;
+}
+.bb-form-modal-name {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: var(--fs-20);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-8);
+  padding: var(--sp-4) var(--sp-8);
+}
+.bb-form-modal-name:hover:not(:disabled),
+.bb-form-modal-name:focus { border-color: var(--ink-200); outline: none; }
+.bb-form-modal-name:disabled { color: var(--ink-700); cursor: default; }
+.bb-form-default-badge {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: rgba(232, 79, 42, 0.10);
+  color: var(--accent);
+}
+.bb-form-modal-close {
+  font-size: 18px;
+  background: transparent;
+  border: none;
+  color: var(--ink-500);
+  cursor: pointer;
+  padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--r-8);
+}
+.bb-form-modal-close:hover { background: var(--ink-100); color: var(--ink-900); }
+.bb-form-modal-tabs {
+  display: flex;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-20);
+  border-bottom: 1px solid var(--ink-200);
+}
+.bb-form-modal-tab {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fs-14);
+  color: var(--ink-500);
+  padding: var(--sp-10) var(--sp-14);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.bb-form-modal-tab:hover { color: var(--ink-900); }
+.bb-form-modal-tab-active {
+  color: var(--ink-900);
+  font-weight: 500;
+  border-bottom-color: var(--accent);
+}
+/* Per-form Responses sub-tab "new entries" dot — matches the dot on the
+   Forms list row so the indicator stays consistent across surfaces. */
+.bb-form-modal-tab-newdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  box-shadow: 0 0 0 2px rgba(232, 79, 42, 0.18);
+}
+.bb-form-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-20);
+  min-height: 0;
+}
+.bb-form-modal-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  padding: var(--sp-14) var(--sp-20);
+  border-top: 1px solid var(--ink-200);
+  background: var(--paper-2);
+}
+.bb-form-modal-reset {
+  margin-left: auto;
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+.bb-form-modal-reset:hover { color: var(--accent); }
+
+/* ── Build tab: side-by-side editor + preview ──────────────────────── */
+.bb-form-build-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: var(--sp-20);
+  align-items: start;
+}
+@media (max-width: 880px) {
+  .bb-form-build-grid { grid-template-columns: 1fr; }
+}
+.bb-form-build-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0 0 var(--sp-12);
+}
+.bb-form-build-list {
+  list-style: none;
+  margin: 0 0 var(--sp-12);
+  padding: 0;
+  display: flex; flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-form-build-row {
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  padding: var(--sp-12);
+  background: var(--paper);
+  display: flex; flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-form-build-row-top {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: var(--sp-8);
+}
+.bb-form-build-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  font-size: var(--fs-13);
+  color: var(--ink-500);
+}
+.bb-form-build-required {
+  display: inline-flex; align-items: center; gap: var(--sp-6);
+  cursor: pointer;
+}
+.bb-form-build-remove { margin-left: auto; color: var(--ink-500); }
+.bb-form-build-remove:hover { color: var(--accent); }
+.bb-form-build-options { width: 100%; }
+
+.bb-form-build-preview {
+  background: var(--paper-2);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-10);
+  padding: var(--sp-16);
+}
+
+/* Live form preview (display-only). */
+.bb-form-preview {
+  display: flex; flex-direction: column;
+  gap: var(--sp-10);
+}
+.bb-form-preview-row { display: flex; flex-direction: column; gap: 4px; }
+.bb-form-preview-label {
+  font-size: var(--fs-12);
+  color: var(--ink-700);
+  font-weight: 500;
+}
+.bb-form-preview-choices {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: var(--fs-13);
+  color: var(--ink-700);
+}
+.bb-form-preview-submit { align-self: flex-start; margin-top: var(--sp-6); }
+
+/* ── Embed tab ─────────────────────────────────────────────────────── */
+.bb-form-embed {
+  display: flex; flex-direction: column;
+  gap: var(--sp-20);
+  max-width: 720px;
+}
+.bb-form-embed-section { display: flex; flex-direction: column; gap: var(--sp-8); }
+.bb-form-embed-heading {
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  margin: 0;
+}
+.bb-form-embed-note {
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  font-style: italic;
+}
+.bb-form-codebox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  padding: var(--sp-10) var(--sp-12);
+  background: var(--paper-2);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-8);
+}
+.bb-form-codebox-code {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+  font-size: var(--fs-13);
+  color: var(--ink-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Responses tab ─────────────────────────────────────────────────── */
+.bb-form-responses { display: flex; flex-direction: column; gap: var(--sp-12); }
+.bb-form-responses-toolbar {
+  display: flex; gap: var(--sp-10); align-items: center;
+}
+.bb-form-responses-toolbar .bb-input { flex: 1; }
+/* Horizontal scroll for many-field forms. Without this the table crams
+   every column into the modal width and headers wrap to 3-4 lines each.
+   Each column keeps a readable min-width and you scroll right for the rest. */
+.bb-form-responses-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.bb-form-responses-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-13);
+}
+.bb-form-responses-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: var(--fs-12);
+  color: var(--ink-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--sp-8) var(--sp-10);
+  border-bottom: 1px solid var(--ink-200);
+  /* Single-line headers so a long label widens its column (triggering
+     scroll) instead of wrapping into a tall, cramped stack. */
+  white-space: nowrap;
+}
+.bb-form-responses-table td {
+  padding: var(--sp-10);
+  border-bottom: 1px solid var(--ink-100);
+  color: var(--ink-700);
+  vertical-align: top;
+  /* Keep each value to one tidy line; long answers are already capped at
+     80 chars in valueFor, this bounds the column width visually. */
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bb-form-responses-table tr:hover td { background: var(--paper-2); }
+
+/* Actions cell: "Add to Leads" / "In Leads" tag + Reply. Exempt from the
+   data-cell max-width/clip so the buttons never get cut off. */
+.bb-form-responses-table td.bb-form-responses-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  white-space: nowrap;
+  max-width: none;
+  overflow: visible;
+}
+.bb-form-responses-leadtag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-11);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: rgba(22, 163, 74, 0.10);
+  color: #136a37;
+  white-space: nowrap;
+}
+
+/* Default Pre-chat form Responses tab routes to Leads instead. */
+.bb-form-responses-stub {
+  display: flex; flex-direction: column;
+  gap: var(--sp-10);
+  padding: var(--sp-20);
+  background: var(--paper-2);
+  border-radius: var(--r-10);
+  text-align: center;
+  max-width: 520px;
+  margin: var(--sp-20) auto;
+}
+.bb-form-responses-stub .bb-btn { align-self: center; }
+
+@keyframes bb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ============================================================
+   Pre-chat form OFF — attention card
+   Shown in place of the slim row when the DEFAULT form is off, so
+   enabling lead capture reads as an opportunity, not a buried toggle.
+   ============================================================ */
+.bb-prechat-off {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  align-items: start;
+  gap: var(--sp-24);
+  background: linear-gradient(180deg, #FFFAF6 0%, var(--surface, #fff) 62%);
+  border: 1px solid #F3DACB;
+  border-radius: 16px;
+  padding: var(--sp-16) var(--sp-20);
+  box-shadow: var(--shadow-1), 0 14px 30px -24px rgba(232, 79, 42, 0.4);
+  overflow: hidden;
+}
+.bb-prechat-off::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 5px;
+  background: var(--accent);
+}
+.bb-prechat-off-head {
+  display: flex; align-items: center; gap: var(--sp-12);
+  margin-bottom: var(--sp-10);
+}
+.bb-prechat-off-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.09em;
+  text-transform: uppercase; padding: 5px 11px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-ink);
+}
+.bb-prechat-off-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 4px rgba(232, 79, 42, 0.18);
+}
+.bb-prechat-off-name { font-size: var(--fs-13); font-weight: 600; color: var(--ink-500); }
+.bb-prechat-off-headline {
+  font-family: var(--font-display);
+  font-size: var(--fs-20); font-weight: 600; line-height: 1.2;
+  letter-spacing: -0.01em; color: var(--ink-900); margin: 0 0 var(--sp-8);
+}
+.bb-prechat-off-lede {
+  color: var(--ink-700); font-size: var(--fs-13); line-height: 1.55;
+  max-width: 52ch; margin: 0 0 var(--sp-8);
+}
+.bb-prechat-off-lede strong { color: var(--ink-900); font-weight: 600; }
+/* Two-line breathing room before the buttons */
+.bb-prechat-off-cta { display: flex; align-items: center; gap: var(--sp-16); margin-top: var(--sp-32); }
+
+/* Mini widget preview — the real pre-chat form, resized */
+.bb-prechat-off-preview { align-self: start; }
+.bb-prechat-mini {
+  background: var(--surface, #fff); border: 1px solid var(--line, #E8DDCF);
+  border-radius: 14px; box-shadow: 0 14px 34px -20px rgba(15, 20, 25, 0.4);
+  overflow: hidden;
+}
+.bb-prechat-mini-bar {
+  background: var(--ink-900); color: #fff;
+  font-size: var(--fs-12); font-weight: 600; padding: 8px 11px;
+  display: flex; align-items: center; gap: 7px;
+}
+.bb-prechat-mini-av {
+  width: 15px; height: 15px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #F0905F);
+}
+.bb-prechat-mini-body { padding: 11px; }
+.bb-prechat-mini-formtitle {
+  font-size: var(--fs-13); font-weight: 700; color: var(--ink-900); margin-bottom: 9px;
+}
+.bb-prechat-mini-group { margin-bottom: 8px; }
+.bb-prechat-mini-label {
+  display: block; font-size: var(--fs-11, 0.6875rem); color: var(--ink-500); margin-bottom: 3px;
+}
+.bb-prechat-mini-field {
+  border: 1px solid var(--line, #E8DDCF); border-radius: 7px;
+  padding: 6px 8px; font-size: var(--fs-12); color: var(--ink-400, #9aa3ab); min-height: 11px;
+}
+.bb-prechat-mini-actions {
+  display: flex; align-items: center; gap: 11px; margin-top: 10px;
+}
+.bb-prechat-mini-submit {
+  background: var(--accent); color: #fff;
+  border-radius: 7px; padding: 6px 14px; font-size: var(--fs-12); font-weight: 600;
+}
+.bb-prechat-mini-cancel {
+  font-size: var(--fs-12); color: var(--ink-500); text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .bb-prechat-off { grid-template-columns: 1fr; }
+  .bb-prechat-off-preview { max-width: 320px; }
+}
+
+/* ============================================================
+   Add-a-form tile — single plan-aware create entry point. Replaces
+   the always-on side "Create a form" panel. Click is wired by the
+   parent: room → create modal, at-cap → standard upgrade modal.
+   ============================================================ */
+.bb-add-form-tile {
+  display: flex; align-items: center; gap: var(--sp-16);
+  width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 1.5px dashed #D9C9B6; border-radius: 16px;
+  padding: var(--sp-20) var(--sp-24); margin-top: var(--sp-12);
+  transition: border-color .15s, background .15s, transform .1s;
+}
+.bb-add-form-tile:hover {
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.bb-add-form-tile:active { transform: translateY(1px); }
+.bb-add-form-plus {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px dashed #CDBBA6; color: var(--accent);
+  font-size: var(--fs-24); line-height: 1; font-weight: 400;
+}
+.bb-add-form-tile:hover .bb-add-form-plus { border-color: var(--accent); }
+.bb-add-form-text { display: flex; flex-direction: column; gap: 2px; }
+.bb-add-form-title { font-size: var(--fs-16); font-weight: 600; color: var(--ink-900); }
+.bb-add-form-sub { font-size: var(--fs-13); color: var(--ink-500); }
+
+/* Create-a-form modal (opened by the tile) */
+.bb-create-modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 40px)); max-height: 88vh; overflow: auto;
+  background: var(--surface, #fff); border-radius: 16px;
+  box-shadow: var(--shadow-3); z-index: 1000;
+}
+.bb-create-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--sp-20) var(--sp-24); border-bottom: 1px solid var(--line, #E8DDCF);
+}
+.bb-create-modal-title {
+  font-family: var(--font-display); font-size: var(--fs-20);
+  font-weight: 600; color: var(--ink-900);
+}
+.bb-create-modal-body { padding: var(--sp-24); }
+.bb-textarea-error {
+  border-color: var(--danger, #B23030) !important;
+  box-shadow: 0 0 0 3px var(--danger-soft, #F8DBDB);
+}
+.bb-field-help-error { color: var(--danger, #B23030); }
+.bb-create-modal-foot {
+  display: flex; gap: var(--sp-8); align-items: center;
+  padding: var(--sp-16) var(--sp-24) var(--sp-24);
+}
+
+/* Per-form post-submit message (Build tab, under the fields) */
+.bb-form-success-msg { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
+.bb-form-success-msg span { font-size: 12px; font-weight: 600; color: var(--ink-500, #666); text-transform: uppercase; letter-spacing: 0.4px; }
+.bb-form-success-msg input { border: 1px solid var(--line, #e2e0dc); border-radius: 8px; padding: 9px 12px; font-size: 14px; width: 100%; box-sizing: border-box; }
+
+/* Builder: fixed-field hint, validation list, placeholder input */
+.bb-form-build-placeholder { margin-top: var(--sp-6); }
+.bb-form-build-lock { font-size: var(--fs-12); color: var(--ink-500); margin-right: auto; }
+.bb-form-build-problems {
+  margin: var(--sp-12) 0 0; padding: var(--sp-8) var(--sp-12) var(--sp-8) var(--sp-24);
+  font-size: var(--fs-13); color: var(--danger, #B23030);
+  border: 1px solid currentColor; border-radius: 8px;
+}
+
+/* Responses: muted locked/empty labels and the expandable message */
+.bb-form-responses-muted { color: var(--ink-500); font-size: var(--fs-12); }
+.bb-form-responses-message { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 160px; }
+
+/* Forms tab: the two switches per form and their inline errors */
+.bb-form-row-switches { display: flex; flex-direction: column; gap: var(--sp-6); margin-top: var(--sp-6); }
+.bb-form-row-switch { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-13); }
+.bb-form-row-error { margin: var(--sp-4) 0 0; font-size: var(--fs-12); color: var(--danger, #B23030); }
+
+/* WordPress core gives a disabled checkbox opacity .7, which would show the
+   native box through the switch; keep the input hidden and dim the track. */
+.bb-form-toggle input:disabled { opacity: 0 !important; cursor: not-allowed; }
+.bb-form-toggle input:disabled ~ .bb-form-toggle-track { opacity: 0.55; }

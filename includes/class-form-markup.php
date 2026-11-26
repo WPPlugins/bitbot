@@ -54,6 +54,53 @@ class BitBot_Form_Markup {
         return array_merge( $head, $out );
     }
 
+    /** The field types the widget and the shortcode can render. */
+    const FIELD_TYPES = array( 'text', 'email', 'phone', 'textarea', 'select', 'radio', 'checkbox' );
+
+    /**
+     * Form fields as submitted by the admin screen, reduced to the keys and
+     * shapes a FormFieldSchema row may have: a plain name, text label and
+     * placeholder, a known type, a boolean required, and text options only for
+     * the types that have options. Anything else is dropped.
+     *
+     * @param mixed $fields Decoded JSON from the request.
+     * @return array
+     */
+    public static function sanitize_fields( $fields ) {
+        $out = array();
+        foreach ( (array) $fields as $f ) {
+            if ( ! is_array( $f ) ) {
+                continue;
+            }
+            $name = preg_replace( '/[^A-Za-z0-9_-]/', '', sanitize_text_field( (string) ( $f['name'] ?? '' ) ) );
+            if ( '' === $name ) {
+                continue;
+            }
+            $type = (string) ( $f['type'] ?? 'text' );
+            if ( ! in_array( $type, self::FIELD_TYPES, true ) ) {
+                $type = 'text';
+            }
+            $required = $f['required'] ?? false;
+            $row      = array(
+                'name'     => $name,
+                'label'    => sanitize_text_field( (string) ( $f['label'] ?? $name ) ),
+                'type'     => $type,
+                'required' => true === $required || 1 === $required || '1' === $required || 'true' === $required,
+            );
+            if ( isset( $f['placeholder'] ) && '' !== (string) $f['placeholder'] ) {
+                $row['placeholder'] = sanitize_text_field( (string) $f['placeholder'] );
+            }
+            if ( in_array( $type, array( 'select', 'radio', 'checkbox' ), true ) ) {
+                $opts           = isset( $f['options'] ) && is_array( $f['options'] ) ? $f['options'] : array();
+                $row['options'] = array_values( array_filter( array_map( function ( $o ) {
+                    return sanitize_text_field( (string) $o );
+                }, $opts ), 'strlen' ) );
+            }
+            $out[] = $row;
+        }
+        return $out;
+    }
+
     private static function id_part( $name ) {
         return preg_replace( '/[^A-Za-z0-9_-]/', '_', (string) $name );
     }
@@ -61,6 +108,32 @@ class BitBot_Form_Markup {
     private static function options( $field ) {
         $opts = isset( $field['options'] ) && is_array( $field['options'] ) ? $field['options'] : array();
         return array_values( array_filter( array_map( 'strval', $opts ), function ( $o ) { return '' !== $o; } ) );
+    }
+
+    /**
+     * wp_kses allow-list matching exactly the markup render_field() produces.
+     * Output is already escaped per value; this is the belt-and-braces gate.
+     *
+     * @return array
+     */
+    public static function allowed_html() {
+        $common = array(
+            'id' => true, 'class' => true, 'name' => true, 'placeholder' => true, 'type' => true,
+            'data-field' => true, 'data-field-row' => true, 'data-field-type' => true, 'data-error-id' => true,
+            'aria-required' => true, 'aria-hidden' => true, 'hidden' => true, 'rows' => true, 'value' => true, 'for' => true,
+        );
+        return array(
+            'div'      => $common,
+            'fieldset' => $common,
+            'legend'   => $common,
+            'label'    => $common,
+            'span'     => $common,
+            'p'        => $common,
+            'input'    => $common,
+            'textarea' => $common,
+            'select'   => $common,
+            'option'   => $common,
+        );
     }
 
     /**

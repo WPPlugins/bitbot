@@ -450,6 +450,23 @@
     align-self: flex-end;
 }
 
+/* A passing note about a call (it ended for silence): not a bubble, not part of the conversation.
+   The fade time matches CALL_NOTE_FADE_MS in widget.js. */
+.bitbot-note {
+    align-self: center;
+    max-width: 85%;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: center;
+    color: #6b7280;
+    opacity: 1;
+    transition: opacity 400ms ease;
+}
+.bitbot-note.bitbot-note-leaving { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+    .bitbot-note { transition: none; }
+}
+
 .bitbot-message.bitbot-bot {
     align-self: flex-start;
 }
@@ -482,6 +499,7 @@
 }
 
 .bitbot-user .bitbot-message-content {
+    white-space: pre-wrap; /* the visitor's own line breaks */
     background: var(--bitbot-user-bg);
     color: var(--bitbot-user-text);
     border-bottom-right-radius: 4px;
@@ -857,18 +875,29 @@ textarea.bitbot-chat-gate-input {
 /* Input Area */
 .bitbot-input-area {
     display: flex;
+    align-items: flex-end;
     padding: 12px;
     border-top: 1px solid var(--bitbot-border);
     gap: 8px;
 }
 
+/* A multi-line message box: one line tall until the visitor adds lines, then it grows to --bitbot-input-max and scrolls. */
 .bitbot-input {
+    --bitbot-input-max: 120px;
     flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    min-height: 40px;
+    max-height: var(--bitbot-input-max);
     padding: 10px 14px;
     border: 1px solid var(--bitbot-border);
     border-radius: 20px;
     outline: none;
+    font-family: inherit;
     font-size: 14px;
+    line-height: 18px;
+    resize: none;
+    overflow-y: auto;
     transition: border-color 0.2s;
 }
 

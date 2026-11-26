@@ -33,18 +33,26 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
  * skip its own cleanup and leave its rows behind).
  */
 // List of options to delete
-$options = array(
+// Read before the options are swept: which account is the plugin's own.
+$bitbot_agent_user = null;
+$bitbot_agent_id   = (int) get_option( 'bitbot_agent_user_id', 0 );
+if ( $bitbot_agent_id > 0 && '1' === (string) get_user_meta( $bitbot_agent_id, 'bitbot_agent_account', true ) ) {
+    $bitbot_agent_user = get_user_by( 'id', $bitbot_agent_id );
+}
+
+$bitbot_options = array(
     'bitbot_api_key',
     'bitbot_enabled',
     'bitbot_widget_position',
+    'bitbot_enter_to_send',
     'bitbot_primary_color',
     'bitbot_welcome_message',
     'bitbot_plan_status_cached',
     'bitbot_db_version',
 );
 
-foreach ( $options as $option ) {
-    delete_option( $option );
+foreach ( $bitbot_options as $bitbot_option ) {
+    delete_option( $bitbot_option );
 }
 
 // Transients created by BitBot.
@@ -74,8 +82,47 @@ delete_post_meta_by_key( '_bitbot_keywords' );
 // the owner's site, not our bookkeeping. Removing the plugin is not a
 // request to undo their design.
 global $wpdb;
-$prefix = 'bitbot_tc_';
-$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( $prefix ) . '%' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+$bitbot_prefix = 'bitbot_tc_';
+$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( $bitbot_prefix ) . '%' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+// Every other option and transient the plugin creates carries the bitbot_
+// prefix (settings, consent flags such as bitbot_powered_by,
+// bitbot_analytics_optin and bitbot_connected, the agent role version,
+// transients such as bitbot_menu_badges and bitbot_sync_watch and their
+// timeout rows). Sweep by prefix so nothing is left behind.
+$bitbot_like_patterns = array(
+    $wpdb->esc_like( 'bitbot_' ) . '%',
+    $wpdb->esc_like( '_transient_bitbot_' ) . '%',
+    $wpdb->esc_like( '_transient_timeout_bitbot_' ) . '%',
+    $wpdb->esc_like( '_site_transient_bitbot_' ) . '%',
+    $wpdb->esc_like( '_site_transient_timeout_bitbot_' ) . '%',
+);
+foreach ( $bitbot_like_patterns as $bitbot_like ) {
+    $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $bitbot_like ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+}
+
+// Bookkeeping post meta. The canvas and page CSS meta stay: they belong to
+// pages the owner now owns.
+foreach ( array( '_bitbot_generated', '_bitbot_created', '_bitbot_draft_id', '_bitbot_webp_twin', '_bitbot_webp_source' ) as $bitbot_meta_key ) {
+    delete_post_meta_by_key( $bitbot_meta_key );
+}
+
+// The scoped agent service account and its role. Only the account this plugin
+// created is removed (its remembered id, read above before the option sweep,
+// carrying the ownership marker written at creation). Anything it authored is
+// reassigned to the first administrator, never deleted. If no administrator can
+// take the content, the account is left alone. No other account is touched.
+if ( $bitbot_agent_user ) {
+    $bitbot_admins = get_users( array( 'role' => 'administrator', 'number' => 1, 'orderby' => 'ID', 'order' => 'ASC', 'fields' => 'ID' ) );
+    if ( ! empty( $bitbot_admins ) ) {
+        require_once ABSPATH . 'wp-admin/includes/user.php';
+        wp_delete_user( (int) $bitbot_agent_user->ID, (int) $bitbot_admins[0] );
+    }
+}
+if ( ! get_users( array( 'role' => 'bitbot_agent', 'number' => 1, 'fields' => 'ID' ) ) ) {
+    remove_role( 'bitbot_agent' );
+}
+
 wp_cache_delete( 'notoptions', 'options' );
 wp_cache_delete( 'alloptions', 'options' );
 

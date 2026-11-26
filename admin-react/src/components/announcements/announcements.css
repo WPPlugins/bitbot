@@ -1,0 +1,95 @@
+/* Operator-pushed announcement banners — top of Overview, dismissible.
+   One compact row: image · text (fills) · CTA · dismiss, vertically centered.
+   Hard overflow guards (box-sizing + min-width:0 + overflow:hidden) so a long
+   message wraps inside the card instead of spilling off the edge. */
+.bb-ann-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+  margin-bottom: var(--sp-16);
+}
+
+.bb-ann {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-14);
+  padding: var(--sp-14) var(--sp-16);
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+.bb-ann-info    { border-left-color: var(--accent); }
+.bb-ann-success { border-left-color: oklch(62% 0.15 150); }
+.bb-ann-warn    { border-left-color: oklch(70% 0.16 70); }
+
+.bb-ann-img {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+/* Fills the middle; min-width:0 lets long text wrap rather than overflow. */
+.bb-ann-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bb-ann-title {
+  margin: 0;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.bb-ann-rich {
+  margin-top: 2px;
+  font-size: var(--fs-13);
+  color: var(--ink-600);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.bb-ann-rich p { margin: 0; }
+.bb-ann-rich p + p { margin-top: var(--sp-4); }
+.bb-ann-rich a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.bb-ann-rich img { max-width: 100%; height: auto; border-radius: 6px; margin-top: var(--sp-6); }
+.bb-ann-rich ul, .bb-ann-rich ol { margin: var(--sp-4) 0 0; padding-left: 1.2em; }
+
+/* CTA sits on the right, vertically centered — never under the text. */
+.bb-ann-cta {
+  flex: 0 0 auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.bb-ann-dismiss {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  color: var(--ink-400);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.bb-ann-dismiss:hover { color: var(--ink-700); background: var(--ink-100); }
+
+/* Narrow: let the CTA drop to its own line instead of squeezing the text. */
+@media (max-width: 560px) {
+  .bb-ann { flex-wrap: wrap; }
+  .bb-ann-body { flex: 1 1 60%; }
+  .bb-ann-cta { order: 3; flex: 1 1 100%; }
+  .bb-ann-cta .bb-btn,
+  .bb-ann-cta { text-align: center; }
+}

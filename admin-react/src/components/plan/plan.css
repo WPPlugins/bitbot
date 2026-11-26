@@ -1,0 +1,275 @@
+/* ─────────────────────────────────────────────────────────────────────
+   PlanCard + UsageMeter — the always-visible plan strip across the
+   top of every tab. Dark-ink card on warm paper background; editorial
+   typography (display serif for price + meter values).
+   ───────────────────────────────────────────────────────────────────── */
+
+.bb-plancard {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: var(--sp-32);
+  align-items: center;
+  background: var(--ink-900);
+  color: #fff;
+  border-radius: var(--r-12);
+  padding: var(--sp-24) var(--sp-32);
+  margin-bottom: var(--sp-24);
+  min-height: 140px;
+}
+
+.bb-plancard-skeleton {
+  background: var(--ink-100);
+  min-height: 140px;
+}
+
+/* Faint icon mark in the corner */
+.bb-plancard-monogram {
+  position: absolute;
+  top: var(--sp-12);
+  right: var(--sp-16);
+  opacity: 0.35;
+}
+
+/* Left column */
+.bb-plancard-id {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.bb-plancard-headline {
+  font-family: var(--font-display);
+  font-size: var(--fs-28);
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: #fff;
+}
+.bb-plancard-sub {
+  font-size: var(--fs-14);
+  color: rgba(255, 255, 255, 0.65);
+  max-width: 340px;
+}
+
+/* Middle — meters */
+.bb-plancard-meters {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--sp-24);
+}
+
+.bb-plancard-usage { min-width: 0; }
+.bb-plancard-reset {
+  margin: var(--sp-12) 0 0;
+  font-size: var(--fs-12);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.bb-meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+.bb-meter-label {
+  font-size: var(--fs-12);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+}
+.bb-meter-values {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+.bb-meter-used {
+  font-family: var(--font-display);
+  font-size: var(--fs-24);
+  font-weight: 400;
+  color: #fff;
+  line-height: 1;
+}
+.bb-meter-sep {
+  color: rgba(255, 255, 255, 0.4);
+  font-family: var(--font-display);
+  font-size: var(--fs-16);
+}
+.bb-meter-cap {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--fs-16);
+  color: rgba(255, 255, 255, 0.65);
+}
+.bb-meter-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  margin-top: var(--sp-2);
+}
+.bb-meter-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--t-base) var(--ease);
+}
+.bb-meter-bar-warn   .bb-meter-fill { background: var(--warn); }
+.bb-meter-bar-danger .bb-meter-fill { background: var(--danger); }
+
+/* Locked variant — Free-tier leads. Count is shown but the cap concept
+   doesn't apply (the rows are gated server-side). "Upgrade to view"
+   replaces the "/ ∞" + bar so the meter reads as a teaser, not a fake
+   limit. */
+.bb-meter-locked .bb-meter-values {
+  align-items: baseline;
+  gap: 8px;
+}
+.bb-meter-locked-hint {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--fs-14);
+  color: var(--accent);
+}
+
+/* Right — price + CTA */
+.bb-plancard-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-8);
+  min-width: 180px;
+}
+.bb-plancard-price {
+  font-family: var(--font-display);
+  font-size: var(--fs-32);
+  font-weight: 400;
+  color: #fff;
+  line-height: 1;
+}
+.bb-plancard-price-sub {
+  font-size: var(--fs-13);
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.65);
+  margin-left: 2px;
+}
+.bb-plancard-fineprint {
+  font-size: var(--fs-12);
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+}
+.bb-plancard-secondary {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  font-size: var(--fs-12);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(255, 255, 255, 0.3);
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+.bb-plancard-secondary:hover {
+  color: #fff;
+  text-decoration-color: rgba(255, 255, 255, 0.9);
+}
+.bb-plancard-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.bb-btn-ghost-on-dark {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.bb-btn-ghost-on-dark:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* Responsive: collapse to stacked layout below 1100px */
+@media (max-width: 1100px) {
+  .bb-plancard {
+    grid-template-columns: 1fr;
+    gap: var(--sp-20);
+  }
+  .bb-plancard-cta {
+    align-items: flex-start;
+  }
+}
+@media (max-width: 700px) {
+  .bb-plancard-meters {
+    grid-auto-flow: row;
+    grid-template-columns: 1fr;
+  }
+}
+
+/* (Removed: .bb-trial-banner* — dead since freemium; the 30-day trial-then-pay
+   banner is gone. PlanCard now renders only accessMode/plan/cap states via
+   getPlanCardContent(). No .tsx referenced these classes.) */
+
+/* ── Context-aware PlanCard variants (2.0.127) ────────────────────────
+   PlanCard appears on every tab. Its content + layout are computed by
+   getPlanCardContent() based on (tab × sub × plan × usage × subscription).
+
+   Two layout shapes:
+     - default (meters): 3-col grid, Overview only
+     - .bb-plancard-message: 2-col grid (id | cta), every other tab
+
+   Tone classes adjust subtle left-edge cue so warn/critical states
+   read differently without breaking the ink-black surface. */
+.bb-plancard-message {
+  grid-template-columns: 1fr auto;
+  min-height: 96px;
+}
+.bb-plancard-message .bb-plancard-sub {
+  max-width: 60ch;
+}
+
+/* Tone — subtle left accent stripe; ink stays black so it doesn't
+   compete with the rest of the dashboard. */
+.bb-plancard-free     { box-shadow: inset 3px 0 0 0 var(--ink-700); }
+.bb-plancard-assistant { background: var(--assistant-bg); box-shadow: inset 3px 0 0 0 var(--assistant-fg); }
+.bb-plancard-agent { background: var(--agent-bg); box-shadow: inset 3px 0 0 0 var(--agent-fg); }
+.bb-plancard-warn     { box-shadow: inset 3px 0 0 0 var(--accent); }
+/* Critical = the bot is paused (cap hit). Must read as "stop, act now" at a
+   glance — distinct from the brand-orange "warn". Red left bar + a full red
+   ring + a soft red glow lift it off the page; the other tones use a quiet
+   3px stripe, so this is unmistakably different. */
+.bb-plancard-critical {
+  box-shadow:
+    inset 6px 0 0 0 #ef4444,
+    0 0 0 1px rgba(239, 68, 68, 0.55),
+    0 10px 34px rgba(239, 68, 68, 0.18);
+  background: linear-gradient(135deg, #2a0f0c 0%, #3d1411 100%);
+}
+.bb-plancard-critical .bb-plancard-headline { color: #fff; }
+
+/* Tier badges by kind. */
+.bb-tier-badge {
+  display: inline-block;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  width: fit-content;
+}
+.bb-tier-badge-free      { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.80); }
+.bb-tier-badge-assistant { background: rgba(255,255,255,0.10); color: var(--assistant-fg); }
+.bb-tier-badge-agent     { background: var(--agent-soft); color: var(--agent-fg); }
+.bb-tier-badge-warn      { background: rgba(232,79,42,0.18);   color: #fca5a5; }
+.bb-tier-badge-expired   { background: rgba(232,79,42,0.28);   color: #fff; }
+/* Solid red so "Bot paused" reads as a hard status, not a soft tag. */
+.bb-tier-badge-critical  { background: #ef4444;                color: #fff; }
+
+@media (max-width: 1100px) {
+  .bb-plancard-message {
+    grid-template-columns: 1fr;
+  }
+}
